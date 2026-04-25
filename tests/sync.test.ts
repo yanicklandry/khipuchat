@@ -1,0 +1,356 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import type { TelegramClient } from 'telegram'
+import { config, saveSessionString } from '../src/config'
+import { runAuthWizard, runBackfill, startListener, type PromptFn } from '../src/sync'
+import { initDb, upsertChat, getChats, getMessages } from '../src/db'
+
+const T = 1700000000
+
+// ── Helpers — env files ───────────────────────────────────────────────────────
+
+function tempEnvFile(content: string = ''): string {
+  const p = join(tmpdir(), `test-env-${Date.now()}.env`)
+  writeFileSync(p, content, 'utf8')
+  return p
+}
+
+// ── Helpers — GramJS-shaped mock objects ──────────────────────────────────────
+
+interface MockPeer {
+  className: 'PeerUser'
+  userId: bigint
+}
+
+interface MockMessage {
+  className: 'Message'
+  id: number
+  message: string
+  date: number
+  fromId: MockPeer
+  peerId: MockPeer
+  media: undefined
+  replyTo: undefined
+  out: boolean
+}
+
+interface MockUserEntity {
+  className: 'User'
+  id: bigint
+  firstName: string
+  lastName: string | null
+  username: string | null
+  bot: boolean
+}
+
+interface MockChannelEntity {
+  className: 'Channel'
+  id: bigint
+  title: string
+  username: string | null
+  broadcast: boolean
+}
+
+function makeMsg(
+  id: number,
+  text: string,
+  date: number,
+  peerId = 1,
+  fromId = 999,
+  out = false,
+): MockMessage {
+  return {
+    className: 'Message',
+    id,
+    message: text,
+    date,
+    fromId: { className: 'PeerUser', userId: BigInt(fromId) },
+    peerId: { className: 'PeerUser', userId: BigInt(peerId) },
+    media: undefined,
+    replyTo: undefined,
+    out,
+  }
+}
+
+function makeUserEntity(
+  id: number,
+  firstName: string,
+  username: string | null = null,
+): MockUserEntity {
+  return { className: 'User', id: BigInt(id), firstName, lastName: null, username, bot: false }
+}
+
+function makeChannelEntity(id: number, title: string, broadcast: boolean): MockChannelEntity {
+  return { className: 'Channel', id: BigInt(id), title, username: null, broadcast }
+}
+
+function makeMockClient(sessionString = 'saved-session-xyz') {
+  return {
+    connect: vi.fn().mockResolvedValue(undefined),
+    start: vi.fn().mockResolvedValue(undefined),
+    session: { save: vi.fn().mockReturnValue(sessionString) } as unknown as TelegramClient['session'],
+    disconnect: vi.fn().mockResolvedValue(undefined),
+    getDialogs: vi.fn().mockResolvedValue([]),
+    getMessages: vi.fn().mockResolvedValue([]),
+    addEventHandler: vi.fn(),
+  }
+}
+
+// ── saveSessionString ─────────────────────────────────────────────────────────
+
+describe('saveSessionString', () => {
+  let envPath: string
+
+  afterEach(() => {
+    if (existsSync(envPath)) unlinkSync(envPath)
+  })
+
+  it('replaces existing SESSION_STRING= line', () => {
+    envPath = tempEnvFile('API_ID=123\nSESSION_STRING=old\nAPI_HASH=abc\n')
+    saveSessionString('new-session', envPath)
+    const result = readFileSync(envPath, 'utf8')
+    expect(result).toContain('SESSION_STRING=new-session')
+    expect(result).not.toContain('SESSION_STRING=old')
+    expect(result).toContain('API_ID=123')
+    expect(result).toContain('API_HASH=abc')
+  })
+
+  it('appends SESSION_STRING when the key is absent', () => {
+    envPath = tempEnvFile('API_ID=123\nAPI_HASH=abc\n')
+    saveSessionString('brand-new', envPath)
+    const result = readFileSync(envPath, 'utf8')
+    expect(result).toContain('SESSION_STRING=brand-new')
+    expect(result).toContain('API_ID=123')
+  })
+
+  it('works on an empty .env file', () => {
+    envPath = tempEnvFile('')
+    saveSessionString('fresh', envPath)
+    const result = readFileSync(envPath, 'utf8')
+    expect(result).toContain('SESSION_STRING=fresh')
+  })
+
+  it('updates config.sessionString in memory', () => {
+    envPath = tempEnvFile('SESSION_STRING=\n')
+    saveSessionString('mem-session', envPath)
+    expect(config.sessionString).toBe('mem-session')
+  })
+})
+
+// ── Config loading ────────────────────────────────────────────────────────────
+
+describe('config', () => {
+  it('exposes apiId as a number', () => {
+    expect(typeof config.apiId).toBe('number')
+    expect(Number.isFinite(config.apiId)).toBe(true)
+  })
+
+  it('exposes apiHash as a non-empty string', () => {
+    expect(typeof config.apiHash).toBe('string')
+    expect(config.apiHash.length).toBeGreaterThan(0)
+  })
+
+  it('exposes phoneNumber as a non-empty string', () => {
+    expect(typeof config.phoneNumber).toBe('string')
+    expect(config.phoneNumber.length).toBeGreaterThan(0)
+  })
+
+  it('exposes sessionString as a string (possibly empty)', () => {
+    expect(typeof config.sessionString).toBe('string')
+  })
+})
+
+// ── runAuthWizard ─────────────────────────────────────────────────────────────
+
+describe('runAuthWizard', () => {
+  let envPath: string
+
+  beforeEach(() => {
+    envPath = tempEnvFile('SESSION_STRING=\n')
+  })
+
+  afterEach(() => {
+    if (existsSync(envPath)) unlinkSync(envPath)
+  })
+
+  it('calls client.start() when sessionString is empty', async () => {
+    const client = makeMockClient()
+    const promptFn: PromptFn = vi.fn().mockResolvedValue('12345')
+
+    await runAuthWizard(client as unknown as TelegramClient, promptFn, { sessionString: '' }, envPath)
+
+    expect(client.start).toHaveBeenCalledOnce()
+  })
+
+  it('writes the session string to .env after successful auth', async () => {
+    const client = makeMockClient('fresh-session-abc')
+    const promptFn: PromptFn = vi.fn().mockResolvedValue('12345')
+
+    await runAuthWizard(client as unknown as TelegramClient, promptFn, { sessionString: '' }, envPath)
+
+    const result = readFileSync(envPath, 'utf8')
+    expect(result).toContain('SESSION_STRING=fresh-session-abc')
+  })
+
+  it('calls client.connect() and skips start() when sessionString exists', async () => {
+    const client = makeMockClient()
+    const promptFn: PromptFn = vi.fn()
+
+    await runAuthWizard(
+      client as unknown as TelegramClient,
+      promptFn,
+      { sessionString: 'existing-session' },
+      envPath,
+    )
+
+    expect(client.connect).toHaveBeenCalledOnce()
+    expect(client.start).not.toHaveBeenCalled()
+    expect(promptFn).not.toHaveBeenCalled()
+  })
+})
+
+// ── runBackfill ───────────────────────────────────────────────────────────────
+
+describe('runBackfill', () => {
+  beforeEach(() => {
+    initDb(':memory:')
+  })
+
+  it('upserts chat and inserts messages for a User dialog', async () => {
+    const entity = makeUserEntity(1, 'Tony Lin', 'tonylin1115')
+    const msgs = [makeMsg(1, 'hi', T + 1), makeMsg(2, 'hey', T + 2)]
+    const client = makeMockClient()
+    client.getDialogs.mockResolvedValue([{ entity }])
+    client.getMessages
+      .mockResolvedValueOnce(msgs)
+      .mockResolvedValue([])
+    const sleep = vi.fn().mockResolvedValue(undefined)
+
+    await runBackfill(client as unknown as TelegramClient, sleep, 20)
+
+    expect(getChats()).toHaveLength(1)
+    expect(getChats()[0].name).toBe('Tony Lin')
+    expect(getMessages(1, 10)).toHaveLength(2)
+  })
+
+  it('paginates until a page is smaller than pageSize', async () => {
+    const entity = makeUserEntity(1, 'Tony Lin')
+    // 50 messages total; pageSize=20 → 3 fetches: 20, 20, 10
+    const batch = (start: number, count: number) =>
+      Array.from({ length: count }, (_, i) => makeMsg(start + i, `msg ${start + i}`, T + start + i))
+
+    const client = makeMockClient()
+    client.getDialogs.mockResolvedValue([{ entity }])
+    client.getMessages
+      .mockResolvedValueOnce(batch(1, 20))
+      .mockResolvedValueOnce(batch(21, 20))
+      .mockResolvedValueOnce(batch(41, 10))
+    const sleep = vi.fn().mockResolvedValue(undefined)
+
+    await runBackfill(client as unknown as TelegramClient, sleep, 20)
+
+    expect(getMessages(1, 100)).toHaveLength(50)
+    expect(client.getMessages).toHaveBeenCalledTimes(3)
+  })
+
+  it('resumes from getLastSyncedId — passes correct offsetId on first fetch', async () => {
+    const entity = makeUserEntity(1, 'Tony Lin')
+    // pre-seed 3 messages so getLastSyncedId(1) returns '3'
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null })
+    for (let i = 1; i <= 3; i++) {
+      const { insertMessage } = await import('../src/db')
+      insertMessage({
+        telegram_id: String(i), chat_id: 1, sender_id: null, sender_name: 'Tony',
+        text: `old ${i}`, type: 'text', timestamp: T + i, is_sender: 0, reply_to_telegram_id: null,
+      })
+    }
+
+    const client = makeMockClient()
+    client.getDialogs.mockResolvedValue([{ entity }])
+    // Only new messages after the resume point
+    client.getMessages
+      .mockResolvedValueOnce([makeMsg(4, 'new', T + 4), makeMsg(5, 'newer', T + 5)])
+      .mockResolvedValue([])
+    const sleep = vi.fn().mockResolvedValue(undefined)
+
+    await runBackfill(client as unknown as TelegramClient, sleep, 20)
+
+    // First getMessages call must use offsetId=3
+    const [, opts] = client.getMessages.mock.calls[0] as [unknown, { offsetId: number }]
+    expect(opts.offsetId).toBe(3)
+    // Total = 3 pre-seeded + 2 new
+    expect(getMessages(1, 10)).toHaveLength(5)
+  })
+
+  it('skips Channel entities with broadcast=true', async () => {
+    const user = makeUserEntity(1, 'Tony Lin')
+    const channel = makeChannelEntity(2, 'News Channel', true)
+
+    const client = makeMockClient()
+    client.getDialogs.mockResolvedValue([{ entity: user }, { entity: channel }])
+    client.getMessages.mockResolvedValue([])
+    const sleep = vi.fn().mockResolvedValue(undefined)
+
+    await runBackfill(client as unknown as TelegramClient, sleep, 20)
+
+    expect(getChats()).toHaveLength(1)
+    expect(getChats()[0].name).toBe('Tony Lin')
+  })
+
+  it('calls sleep between dialogs but not after the last one', async () => {
+    const e1 = makeUserEntity(1, 'Alice')
+    const e2 = makeUserEntity(2, 'Bob')
+
+    const client = makeMockClient()
+    client.getDialogs.mockResolvedValue([{ entity: e1 }, { entity: e2 }])
+    client.getMessages.mockResolvedValue([])
+    const sleep = vi.fn().mockResolvedValue(undefined)
+
+    await runBackfill(client as unknown as TelegramClient, sleep, 20)
+
+    expect(sleep).toHaveBeenCalledTimes(1)
+    expect(sleep).toHaveBeenCalledWith(1000)
+  })
+})
+
+// ── startListener ─────────────────────────────────────────────────────────────
+
+describe('startListener', () => {
+  beforeEach(() => {
+    initDb(':memory:')
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null })
+  })
+
+  it('registers exactly one event handler on the client', () => {
+    const client = makeMockClient()
+    startListener(client as unknown as TelegramClient)
+    expect(client.addEventHandler).toHaveBeenCalledOnce()
+  })
+
+  it('inserts a new message into the DB when the handler fires', async () => {
+    const client = makeMockClient()
+    startListener(client as unknown as TelegramClient)
+
+    const handler = client.addEventHandler.mock.calls[0][0] as (e: { message: MockMessage }) => Promise<void>
+    await handler({ message: makeMsg(42, 'live message', T + 100, 1, 999, false) })
+
+    const msgs = getMessages(1, 10)
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].text).toBe('live message')
+    expect(msgs[0].telegram_id).toBe('42')
+  })
+
+  it('logs the chat id when a new message arrives', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const client = makeMockClient()
+    startListener(client as unknown as TelegramClient)
+
+    const handler = client.addEventHandler.mock.calls[0][0] as (e: { message: MockMessage }) => Promise<void>
+    await handler({ message: makeMsg(1, 'hello', T + 1, 1, 999, false) })
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('1'))
+    consoleSpy.mockRestore()
+  })
+})
