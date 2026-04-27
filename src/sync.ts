@@ -2,7 +2,7 @@ import { TelegramClient } from 'telegram'
 import { StringSession } from 'telegram/sessions'
 import { NewMessage } from 'telegram/events'
 import { config, saveSessionString, type Config } from './config'
-import { upsertChat, insertMessage, getLastSyncedId, type Chat, type Message, type MessageType } from './db'
+import { initDb, upsertChat, insertMessage, getLastSyncedId, type Chat, type Message, type MessageType } from './db'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -183,6 +183,7 @@ async function main(): Promise<void> {
   const client = new TelegramClient(session, config.apiId, config.apiHash, { connectionRetries: 5 })
   try {
     await runAuthWizard(client, promptFn)
+    initDb('./telegram.db')
     await runBackfill(client)
     startListener(client)
     console.log('Listening for new messages…')
