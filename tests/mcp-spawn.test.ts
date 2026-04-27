@@ -108,7 +108,7 @@ describe('MCP server (spawned as Claude Desktop)', () => {
       jsonrpc: '2.0',
       id: 1,
       result: {
-        serverInfo: { name: 'telegram-bridge' },
+        serverInfo: { name: 'khipuchat' },
         protocolVersion: '2024-11-05',
       },
     })

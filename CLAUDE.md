@@ -1,4 +1,4 @@
-# telegram-bridge
+# KhipuChat
 
 ## What this is
 Self-hosted Telegram sync daemon + MCP server. Replaces Beeper.

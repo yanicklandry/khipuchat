@@ -1,4 +1,4 @@
-# telegram-bridge
+# KhipuChat
 
 Self-hosted Telegram sync daemon + MCP server. Gives Claude Desktop full access to your Telegram message history.
 
@@ -61,7 +61,7 @@ This verifies the server starts correctly, then writes the config entry automati
 
 Ask Claude:
 
-> "Use telegram-bridge to find my chat with Tony Lin and show me the last 20 messages"
+> "Use KhipuChat to find my chat with Tony Lin and show me the last 20 messages"
 
 ## Keeping sync running (recommended)
 
@@ -69,14 +69,14 @@ Use pm2 so the sync daemon survives reboots and restarts automatically on crash:
 
 ```bash
 npm install -g pm2
-pm2 start "npm run sync" --name telegram-bridge
+pm2 start "npm run sync" --name KhipuChat
 pm2 save
 pm2 startup   # auto-start on login — follow the printed command
 ```
 
 ```bash
 pm2 status
-pm2 logs telegram-bridge
+pm2 logs KhipuChat
 ```
 
 ## Daily workflow
@@ -87,7 +87,7 @@ If you run `npm run setup-claude` again (e.g. after a Node upgrade), restart Cla
 
 ## Using with Claude
 
-- *"Use telegram-bridge to find my chat with Tony Lin and show me the last 20 messages"*
+- *"Use KhipuChat to find my chat with Tony Lin and show me the last 20 messages"*
 - *"Search my Telegram messages for 'flight booking'"*
 - *"Give me a summary of my conversation with Tony Lin"*
 

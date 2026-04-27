@@ -24,7 +24,7 @@ export function isClaudeConfigured(): boolean {
     const raw = fs.readFileSync(CLAUDE_CONFIG_PATH, 'utf8')
     const cfg = JSON.parse(raw) as Record<string, unknown>
     const servers = cfg['mcpServers'] as Record<string, unknown> | undefined
-    return servers !== undefined && 'telegram-bridge' in servers
+    return servers !== undefined && 'khipuchat' in servers
   } catch {
     return false
   }
@@ -91,19 +91,26 @@ async function setupClaude(): Promise<void> {
   }
 
   const servers = (cfg['mcpServers'] ?? {}) as Record<string, unknown>
-  const alreadyExists = 'telegram-bridge' in servers
+  const alreadyExists = 'khipuchat' in servers
 
-  servers['telegram-bridge'] = MCP_ENTRY
+  servers['khipuchat'] = MCP_ENTRY
   cfg['mcpServers'] = servers
 
   fs.writeFileSync(CLAUDE_CONFIG_PATH, JSON.stringify(cfg, null, 2) + '\n', 'utf8')
 
-  console.log(alreadyExists ? '\ntelegram-bridge config updated.' : '\nDone! telegram-bridge added to Claude Desktop.')
+  // Clean up old telegram-bridge key if present
+  if ('telegram-bridge' in servers) {
+    delete servers['telegram-bridge']
+    cfg['mcpServers'] = servers
+    fs.writeFileSync(CLAUDE_CONFIG_PATH, JSON.stringify(cfg, null, 2) + '\n', 'utf8')
+  }
+
+  console.log(alreadyExists ? '\nKhipuChat config updated.' : '\nDone! KhipuChat added to Claude Desktop.')
   console.log(`Config: ${CLAUDE_CONFIG_PATH}`)
   console.log(`Node:   ${process.execPath}`)
   console.log('')
   console.log('Restart Claude Desktop, then ask:')
-  console.log('  "Use telegram-bridge to find chat Tony Lin and show me the last 20 messages"')
+  console.log('  "Use khipuchat to find my chat with Tony Lin and show me the last 20 messages"')
 }
 
 if (require.main === module) {

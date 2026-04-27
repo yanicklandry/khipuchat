@@ -107,7 +107,7 @@ export function handleGetChatSummary(chatId: number): SummaryResult {
 
 export function createMcpServer(): Server {
   const server = new Server(
-    { name: 'telegram-bridge', version: '1.0.0' },
+    { name: 'khipuchat', version: '1.0.0' },
     { capabilities: { tools: {} } },
   )
 
