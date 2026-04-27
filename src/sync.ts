@@ -2,7 +2,7 @@ import { TelegramClient } from 'telegram'
 import { StringSession } from 'telegram/sessions'
 import { NewMessage } from 'telegram/events'
 import { config, saveSessionString, type Config } from './config'
-import { initDb, upsertChat, insertMessage, getLastSyncedId, type Chat, type Message, type MessageType } from './db'
+import { initDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, type Chat, type Message, type MessageType } from './db'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -126,6 +126,9 @@ export async function runBackfill(
   pageSize = 100,
 ): Promise<void> {
   const dialogs = await client.getDialogs({ limit: 500 }) as Array<{ entity: EntityLike }>
+  const chats = dialogs.map(d => entityToChat(d.entity)).filter((c): c is Chat => c !== null)
+  console.log(`Checking ${chats.length} dialogs for new messages…`)
+  let totalSynced = 0
 
   for (let i = 0; i < dialogs.length; i++) {
     const chat = entityToChat(dialogs[i].entity)
@@ -153,9 +156,12 @@ export async function runBackfill(
       offsetId = msgs[msgs.length - 1].id
     }
 
-    console.log(`[${chat.name}] synced ${synced} messages`)
+    setLastSyncedAt(chat.id, Math.floor(Date.now() / 1000))
+    if (synced > 0) console.log(`  [${chat.name}] +${synced} messages`)
+    totalSynced += synced
     if (i < dialogs.length - 1) await sleep(1000)
   }
+  console.log(`Backfill complete. ${totalSynced} new messages stored.`)
 }
 
 // ── Real-time listener ────────────────────────────────────────────────────────

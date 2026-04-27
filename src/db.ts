@@ -183,6 +183,10 @@ export function searchMessages(query: string, chatId?: number): SearchResult[] {
   `).all(query) as SearchResult[]
 }
 
+export function setLastSyncedAt(chatId: number, timestamp: number): void {
+  db().prepare(`UPDATE chats SET last_synced_at = ? WHERE id = ?`).run(timestamp, chatId)
+}
+
 export function getDb(): Database.Database {
   return db()
 }

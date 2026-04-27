@@ -2,6 +2,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { getDb, searchMessages, initDb } from './db'
+import { isClaudeConfigured } from './setup-claude'
 
 // ── Result types ──────────────────────────────────────────────────────────────
 
@@ -137,10 +138,27 @@ export function createMcpServer(): Server {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  initDb('./telegram.db')
+  const dbPath = require('path').join(__dirname, '..', 'telegram.db')
+  initDb(dbPath)
   const server = createMcpServer()
   const transport = new StdioServerTransport()
   await server.connect(transport)
+
+  if (isClaudeConfigured()) {
+    process.stderr.write([
+      '',
+      '  telegram-bridge MCP server running.',
+      '  Ask Claude: "Use telegram-bridge to find chat Tony Lin and show me the last 20 messages"',
+      '',
+    ].join('\n'))
+  } else {
+    process.stderr.write([
+      '',
+      '  telegram-bridge MCP server running, but Claude Desktop is not configured yet.',
+      '  Run: npm run setup-claude',
+      '',
+    ].join('\n'))
+  }
 }
 
 if (require.main === module) {
