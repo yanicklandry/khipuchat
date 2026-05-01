@@ -41,7 +41,7 @@ This will:
 3. Download all message history from your DMs and groups
 4. Stay running and listen for new messages in real time
 
-Keep this terminal open, or switch to pm2 (see below).
+This is a one-time step. After auth completes, keep the process running or use `npm run setup-sync` (see below).
 
 ### 2. Configure Claude Desktop
 
@@ -63,27 +63,27 @@ Ask Claude:
 
 > "Use KhipuChat to find my chat with Tony Lin and show me the last 20 messages"
 
-## Keeping sync running (recommended)
-
-Use pm2 so the sync daemon survives reboots and restarts automatically on crash:
+### 3. Install the sync daemon (macOS)
 
 ```bash
-npm install -g pm2
-pm2 start "npm run sync" --name KhipuChat
-pm2 save
-pm2 startup   # auto-start on login — follow the printed command
+npm run setup-sync
 ```
 
+This writes a launchd plist to `~/Library/LaunchAgents/`, starts the daemon immediately, and configures it to start automatically at login. Run it again any time you upgrade Node — it regenerates the plist with the current binary path.
+
 ```bash
-pm2 status
-pm2 logs KhipuChat
+# Check it's running
+launchctl list | grep khipuchat
+
+# Watch logs
+tail -f ~/Library/Logs/khipuchat-sync.log
 ```
 
 ## Daily workflow
 
-Nothing to do — just make sure `npm run sync` (or pm2) is running. Claude Desktop handles the rest.
+Nothing to do — the sync daemon runs in the background and starts at login. Claude Desktop handles the rest.
 
-If you run `npm run setup-claude` again (e.g. after a Node upgrade), restart Claude Desktop afterwards.
+If you run `npm run setup-claude` or `npm run setup-sync` again (e.g. after a Node upgrade), restart Claude Desktop afterwards.
 
 ## Using with Claude
 

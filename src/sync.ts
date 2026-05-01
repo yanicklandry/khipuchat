@@ -182,20 +182,28 @@ export function startListener(client: TelegramClient): void {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const readline = await import('readline')
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-  const promptFn: PromptFn = (q) => new Promise((resolve) => rl.question(q, resolve))
   const session = new StringSession(config.sessionString)
   const client = new TelegramClient(session, config.apiId, config.apiHash, { connectionRetries: 5 })
-  try {
-    await runAuthWizard(client, promptFn)
-    initDb('./telegram.db')
-    await runBackfill(client)
-    startListener(client)
-    console.log('Listening for new messages…')
-  } finally {
-    rl.close()
+
+  if (!config.sessionString) {
+    // Auth wizard only needed on first run
+    const readline = await import('readline')
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+    const promptFn: PromptFn = (q) => new Promise((resolve) => rl.question(q, resolve))
+    try {
+      await runAuthWizard(client, promptFn)
+    } finally {
+      rl.close()
+    }
+  } else {
+    await client.connect()
   }
+
+  initDb('./telegram.db')
+  await runBackfill(client)
+  startListener(client)
+  console.log('Listening for new messages…')
+  await new Promise(() => {}) // keep process alive for real-time listener
 }
 
 if (require.main === module) {
