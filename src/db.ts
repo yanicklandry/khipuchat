@@ -52,6 +52,8 @@ export function initDb(path: string): Database.Database {
   _db.pragma('journal_mode = WAL')
   _db.pragma('foreign_keys = ON')
   createSchema(_db)
+  // Rebuild FTS index in case messages were inserted before the FTS table existed
+  _db.exec("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')")
   return _db
 }
 
@@ -185,6 +187,10 @@ export function searchMessages(query: string, chatId?: number): SearchResult[] {
 
 export function setLastSyncedAt(chatId: number, timestamp: number): void {
   db().prepare(`UPDATE chats SET last_synced_at = ? WHERE id = ?`).run(timestamp, chatId)
+}
+
+export function rebuildFtsIndex(): void {
+  db().exec("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')")
 }
 
 export function getDb(): Database.Database {

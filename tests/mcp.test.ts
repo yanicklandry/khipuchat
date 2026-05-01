@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { initDb, upsertChat, insertMessage } from '../src/db'
+import { initDb, upsertChat, insertMessage, getDb, rebuildFtsIndex } from '../src/db'
 import {
   handleFindChatByName,
   handleListMessages,
@@ -122,6 +122,50 @@ describe('handleListMessages', () => {
     expect(msgs.map(m => m.text)).toEqual(['hello there', 'how are you'])
   })
 
+  it('returns the N most recent messages before timestamp (not oldest N) when more than N exist', () => {
+    // Insert 10 text messages at T+10, T+20, ..., T+100 in a new chat
+    upsertChat({ id: 3, name: 'Big Chat', type: 'group', username: null })
+    for (let i = 1; i <= 10; i++) {
+      insertMessage({
+        telegram_id: String(200 + i),
+        chat_id: 3,
+        sender_id: '1',
+        sender_name: 'Alice',
+        text: `message ${i}`,
+        type: 'text',
+        timestamp: T + i * 10,
+        is_sender: 0,
+        reply_to_telegram_id: null,
+      })
+    }
+    // limit=3, before T+100 → should return the 3 most recent: T+70, T+80, T+90
+    const msgs = handleListMessages(3, 3, T + 100)
+    expect(msgs).toHaveLength(3)
+    expect(msgs.map(m => m.timestamp)).toEqual([T + 70, T + 80, T + 90])
+  })
+
+  it('returns results in chronological order (ASC) even when paginating backwards', () => {
+    upsertChat({ id: 4, name: 'Ordered Chat', type: 'group', username: null })
+    for (let i = 1; i <= 5; i++) {
+      insertMessage({
+        telegram_id: String(300 + i),
+        chat_id: 4,
+        sender_id: '1',
+        sender_name: 'Bob',
+        text: `msg ${i}`,
+        type: 'text',
+        timestamp: T + i * 100,
+        is_sender: 0,
+        reply_to_telegram_id: null,
+      })
+    }
+    // before T+500, limit=3 → messages at T+200, T+300, T+400 in ASC order
+    const msgs = handleListMessages(4, 3, T + 500)
+    const timestamps = msgs.map(m => m.timestamp)
+    expect(timestamps).toEqual([...timestamps].sort((a, b) => a - b))
+    expect(timestamps[timestamps.length - 1]).toBeLessThan(T + 500)
+  })
+
   it('result shape includes id, sender_name, text, type, timestamp, is_sender', () => {
     const [r] = handleListMessages(1, 1)
     expect(r).toMatchObject({
@@ -148,6 +192,17 @@ describe('handleSearchMessages', () => {
     const results = handleSearchMessages('hello', 1)
     expect(results).toHaveLength(1)
     expect(results[0].chat_id).toBe(1)
+  })
+
+  it('finds messages inserted before FTS trigger existed (rebuildFtsIndex restores search)', () => {
+    // Simulate the production scenario: messages exist but were never indexed
+    // because they pre-date the FTS table/trigger. Clear the index to reproduce.
+    getDb().exec("DELETE FROM messages_fts")
+    expect(handleSearchMessages('meeting')).toHaveLength(0)
+
+    // Rebuilding the index from the content table should make them searchable again
+    rebuildFtsIndex()
+    expect(handleSearchMessages('meeting')).toHaveLength(1)
   })
 
   it('returns empty array when query matches nothing', () => {

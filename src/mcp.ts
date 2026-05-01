@@ -55,13 +55,16 @@ export function handleListMessages(
 ): MessageResult[] {
   const cap = Math.min(limit, 200)
   if (beforeTimestamp !== undefined) {
+    // Select the N most recent before the timestamp, then re-sort chronologically
     return getDb().prepare(`
-      SELECT id, sender_name, text, type, timestamp, is_sender
-      FROM messages
-      WHERE chat_id = ? AND type = 'text' AND text IS NOT NULL AND text != ''
-        AND timestamp < ?
-      ORDER BY timestamp ASC
-      LIMIT ?
+      SELECT id, sender_name, text, type, timestamp, is_sender FROM (
+        SELECT id, sender_name, text, type, timestamp, is_sender
+        FROM messages
+        WHERE chat_id = ? AND type = 'text' AND text IS NOT NULL AND text != ''
+          AND timestamp < ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+      ) ORDER BY timestamp ASC
     `).all(chatId, beforeTimestamp, cap) as MessageResult[]
   }
   return getDb().prepare(`
