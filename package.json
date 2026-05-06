@@ -17,7 +17,8 @@
     "setup-sync": "tsx src/setup-sync.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "web": "tsx src/web/server.ts"
+    "web": "tsx src/web/server.ts",
+    "setup:wechat": "bash scripts/setup-wechat.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
