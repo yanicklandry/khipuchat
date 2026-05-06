@@ -1,32 +1,40 @@
 # Roadmap
 
 ## Overview
-KhipuChat is a self-hosted multi-platform message archive with an MCP server. Phase 1 (Telegram sync + MCP) is complete. This roadmap tracks the platform generalization work that prepares the codebase for all future platform integrations.
+KhipuChat is a self-hosted multi-platform message archive with an MCP server and web UI. Goal: sync all your conversations locally, query them with Claude, search them in a browser. Your messages never leave your machine.
 
-The core idea: make every record in the DB self-describing (platform field on both chats and messages), reorganize source into per-platform modules, and deliver iMessage sync as the first second-platform proof.
+Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction) are complete. This roadmap tracks the remaining phases: web UI, additional platform integrations, security hardening, and release.
 
 ## Approach Decision
-- **Chosen**: Approach B — `platform` field on both `chats` and `messages` tables, typed union, shared Platform adapter interface
-- **Why**: Self-describing rows mean no joins needed for platform-aware MCP queries. Every planned future platform (Discord, Slack, WhatsApp) slots in cleanly. Minimal over-engineering.
+- **Chosen**: Vertical slices — each phase delivers independently useful functionality on top of the shared platform-abstraction foundation
+- **Why**: Every phase ships something usable. No phase depends on a future phase. Platform adapters follow the established PlatformAdapter interface.
 - **Rejected alternatives**:
-  - Approach A (platform on chats only): messages not self-describing, join required for platform filtering
-  - Approach C (separate sync-state tables per platform): more tables and complexity with no query benefit given existing `last_synced_at` generic field
+  - Big-bang all platforms at once: too risky, no intermediate value
+  - Web UI last: users can't browse messages until very late
 
 ## Scope
-- **In**: DB schema generalization, source reorganization into `src/platforms/`, rename Telegram-specific identifiers, MCP tool updates, iMessage sync implementation
-- **Out**: Discord/Slack/WhatsApp sync (future phases), Web UI, sending messages, media download
+- **In**: Web UI, WeChat/Discord/Email/Slack/WhatsApp sync, security hardening, Docker release
+- **Out**: Sending messages on any platform, Instagram/Facebook, mobile app, cloud sync
 
 ## Constraints
 - All DB operations remain synchronous (better-sqlite3)
 - MCP server communicates via stdio only
-- No breaking changes to existing MCP tool names (tools gain optional `platform` param, responses gain `platform` field — additive only)
-- iMessage sync is macOS-only (reads `~/Library/Messages/chat.db`)
-- Keep each file under 200 lines
+- Keep each source file under 200 lines
+- Self-hosted only — no external services, no cloud
+- Each phase must have passing tests before the next starts
 
 ## Boundary Strategy
-- **Why this split**: Platform abstraction must land first so iMessage sync has the right schema and adapter interface to build on
-- **Shared seams to watch**: `src/db.ts` is the shared boundary — platform-abstraction owns its schema changes; imessage-sync only consumes the exported functions
+- **Why this split**: Each platform adapter is isolated in `src/platforms/<name>/`. `src/db.ts` is the shared boundary — adapters only call exported db functions, never touch the schema.
+- **Shared seams to watch**: `src/db.ts` (schema), `src/mcp.ts` (tool descriptions), `src/platforms/types.ts` (PlatformAdapter interface)
 
 ## Specs (dependency order)
 - [x] platform-abstraction -- Generalize schema, reorganize src/platforms/, rename telegram_id→external_id, update MCP tools. Dependencies: none
 - [x] imessage-sync -- Read ~/Library/Messages/chat.db, map to generic schema, add npm run sync:imessage. Dependencies: platform-abstraction
+- [ ] wechat-sync -- Read WeChat Mac local SQLite DB directly (no API, no auth), map to generic schema, add npm run sync:wechat. Dependencies: platform-abstraction
+- [ ] web-ui -- Express + plain HTML search UI served at localhost:3333, chat list sidebar, message thread view, platform badges. Dependencies: platform-abstraction, imessage-sync
+- [ ] discord-sync -- Discord bot token, sync DMs and non-broadcast channels, npm run sync:discord. Dependencies: platform-abstraction
+- [ ] email-sync -- IMAP via imapflow, sync sent+received threads as messages, npm run sync:email. Dependencies: platform-abstraction
+- [ ] slack-sync -- Personal Slack app OAuth, sync DMs and channels, npm run sync:slack. Dependencies: platform-abstraction
+- [ ] whatsapp-sync -- whatsapp-web.js QR-code session, sync DMs, npm run sync:whatsapp. Dependencies: platform-abstraction
+- [ ] security-hardening -- SQLCipher encryption, web UI basic-auth, MCP bearer token, localhost-only binding. Dependencies: web-ui
+- [ ] release -- Dockerfile + docker-compose, GitHub Actions CI/publish, SECURITY.md, demo GIF. Dependencies: web-ui, wechat-sync, discord-sync, email-sync, slack-sync, whatsapp-sync, security-hardening
