@@ -2,7 +2,7 @@ import { TelegramClient } from 'telegram'
 import { StringSession } from 'telegram/sessions'
 import { NewMessage } from 'telegram/events'
 import { config, saveSessionString, type Config } from '../../config'
-import { initDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, type Chat, type Message, type MessageType } from '../../db'
+import { initDb, getDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, type Chat, type Message, type MessageType } from '../../db'
 
 export type PromptFn = (question: string) => Promise<string>
 export interface WizardConfig { sessionString: string }
@@ -107,16 +107,34 @@ export async function runBackfill(
   pageSize = 100,
   firstRunLimit = 200,
 ): Promise<void> {
-  const dialogs = await client.getDialogs({ limit: 500 }) as Array<{ entity: EntityLike }>
-  console.log(`Checking ${dialogs.length} dialogs for new messages…`)
+  const dialogs = await client.getDialogs({ limit: 500 }) as Array<{ entity: EntityLike; date?: number }>
+
+  // Load per-chat last_synced_at so we can skip dialogs with no new activity
+  const syncedAt = new Map<number, number>()
+  const rows = getDb().prepare(
+    "SELECT id, last_synced_at FROM chats WHERE platform = 'telegram' AND last_synced_at IS NOT NULL"
+  ).all() as { id: number; last_synced_at: number }[]
+  for (const row of rows) syncedAt.set(row.id, row.last_synced_at)
+  const hasPriorSync = syncedAt.size > 0
+
+  console.log(`${dialogs.length} dialogs — ${hasPriorSync ? 'incremental' : 'first'} sync`)
   let totalSynced = 0
-  let processed = 0
+  let checked = 0
+  let skipped = 0
 
   for (let i = 0; i < dialogs.length; i++) {
     const chat = entityToChat(dialogs[i].entity)
     if (!chat) continue
-    processed++
-    process.stdout.write(`\r  [${processed}/${dialogs.length}] ${chat.name.slice(0, 40).padEnd(40)}`)
+
+    const dialogDate = dialogs[i].date ?? 0
+    const chatLastSync = syncedAt.get(chat.id)
+    if (hasPriorSync && chatLastSync !== undefined && dialogDate <= chatLastSync) {
+      skipped++
+      continue
+    }
+
+    checked++
+    process.stdout.write(`\r  [${checked} checked, ${skipped} skipped] ${chat.name.slice(0, 35).padEnd(35)}`)
     upsertChat(chat)
     const lastId = getLastSyncedId(chat.id)
     let synced = 0
@@ -155,9 +173,9 @@ export async function runBackfill(
     }
 
     totalSynced += synced
-    if (i < dialogs.length - 1) await sleep(300)
+    if (checked + skipped < dialogs.length) await sleep(300)
   }
-  console.log(`\nBackfill complete. ${totalSynced} new messages stored.`)
+  console.log(`\nBackfill complete. ${totalSynced} new messages stored. (${checked} checked, ${skipped} skipped)`)
 }
 
 export function startListener(client: TelegramClient): void {
