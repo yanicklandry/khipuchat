@@ -4,7 +4,9 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "sync": "tsx src/sync.ts",
+    "sync": "tsx src/platforms/telegram/sync.ts --backfill-only && tsx src/platforms/imessage/sync.ts",
+    "sync:telegram": "tsx src/platforms/telegram/sync.ts",
+    "sync:imessage": "tsx src/platforms/imessage/sync.ts",
     "mcp": "tsx src/mcp.ts",
     "setup-claude": "tsx src/setup-claude.ts",
     "setup-sync": "tsx src/setup-sync.ts",

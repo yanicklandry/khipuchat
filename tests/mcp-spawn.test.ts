@@ -119,10 +119,11 @@ describe('MCP server (spawned as Claude Desktop)', () => {
     await expect(mcpExchange([INIT_MSG], 1)).resolves.toBeDefined()
   }, 10000)
 
-  it('lists all 4 expected tools', async () => {
+  it('lists all 5 expected tools', async () => {
     const [, toolsResponse] = await mcpExchange([INIT_MSG, LIST_TOOLS_MSG], 2)
     const resp = toolsResponse as { result?: { tools?: Array<{ name: string }> } }
     const names = resp.result?.tools?.map(t => t.name) ?? []
+    expect(names).toContain('list_chats')
     expect(names).toContain('find_chat_by_name')
     expect(names).toContain('list_messages')
     expect(names).toContain('search_messages')

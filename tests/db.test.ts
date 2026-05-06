@@ -50,21 +50,45 @@ describe('schema', () => {
       .all() as string[]
     expect(indexes).toContain('idx_messages_chat_type')
   })
+
+  it('chats table has a platform column', () => {
+    const db = initDb(':memory:')
+    const cols = (db.pragma('table_info(chats)') as { name: string }[]).map(r => r.name)
+    expect(cols).toContain('platform')
+  })
+
+  it('messages table has a platform column', () => {
+    const db = initDb(':memory:')
+    const cols = (db.pragma('table_info(messages)') as { name: string }[]).map(r => r.name)
+    expect(cols).toContain('platform')
+  })
+
+  it('messages table has external_id column (not telegram_id)', () => {
+    const db = initDb(':memory:')
+    const cols = (db.pragma('table_info(messages)') as { name: string }[]).map(r => r.name)
+    expect(cols).toContain('external_id')
+    expect(cols).not.toContain('telegram_id')
+  })
 })
 
 // ── upsertChat ────────────────────────────────────────────────────────────────
 
 describe('upsertChat', () => {
   it('inserts a new chat and getChats returns it', () => {
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: 'tonylin1115' })
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: 'tonylin1115', platform: 'telegram' })
     const chats = getChats()
     expect(chats).toHaveLength(1)
-    expect(chats[0]).toMatchObject({ id: 1, name: 'Tony Lin', type: 'user', username: 'tonylin1115' })
+    expect(chats[0]).toMatchObject({ id: 1, name: 'Tony Lin', type: 'user', username: 'tonylin1115', platform: 'telegram' })
+  })
+
+  it('stores the platform value', () => {
+    upsertChat({ id: 1, name: 'iMsg Chat', type: 'user', username: null, platform: 'imessage' })
+    expect(getChats()[0].platform).toBe('imessage')
   })
 
   it('upserting the same id overwrites name and username', () => {
-    upsertChat({ id: 1, name: 'Tony', type: 'user', username: null })
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: 'tonylin1115' })
+    upsertChat({ id: 1, name: 'Tony', type: 'user', username: null, platform: 'telegram' })
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: 'tonylin1115', platform: 'telegram' })
     const chats = getChats()
     expect(chats).toHaveLength(1)
     expect(chats[0].name).toBe('Tony Lin')
@@ -72,8 +96,8 @@ describe('upsertChat', () => {
   })
 
   it('two different chats coexist — getChats returns both', () => {
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null })
-    upsertChat({ id: 2, name: 'Work Group', type: 'group', username: null })
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
+    upsertChat({ id: 2, name: 'Work Group', type: 'group', username: null, platform: 'telegram' })
     expect(getChats()).toHaveLength(2)
   })
 })
@@ -82,13 +106,13 @@ describe('upsertChat', () => {
 
 describe('insertMessage', () => {
   beforeEach(() => {
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null })
-    upsertChat({ id: 2, name: 'Other Chat', type: 'group', username: null })
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
+    upsertChat({ id: 2, name: 'Other Chat', type: 'group', username: null, platform: 'telegram' })
   })
 
   it('inserts a message and getMessages returns it with correct fields', () => {
     insertMessage({
-      telegram_id: '100',
+      external_id: '100',
       chat_id: 1,
       sender_id: '999',
       sender_name: 'Tony Lin',
@@ -96,47 +120,43 @@ describe('insertMessage', () => {
       type: 'text',
       timestamp: T + 1,
       is_sender: 0,
-      reply_to_telegram_id: null,
+      reply_to_external_id: null,
+      platform: 'telegram',
     })
     const msgs = getMessages(1, 10)
     expect(msgs).toHaveLength(1)
     expect(msgs[0]).toMatchObject({
-      telegram_id: '100',
+      external_id: '100',
       chat_id: 1,
       sender_name: 'Tony Lin',
       text: 'Hello!',
       type: 'text',
       timestamp: T + 1,
       is_sender: 0,
-      reply_to_telegram_id: null,
+      reply_to_external_id: null,
+      platform: 'telegram',
     })
   })
 
-  it('duplicate (telegram_id, chat_id) does not throw and is silently ignored', () => {
+  it('duplicate (external_id, chat_id) does not throw and is silently ignored', () => {
     const msg = {
-      telegram_id: '100',
-      chat_id: 1,
-      sender_id: '999',
-      sender_name: 'Tony Lin',
-      text: 'Hello!',
-      type: 'text',
-      timestamp: T + 1,
-      is_sender: 0,
-      reply_to_telegram_id: null,
+      external_id: '100', chat_id: 1, sender_id: '999', sender_name: 'Tony Lin',
+      text: 'Hello!', type: 'text' as const, timestamp: T + 1, is_sender: 0 as const,
+      reply_to_external_id: null, platform: 'telegram' as const,
     }
     insertMessage(msg)
     expect(() => insertMessage(msg)).not.toThrow()
     expect(getMessages(1, 10)).toHaveLength(1)
   })
 
-  it('same telegram_id under a different chat_id is accepted as a distinct row', () => {
+  it('same external_id under a different chat_id is accepted as a distinct row', () => {
     insertMessage({
-      telegram_id: '100', chat_id: 1, sender_id: '1', sender_name: 'Tony',
-      text: 'Hi', type: 'text', timestamp: T + 1, is_sender: 0, reply_to_telegram_id: null,
+      external_id: '100', chat_id: 1, sender_id: '1', sender_name: 'Tony',
+      text: 'Hi', type: 'text', timestamp: T + 1, is_sender: 0, reply_to_external_id: null, platform: 'telegram',
     })
     insertMessage({
-      telegram_id: '100', chat_id: 2, sender_id: '2', sender_name: 'Bob',
-      text: 'Hey', type: 'text', timestamp: T + 2, is_sender: 0, reply_to_telegram_id: null,
+      external_id: '100', chat_id: 2, sender_id: '2', sender_name: 'Bob',
+      text: 'Hey', type: 'text', timestamp: T + 2, is_sender: 0, reply_to_external_id: null, platform: 'telegram',
     })
     expect(getMessages(1, 10)).toHaveLength(1)
     expect(getMessages(2, 10)).toHaveLength(1)
@@ -147,25 +167,19 @@ describe('insertMessage', () => {
 
 describe('getMessages', () => {
   beforeEach(() => {
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null })
-    upsertChat({ id: 2, name: 'Other', type: 'group', username: null })
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
+    upsertChat({ id: 2, name: 'Other', type: 'group', username: null, platform: 'telegram' })
     for (let i = 1; i <= 5; i++) {
       insertMessage({
-        telegram_id: String(i),
-        chat_id: 1,
-        sender_id: '999',
-        sender_name: 'Tony',
-        text: `Message ${i}`,
-        type: 'text',
-        timestamp: T + i,
-        is_sender: 0,
-        reply_to_telegram_id: null,
+        external_id: String(i), chat_id: 1, sender_id: '999', sender_name: 'Tony',
+        text: `Message ${i}`, type: 'text', timestamp: T + i, is_sender: 0,
+        reply_to_external_id: null, platform: 'telegram',
       })
     }
-    // one message in a different chat — must not appear in chat 1 results
     insertMessage({
-      telegram_id: '99', chat_id: 2, sender_id: '2', sender_name: 'Bob',
-      text: 'Other chat msg', type: 'text', timestamp: T + 1, is_sender: 0, reply_to_telegram_id: null,
+      external_id: '99', chat_id: 2, sender_id: '2', sender_name: 'Bob',
+      text: 'Other chat msg', type: 'text', timestamp: T + 1, is_sender: 0,
+      reply_to_external_id: null, platform: 'telegram',
     })
   })
 
@@ -175,7 +189,7 @@ describe('getMessages', () => {
 
   it('returns messages ordered by timestamp ASC', () => {
     const msgs = getMessages(1, 10)
-    expect(msgs.map(m => m.telegram_id)).toEqual(['1', '2', '3', '4', '5'])
+    expect(msgs.map(m => m.external_id)).toEqual(['1', '2', '3', '4', '5'])
   })
 
   it('respects the limit parameter', () => {
@@ -183,9 +197,8 @@ describe('getMessages', () => {
   })
 
   it('beforeTimestamp returns only rows with timestamp < beforeTimestamp', () => {
-    // T+1, T+2 are < T+3; T+3, T+4, T+5 are not
     const msgs = getMessages(1, 10, T + 3)
-    expect(msgs.map(m => m.telegram_id)).toEqual(['1', '2'])
+    expect(msgs.map(m => m.external_id)).toEqual(['1', '2'])
   })
 
   it('does not bleed messages from a different chatId', () => {
@@ -198,19 +211,22 @@ describe('getMessages', () => {
 
 describe('searchMessages', () => {
   beforeEach(() => {
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null })
-    upsertChat({ id: 2, name: 'Other Chat', type: 'group', username: null })
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
+    upsertChat({ id: 2, name: 'Other Chat', type: 'group', username: null, platform: 'imessage' })
     insertMessage({
-      telegram_id: '1', chat_id: 1, sender_id: '1', sender_name: 'Tony',
-      text: 'hello world', type: 'text', timestamp: T + 1, is_sender: 0, reply_to_telegram_id: null,
+      external_id: '1', chat_id: 1, sender_id: '1', sender_name: 'Tony',
+      text: 'hello world', type: 'text', timestamp: T + 1, is_sender: 0,
+      reply_to_external_id: null, platform: 'telegram',
     })
     insertMessage({
-      telegram_id: '2', chat_id: 2, sender_id: '2', sender_name: 'Bob',
-      text: 'hello there', type: 'text', timestamp: T + 2, is_sender: 0, reply_to_telegram_id: null,
+      external_id: '2', chat_id: 2, sender_id: '2', sender_name: 'Bob',
+      text: 'hello there', type: 'text', timestamp: T + 2, is_sender: 0,
+      reply_to_external_id: null, platform: 'imessage',
     })
     insertMessage({
-      telegram_id: '3', chat_id: 1, sender_id: '1', sender_name: 'Tony',
-      text: 'goodbye', type: 'text', timestamp: T + 3, is_sender: 0, reply_to_telegram_id: null,
+      external_id: '3', chat_id: 1, sender_id: '1', sender_name: 'Tony',
+      text: 'goodbye', type: 'text', timestamp: T + 3, is_sender: 0,
+      reply_to_external_id: null, platform: 'telegram',
     })
   })
 
@@ -228,15 +244,24 @@ describe('searchMessages', () => {
     expect(searchMessages('zzznomatch')).toEqual([])
   })
 
-  it('result shape includes chat_id, chat_name, sender_name, text, timestamp', () => {
+  it('result shape includes chat_id, chat_name, sender_name, text, timestamp, platform', () => {
     const [r] = searchMessages('hello', 1)
     expect(r).toMatchObject({
-      chat_id: 1,
-      chat_name: 'Tony Lin',
-      sender_name: 'Tony',
-      text: 'hello world',
-      timestamp: T + 1,
+      chat_id: 1, chat_name: 'Tony Lin', sender_name: 'Tony',
+      text: 'hello world', timestamp: T + 1, platform: 'telegram',
     })
+  })
+
+  it('platform filter returns only matching platform messages', () => {
+    const results = searchMessages('hello', undefined, 'telegram')
+    expect(results).toHaveLength(1)
+    expect(results[0].platform).toBe('telegram')
+  })
+
+  it('platform filter with chatId returns intersection', () => {
+    const results = searchMessages('hello', 2, 'imessage')
+    expect(results).toHaveLength(1)
+    expect(results[0].platform).toBe('imessage')
   })
 })
 
@@ -244,30 +269,33 @@ describe('searchMessages', () => {
 
 describe('getLastSyncedId', () => {
   beforeEach(() => {
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null })
-    upsertChat({ id: 2, name: 'Other', type: 'group', username: null })
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
+    upsertChat({ id: 2, name: 'Other', type: 'group', username: null, platform: 'telegram' })
   })
 
   it('returns null when the chat has no messages', () => {
     expect(getLastSyncedId(1)).toBeNull()
   })
 
-  it('returns the telegram_id of the message with the highest timestamp', () => {
+  it('returns the external_id of the message with the highest timestamp', () => {
     insertMessage({
-      telegram_id: '100', chat_id: 1, sender_id: '1', sender_name: 'Tony',
-      text: 'earlier', type: 'text', timestamp: T + 1, is_sender: 0, reply_to_telegram_id: null,
+      external_id: '100', chat_id: 1, sender_id: '1', sender_name: 'Tony',
+      text: 'earlier', type: 'text', timestamp: T + 1, is_sender: 0,
+      reply_to_external_id: null, platform: 'telegram',
     })
     insertMessage({
-      telegram_id: '200', chat_id: 1, sender_id: '1', sender_name: 'Tony',
-      text: 'later', type: 'text', timestamp: T + 2, is_sender: 0, reply_to_telegram_id: null,
+      external_id: '200', chat_id: 1, sender_id: '1', sender_name: 'Tony',
+      text: 'later', type: 'text', timestamp: T + 2, is_sender: 0,
+      reply_to_external_id: null, platform: 'telegram',
     })
     expect(getLastSyncedId(1)).toBe('200')
   })
 
   it('ignores messages belonging to a different chatId', () => {
     insertMessage({
-      telegram_id: '500', chat_id: 2, sender_id: '2', sender_name: 'Bob',
-      text: 'other chat', type: 'text', timestamp: T + 99, is_sender: 0, reply_to_telegram_id: null,
+      external_id: '500', chat_id: 2, sender_id: '2', sender_name: 'Bob',
+      text: 'other chat', type: 'text', timestamp: T + 99, is_sender: 0,
+      reply_to_external_id: null, platform: 'telegram',
     })
     expect(getLastSyncedId(1)).toBeNull()
   })

@@ -1,21 +1,22 @@
 import Database from 'better-sqlite3'
+import type { Platform } from './platforms/types'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export type ChatType = 'user' | 'group' | 'channel'
-export type MessageType = 'text' | 'voice' | 'video' | 'image' | 'sticker' | 'reaction' | 'notice'
+export type { Platform }
+export type ChatType = 'user' | 'group' | 'channel' | 'private'
+export type MessageType = 'text' | 'voice' | 'video' | 'image' | 'sticker' | 'reaction' | 'notice' | 'other'
 
 export interface Chat {
   id: number
   name: string
   type: ChatType
   username: string | null
+  platform: Platform
   last_synced_at?: number | null
   message_count?: number
 }
 
 export interface Message {
-  telegram_id: string
+  external_id: string
   chat_id: number
   sender_id: string | null
   sender_name: string | null
@@ -23,12 +24,11 @@ export interface Message {
   type: MessageType
   timestamp: number
   is_sender: 0 | 1
-  reply_to_telegram_id: string | null
+  reply_to_external_id: string | null
+  platform: Platform
 }
 
-export interface MessageRow extends Message {
-  id: number
-}
+export interface MessageRow extends Message { id: number }
 
 export interface SearchResult {
   chat_id: number
@@ -36,9 +36,8 @@ export interface SearchResult {
   sender_name: string | null
   text: string | null
   timestamp: number
+  platform: Platform
 }
-
-// ── Module-level DB instance ──────────────────────────────────────────────────
 
 let _db: Database.Database | null = null
 
@@ -52,12 +51,14 @@ export function initDb(path: string): Database.Database {
   _db.pragma('journal_mode = WAL')
   _db.pragma('foreign_keys = ON')
   createSchema(_db)
-  // Rebuild FTS index in case messages were inserted before the FTS table existed
+  runMigrations(_db)
   _db.exec("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')")
   return _db
 }
 
-// ── Schema ────────────────────────────────────────────────────────────────────
+function columnExists(d: Database.Database, table: string, col: string): boolean {
+  return (d.pragma(`table_info(${table})`) as { name: string }[]).some(r => r.name === col)
+}
 
 function createSchema(database: Database.Database): void {
   database.exec(`
@@ -66,13 +67,14 @@ function createSchema(database: Database.Database): void {
       name             TEXT    NOT NULL,
       type             TEXT    NOT NULL,
       username         TEXT,
+      platform         TEXT    NOT NULL DEFAULT 'telegram',
       last_synced_at   INTEGER,
       message_count    INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS messages (
       id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-      telegram_id          TEXT    NOT NULL,
+      external_id          TEXT    NOT NULL,
       chat_id              INTEGER NOT NULL,
       sender_id            TEXT,
       sender_name          TEXT,
@@ -80,8 +82,9 @@ function createSchema(database: Database.Database): void {
       type                 TEXT    NOT NULL,
       timestamp            INTEGER NOT NULL,
       is_sender            INTEGER NOT NULL,
-      reply_to_telegram_id TEXT,
-      UNIQUE(telegram_id, chat_id)
+      reply_to_external_id TEXT,
+      platform             TEXT    NOT NULL DEFAULT 'telegram',
+      UNIQUE(external_id, chat_id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp
@@ -106,24 +109,31 @@ function createSchema(database: Database.Database): void {
   `)
 }
 
-// ── Exported functions ────────────────────────────────────────────────────────
+function runMigrations(database: Database.Database): void {
+  if (columnExists(database, 'messages', 'telegram_id'))
+    database.exec('ALTER TABLE messages RENAME COLUMN telegram_id TO external_id')
+  if (columnExists(database, 'messages', 'reply_to_telegram_id'))
+    database.exec('ALTER TABLE messages RENAME COLUMN reply_to_telegram_id TO reply_to_external_id')
+  if (!columnExists(database, 'chats', 'platform'))
+    database.exec("ALTER TABLE chats ADD COLUMN platform TEXT NOT NULL DEFAULT 'telegram'")
+  if (!columnExists(database, 'messages', 'platform'))
+    database.exec("ALTER TABLE messages ADD COLUMN platform TEXT NOT NULL DEFAULT 'telegram'")
+}
 
 export function upsertChat(chat: Chat): void {
   db().prepare(`
-    INSERT INTO chats (id, name, type, username, last_synced_at, message_count)
-    VALUES (@id, @name, @type, @username, @last_synced_at, @message_count)
+    INSERT INTO chats (id, name, type, username, platform, last_synced_at, message_count)
+    VALUES (@id, @name, @type, @username, @platform, @last_synced_at, @message_count)
     ON CONFLICT(id) DO UPDATE SET
       name           = excluded.name,
       type           = excluded.type,
       username       = excluded.username,
+      platform       = excluded.platform,
       last_synced_at = COALESCE(excluded.last_synced_at, last_synced_at),
       message_count  = COALESCE(excluded.message_count, message_count)
   `).run({
-    id: chat.id,
-    name: chat.name,
-    type: chat.type,
-    username: chat.username ?? null,
-    last_synced_at: chat.last_synced_at ?? null,
+    id: chat.id, name: chat.name, type: chat.type, username: chat.username ?? null,
+    platform: chat.platform, last_synced_at: chat.last_synced_at ?? null,
     message_count: chat.message_count ?? 0,
   })
 }
@@ -131,9 +141,11 @@ export function upsertChat(chat: Chat): void {
 export function insertMessage(msg: Message): void {
   db().prepare(`
     INSERT OR IGNORE INTO messages
-      (telegram_id, chat_id, sender_id, sender_name, text, type, timestamp, is_sender, reply_to_telegram_id)
+      (external_id, chat_id, sender_id, sender_name, text, type, timestamp,
+       is_sender, reply_to_external_id, platform)
     VALUES
-      (@telegram_id, @chat_id, @sender_id, @sender_name, @text, @type, @timestamp, @is_sender, @reply_to_telegram_id)
+      (@external_id, @chat_id, @sender_id, @sender_name, @text, @type, @timestamp,
+       @is_sender, @reply_to_external_id, @platform)
   `).run(msg)
 }
 
@@ -141,68 +153,46 @@ export function getChats(): Chat[] {
   return db().prepare('SELECT * FROM chats').all() as Chat[]
 }
 
-export function getMessages(
-  chatId: number,
-  limit: number,
-  beforeTimestamp?: number,
-): MessageRow[] {
+export function getMessages(chatId: number, limit: number, beforeTimestamp?: number): MessageRow[] {
   if (beforeTimestamp !== undefined) {
     return db().prepare(`
-      SELECT * FROM messages
-      WHERE chat_id = ? AND timestamp < ?
-      ORDER BY timestamp ASC
-      LIMIT ?
+      SELECT * FROM messages WHERE chat_id = ? AND timestamp < ?
+      ORDER BY timestamp ASC LIMIT ?
     `).all(chatId, beforeTimestamp, limit) as MessageRow[]
   }
   return db().prepare(`
-    SELECT * FROM messages
-    WHERE chat_id = ?
-    ORDER BY timestamp ASC
-    LIMIT ?
+    SELECT * FROM messages WHERE chat_id = ? ORDER BY timestamp ASC LIMIT ?
   `).all(chatId, limit) as MessageRow[]
 }
 
-export function searchMessages(query: string, chatId?: number): SearchResult[] {
-  if (chatId !== undefined) {
-    return db().prepare(`
-      SELECT m.chat_id, c.name AS chat_name, m.sender_name, m.text, m.timestamp
-      FROM messages_fts f
-      JOIN messages m ON m.id = f.rowid
-      JOIN chats c ON c.id = m.chat_id
-      WHERE messages_fts MATCH ? AND m.chat_id = ?
-      ORDER BY m.timestamp ASC
-      LIMIT 100
-    `).all(query, chatId) as SearchResult[]
-  }
+export function searchMessages(query: string, chatId?: number, platform?: Platform): SearchResult[] {
+  const args: unknown[] = [query]
+  let extra = ''
+  if (chatId !== undefined) { extra += ' AND m.chat_id = ?'; args.push(chatId) }
+  if (platform !== undefined) { extra += ' AND m.platform = ?'; args.push(platform) }
   return db().prepare(`
-    SELECT m.chat_id, c.name AS chat_name, m.sender_name, m.text, m.timestamp
+    SELECT m.chat_id, c.name AS chat_name, m.sender_name, m.text, m.timestamp, m.platform
     FROM messages_fts f
     JOIN messages m ON m.id = f.rowid
     JOIN chats c ON c.id = m.chat_id
-    WHERE messages_fts MATCH ?
-    ORDER BY m.timestamp ASC
-    LIMIT 100
-  `).all(query) as SearchResult[]
+    WHERE messages_fts MATCH ?${extra}
+    ORDER BY m.timestamp ASC LIMIT 100
+  `).all(...args) as SearchResult[]
 }
 
 export function setLastSyncedAt(chatId: number, timestamp: number): void {
-  db().prepare(`UPDATE chats SET last_synced_at = ? WHERE id = ?`).run(timestamp, chatId)
+  db().prepare('UPDATE chats SET last_synced_at = ? WHERE id = ?').run(timestamp, chatId)
 }
 
 export function rebuildFtsIndex(): void {
   db().exec("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')")
 }
 
-export function getDb(): Database.Database {
-  return db()
-}
+export function getDb(): Database.Database { return db() }
 
 export function getLastSyncedId(chatId: number): string | null {
   const row = db().prepare(`
-    SELECT telegram_id FROM messages
-    WHERE chat_id = ?
-    ORDER BY timestamp DESC
-    LIMIT 1
-  `).get(chatId) as { telegram_id: string } | undefined
-  return row?.telegram_id ?? null
+    SELECT external_id FROM messages WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 1
+  `).get(chatId) as { external_id: string } | undefined
+  return row?.external_id ?? null
 }

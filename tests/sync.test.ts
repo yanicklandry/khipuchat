@@ -4,7 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import type { TelegramClient } from 'telegram'
 import { config, saveSessionString } from '../src/config'
-import { runAuthWizard, runBackfill, startListener, type PromptFn } from '../src/sync'
+import { runAuthWizard, runBackfill, startListener, type PromptFn } from '../src/platforms/telegram/sync'
 import { initDb, upsertChat, getChats, getMessages } from '../src/db'
 
 const T = 1700000000
@@ -218,14 +218,12 @@ describe('runBackfill', () => {
     initDb(':memory:')
   })
 
-  it('upserts chat and inserts messages for a User dialog', async () => {
+  it('upserts chat and inserts messages for a User dialog (first-time: single fetch)', async () => {
     const entity = makeUserEntity(1, 'Tony Lin', 'tonylin1115')
     const msgs = [makeMsg(1, 'hi', T + 1), makeMsg(2, 'hey', T + 2)]
     const client = makeMockClient()
     client.getDialogs.mockResolvedValue([{ entity }])
-    client.getMessages
-      .mockResolvedValueOnce(msgs)
-      .mockResolvedValue([])
+    client.getMessages.mockResolvedValue(msgs)
     const sleep = vi.fn().mockResolvedValue(undefined)
 
     await runBackfill(client as unknown as TelegramClient, sleep, 20)
@@ -233,11 +231,20 @@ describe('runBackfill', () => {
     expect(getChats()).toHaveLength(1)
     expect(getChats()[0].name).toBe('Tony Lin')
     expect(getMessages(1, 10)).toHaveLength(2)
+    // First-time sync: exactly 1 call with no offsetId/reverse
+    expect(client.getMessages).toHaveBeenCalledTimes(1)
+    const [, opts] = client.getMessages.mock.calls[0] as [unknown, Record<string, unknown>]
+    expect(opts['offsetId']).toBeUndefined()
+    expect(opts['reverse']).toBeUndefined()
   })
 
-  it('paginates until a page is smaller than pageSize', async () => {
+  it('paginates until a page is smaller than pageSize (incremental)', async () => {
     const entity = makeUserEntity(1, 'Tony Lin')
-    // 50 messages total; pageSize=20 → 3 fetches: 20, 20, 10
+    // Pre-seed so incremental path is used
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
+    const { insertMessage } = await import('../src/db')
+    insertMessage({ external_id: '0', chat_id: 1, sender_id: null, sender_name: 'T', text: 'seed', type: 'text', timestamp: T, is_sender: 0, reply_to_external_id: null, platform: 'telegram' })
+
     const batch = (start: number, count: number) =>
       Array.from({ length: count }, (_, i) => makeMsg(start + i, `msg ${start + i}`, T + start + i))
 
@@ -251,19 +258,20 @@ describe('runBackfill', () => {
 
     await runBackfill(client as unknown as TelegramClient, sleep, 20)
 
-    expect(getMessages(1, 100)).toHaveLength(50)
+    expect(getMessages(1, 100)).toHaveLength(51) // 1 seed + 50 new
     expect(client.getMessages).toHaveBeenCalledTimes(3)
   })
 
   it('resumes from getLastSyncedId — passes correct offsetId on first fetch', async () => {
     const entity = makeUserEntity(1, 'Tony Lin')
     // pre-seed 3 messages so getLastSyncedId(1) returns '3'
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null })
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
     for (let i = 1; i <= 3; i++) {
       const { insertMessage } = await import('../src/db')
       insertMessage({
-        telegram_id: String(i), chat_id: 1, sender_id: null, sender_name: 'Tony',
-        text: `old ${i}`, type: 'text', timestamp: T + i, is_sender: 0, reply_to_telegram_id: null,
+        external_id: String(i), chat_id: 1, sender_id: null, sender_name: 'Tony',
+        text: `old ${i}`, type: 'text', timestamp: T + i, is_sender: 0,
+        reply_to_external_id: null, platform: 'telegram',
       })
     }
 
@@ -311,7 +319,7 @@ describe('runBackfill', () => {
     await runBackfill(client as unknown as TelegramClient, sleep, 20)
 
     expect(sleep).toHaveBeenCalledTimes(1)
-    expect(sleep).toHaveBeenCalledWith(1000)
+    expect(sleep).toHaveBeenCalledWith(300)
   })
 })
 
@@ -320,7 +328,7 @@ describe('runBackfill', () => {
 describe('startListener', () => {
   beforeEach(() => {
     initDb(':memory:')
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null })
+    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
   })
 
   it('registers exactly one event handler on the client', () => {
@@ -339,7 +347,7 @@ describe('startListener', () => {
     const msgs = getMessages(1, 10)
     expect(msgs).toHaveLength(1)
     expect(msgs[0].text).toBe('live message')
-    expect(msgs[0].telegram_id).toBe('42')
+    expect(msgs[0].external_id).toBe('42')
   })
 
   it('logs the chat id when a new message arrives', async () => {
