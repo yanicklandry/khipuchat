@@ -1,0 +1,7 @@
+*.db
+.env
+node_modules
+tests/
+.git
+.kiro
+docs

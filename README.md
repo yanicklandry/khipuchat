@@ -1,6 +1,26 @@
 # KhipuChat
 
-Self-hosted Telegram sync daemon + MCP server. Gives Claude Desktop full access to your Telegram message history.
+Self-hosted multi-platform message archive + MCP server. Sync Telegram, iMessage, Discord, Slack, WhatsApp, WeChat, and email into a local SQLite database, then browse them in a web UI or query them with Claude.
+
+![KhipuChat web UI](docs/demo.png)
+
+## Docker Quickstart
+
+```bash
+git clone https://github.com/your-username/khipuchat.git
+cd khipuchat
+cp .env.example .env
+# Edit .env and add your API tokens (TELEGRAM_API_ID, TELEGRAM_API_HASH, etc.)
+docker compose up
+```
+
+The web UI will be available at http://127.0.0.1:3333.
+
+To run a sync (backfill messages) inside the container:
+
+```bash
+docker compose run --rm khipuchat npx tsx src/platforms/telegram/sync.ts
+```
 
 ## Prerequisites
 
