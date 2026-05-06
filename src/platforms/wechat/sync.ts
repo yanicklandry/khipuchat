@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { homedir } from 'node:os'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, upsertChat, insertMessage, type Chat, type Message } from '../../db'
 import type { Platform, PlatformAdapter } from '../types'
 import { buildWechatContactMap, type ContactMap } from './contacts'

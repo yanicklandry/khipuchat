@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import type { Platform } from './platforms/types'
 
 export type { Platform }
@@ -48,6 +48,14 @@ function db(): Database.Database {
 
 export function initDb(path: string): Database.Database {
   _db = new Database(path)
+  const dbKey = process.env['DB_KEY']
+  if (dbKey && path !== ':memory:') {
+    try {
+      _db.pragma(`key="${dbKey.replace(/"/g, '')}"`)
+    } catch (err) {
+      throw new Error('DB_KEY is set but the database could not be opened — key may be incorrect')
+    }
+  }
   _db.pragma('journal_mode = WAL')
   _db.pragma('foreign_keys = ON')
   createSchema(_db)

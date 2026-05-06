@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, upsertChat, insertMessage, type Chat, type Message } from '../../db'
 import type { Platform, PlatformAdapter } from '../types'
 import { createSlackClient, type SlackClient, type SlackConversation, type SlackMessage } from './client'

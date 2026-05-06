@@ -1,8 +1,17 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
+import expressBasicAuth from 'express-basic-auth'
 import { handleListChats, handleSearchMessages, handleListMessages } from '../mcp'
 
 const router = Router()
+
+router.use((req, res, next) => {
+  if (!req.path.startsWith('/api')) { next(); return }
+  const webUser = process.env['WEB_USER']
+  const webPass = process.env['WEB_PASS']
+  if (!webUser || !webPass) { next(); return }
+  expressBasicAuth({ users: { [webUser]: webPass }, challenge: true })(req, res, next)
+})
 
 router.get('/api/chats', (_req: Request, res: Response) => {
   try {

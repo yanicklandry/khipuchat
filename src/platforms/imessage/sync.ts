@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { join } from 'path'
 import { homedir } from 'os'
 import { initDb, upsertChat, insertMessage, type Chat, type Message } from '../../db'

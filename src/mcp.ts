@@ -142,6 +142,13 @@ export function createMcpServer(): Server {
   }))
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    const secret = process.env['MCP_SECRET']
+    if (secret) {
+      const meta = (req.params as { _meta?: { authorization?: string } })._meta
+      if (meta?.authorization !== `Bearer ${secret}`) {
+        return { error: { code: -32001, message: 'Unauthorized' } }
+      }
+    }
     const { name, arguments: a = {} } = req.params
     const args = a as Record<string, unknown>
     const platform = args['platform'] !== undefined ? String(args['platform']) as Platform : undefined

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 
 // Mock child_process so contact tests work cross-platform (no real sqlite3 CLI needed)
 vi.mock('child_process', () => ({ execSync: vi.fn() }))
