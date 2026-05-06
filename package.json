@@ -12,17 +12,22 @@
     "setup-claude": "tsx src/setup-claude.ts",
     "setup-sync": "tsx src/setup-sync.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "web": "tsx src/web/server.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^11.0.0",
     "dotenv": "^16.0.0",
+    "express": "^5.2.1",
     "telegram": "^2.22.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
+    "@types/express": "^5.0.6",
     "@types/node": "^20.0.0",
+    "@types/supertest": "^7.2.0",
+    "supertest": "^7.2.2",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "vitest": "^2.0.0"

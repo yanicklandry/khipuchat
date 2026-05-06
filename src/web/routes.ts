@@ -1,0 +1,41 @@
+import { Router } from 'express'
+import type { Request, Response } from 'express'
+import { handleListChats, handleSearchMessages, handleListMessages } from '../mcp'
+
+const router = Router()
+
+router.get('/api/chats', (_req: Request, res: Response) => {
+  try {
+    res.json(handleListChats())
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message })
+  }
+})
+
+router.get('/api/search', (req: Request, res: Response) => {
+  try {
+    const q = req.query['q']
+    if (typeof q !== 'string' || q.trim() === '') {
+      res.json([])
+      return
+    }
+    res.json(handleSearchMessages(q))
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message })
+  }
+})
+
+router.get('/api/messages/:chatId', (req: Request, res: Response) => {
+  try {
+    const chatId = parseInt(req.params['chatId'] ?? '', 10)
+    if (isNaN(chatId)) {
+      res.status(400).json({ error: 'invalid chatId' })
+      return
+    }
+    res.json(handleListMessages(chatId))
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message })
+  }
+})
+
+export default router
