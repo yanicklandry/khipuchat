@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 
-export type Platform = 'telegram' | 'imessage' | 'discord' | 'slack' | 'whatsapp' | 'wechat'
+export type Platform = 'telegram' | 'imessage' | 'discord' | 'slack' | 'whatsapp' | 'wechat' | 'email'
 
 export interface PlatformAdapter {
   readonly platform: Platform
