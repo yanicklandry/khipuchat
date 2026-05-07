@@ -168,7 +168,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
       }
       msgs.forEach(m => {
         const sent = m.is_sender === 1;
-        const text = m.text || '<em class="msg-media">[media]</em>';
         const el = document.createElement('div');
         el.className = 'msg ' + (sent ? 'sent' : 'received');
         el.innerHTML = \`
@@ -176,6 +175,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="msg-meta"><span class="badge">\${esc(m.platform)}</span> \${ts(m.timestamp)}</div>\`;
         panel.appendChild(el);
       });
+      panel.scrollTop = panel.scrollHeight;
     }
 
     async function doSearch() {

@@ -14,7 +14,10 @@ import {
   openWechatDb,
   discoverMessageDbs,
   findUserDir,
+  buildSenderIdMap,
+  extractSelfWxid,
   type WechatMessageRow,
+  type MessageMapOpts,
 } from '../src/platforms/wechat/sync'
 import { buildWechatContactMap } from '../src/platforms/wechat/contacts'
 
@@ -52,6 +55,16 @@ function makeMockContactDb(entries: { m_nsUsrName: string; m_nsNickName: string 
   const db = new Database(':memory:')
   db.exec('CREATE TABLE WCContact (m_nsUsrName TEXT, m_nsNickName TEXT)')
   const insert = db.prepare('INSERT INTO WCContact VALUES (@m_nsUsrName, @m_nsNickName)')
+  for (const e of entries) insert.run(e)
+  return db
+}
+
+function makeMockContactDbWithRemark(
+  entries: { m_nsUsrName: string; m_nsNickName: string; m_nsRemark: string }[],
+): Database.Database {
+  const db = new Database(':memory:')
+  db.exec('CREATE TABLE WCContact (m_nsUsrName TEXT, m_nsNickName TEXT, m_nsRemark TEXT)')
+  const insert = db.prepare('INSERT INTO WCContact VALUES (@m_nsUsrName, @m_nsNickName, @m_nsRemark)')
   for (const e of entries) insert.run(e)
   return db
 }
@@ -170,6 +183,40 @@ describe('mapMessage', () => {
   it('sets reply_to_external_id to null', () => {
     expect(mapMessage(baseRow, 1).reply_to_external_id).toBeNull()
   })
+
+  // WeChat 4.x (V4) schema — real_sender_id is a Name2Id rowid
+  const v4SenderMap = new Map([[2, 'wxid_self123'], [5, 'shanchuanzhezi']])
+  const v4Opts: MessageMapOpts = { selfWxid: 'wxid_self123', senderIdMap: v4SenderMap }
+
+  const v4Row: WechatMessageRow = {
+    server_id: 12345, create_time: 1710000000, message_content: 'Hey V4', local_type: 1,
+    WCDB_CT_message_content: 0, real_sender_id: 2,  // rowid 2 → 'wxid_self123'
+  }
+
+  it('V4: detects is_sender=1 when real_sender_id resolves to selfWxid', () => {
+    expect(mapMessage(v4Row, 2, v4Opts).is_sender).toBe(1)
+  })
+
+  it('V4: detects is_sender=0 when real_sender_id resolves to counterparty', () => {
+    expect(mapMessage({ ...v4Row, real_sender_id: 5 }, 2, v4Opts).is_sender).toBe(0)
+  })
+
+  it('V4: defaults is_sender=0 when opts not provided', () => {
+    expect(mapMessage(v4Row, 2).is_sender).toBe(0)
+  })
+
+  it('V4: uses server_id as external_id', () => {
+    expect(mapMessage(v4Row, 2, v4Opts).external_id).toBe('12345')
+  })
+
+  it('V4: uses create_time as timestamp', () => {
+    expect(mapMessage(v4Row, 2, v4Opts).timestamp).toBe(1710000000)
+  })
+
+  it('V4: extracts text from message_content string', () => {
+    expect(mapMessage(v4Row, 2, v4Opts).text).toBe('Hey V4')
+    expect(mapMessage(v4Row, 2, v4Opts).type).toBe('text')
+  })
 })
 
 // ── buildWechatContactMap ─────────────────────────────────────────────────────
@@ -181,7 +228,35 @@ describe('buildWechatContactMap', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-contact-test-'))
   })
 
-  it('returns correct mappings from contact.db', () => {
+  it('WeChat 4.x: reads from contact table with username/nick_name columns', () => {
+    const db = new Database(':memory:')
+    db.exec('CREATE TABLE contact (username TEXT, nick_name TEXT)')
+    db.prepare('INSERT INTO contact VALUES (?, ?)').run('wxid_alice', 'Alice')
+    db.prepare('INSERT INTO contact VALUES (?, ?)').run('shanchuanzhezi', '山川哲子')
+    const dbPath = path.join(tmpDir, 'contact.db')
+    fs.writeFileSync(dbPath, db.serialize())
+    db.close()
+
+    const map = buildWechatContactMap(tmpDir)
+    expect(map.get('wxid_alice')).toBe('Alice')
+    expect(map.get('shanchuanzhezi')).toBe('山川哲子')
+  })
+
+  it('WeChat 4.x: prefers remark over nick_name when remark is set', () => {
+    const db = new Database(':memory:')
+    db.exec('CREATE TABLE contact (username TEXT, nick_name TEXT, remark TEXT)')
+    db.prepare('INSERT INTO contact VALUES (?, ?, ?)').run('shanchuanzhezi', '山川哲子', 'Gabryl Duke')
+    db.prepare('INSERT INTO contact VALUES (?, ?, ?)').run('wxid_noremark', 'NickOnly', '')
+    const dbPath = path.join(tmpDir, 'contact.db')
+    fs.writeFileSync(dbPath, db.serialize())
+    db.close()
+
+    const map = buildWechatContactMap(tmpDir)
+    expect(map.get('shanchuanzhezi')).toBe('Gabryl Duke')
+    expect(map.get('wxid_noremark')).toBe('NickOnly')
+  })
+
+  it('returns correct mappings from contact.db (legacy WCContact schema)', () => {
     const contactDb = makeMockContactDb([
       { m_nsUsrName: 'wxid_alice', m_nsNickName: 'Alice' },
       { m_nsUsrName: 'wxid_bob', m_nsNickName: 'Bob' },
@@ -215,6 +290,96 @@ describe('buildWechatContactMap', () => {
   it('returns empty map without throwing for inaccessible directory', () => {
     expect(() => buildWechatContactMap('/nonexistent/path/xyz')).not.toThrow()
     expect(buildWechatContactMap('/nonexistent/path/xyz').size).toBe(0)
+  })
+
+  it('prefers m_nsRemark over m_nsNickName when remark is non-empty', () => {
+    const contactDb = makeMockContactDbWithRemark([
+      { m_nsUsrName: 'shanchuanzhezi', m_nsNickName: '山川哲子', m_nsRemark: 'Gabryl Duke' },
+    ])
+    const dbPath = path.join(tmpDir, 'contact.db')
+    fs.writeFileSync(dbPath, contactDb.serialize())
+    contactDb.close()
+
+    const map = buildWechatContactMap(tmpDir)
+    expect(map.get('shanchuanzhezi')).toBe('Gabryl Duke')
+  })
+
+  it('falls back to m_nsNickName when m_nsRemark is empty', () => {
+    const contactDb = makeMockContactDbWithRemark([
+      { m_nsUsrName: 'wxid_someone', m_nsNickName: 'Someone', m_nsRemark: '' },
+    ])
+    const dbPath = path.join(tmpDir, 'contact.db')
+    fs.writeFileSync(dbPath, contactDb.serialize())
+    contactDb.close()
+
+    const map = buildWechatContactMap(tmpDir)
+    expect(map.get('wxid_someone')).toBe('Someone')
+  })
+
+  it('falls back to m_nsNickName when m_nsRemark is whitespace only', () => {
+    const contactDb = makeMockContactDbWithRemark([
+      { m_nsUsrName: 'wxid_ws', m_nsNickName: 'Nickname', m_nsRemark: '   ' },
+    ])
+    const dbPath = path.join(tmpDir, 'contact.db')
+    fs.writeFileSync(dbPath, contactDb.serialize())
+    contactDb.close()
+
+    const map = buildWechatContactMap(tmpDir)
+    expect(map.get('wxid_ws')).toBe('Nickname')
+  })
+
+  it('works correctly with old-format DB that has no m_nsRemark column', () => {
+    // makeMockContactDb creates a table WITHOUT m_nsRemark — must still work.
+    const contactDb = makeMockContactDb([
+      { m_nsUsrName: 'wxid_legacy', m_nsNickName: 'Legacy User' },
+    ])
+    const dbPath = path.join(tmpDir, 'contact.db')
+    fs.writeFileSync(dbPath, contactDb.serialize())
+    contactDb.close()
+
+    const map = buildWechatContactMap(tmpDir)
+    expect(map.get('wxid_legacy')).toBe('Legacy User')
+  })
+})
+
+// ── buildSenderIdMap ──────────────────────────────────────────────────────────
+
+describe('buildSenderIdMap', () => {
+  it('builds rowid → username map from Name2Id', () => {
+    const db = new Database(':memory:')
+    db.exec('CREATE TABLE Name2Id (user_name TEXT, is_session INTEGER)')
+    db.prepare('INSERT INTO Name2Id VALUES (?, ?)').run('wxid_self', 0)
+    db.prepare('INSERT INTO Name2Id VALUES (?, ?)').run('shanchuanzhezi', 1)
+
+    const map = buildSenderIdMap(db)
+    expect(map.size).toBe(2)
+    // rowid 1 → first inserted row
+    expect(map.get(1)).toBe('wxid_self')
+    expect(map.get(2)).toBe('shanchuanzhezi')
+    db.close()
+  })
+
+  it('returns empty map when Name2Id table is absent', () => {
+    const db = new Database(':memory:')
+    const map = buildSenderIdMap(db)
+    expect(map.size).toBe(0)
+    db.close()
+  })
+})
+
+// ── extractSelfWxid ───────────────────────────────────────────────────────────
+
+describe('extractSelfWxid', () => {
+  it('strips 4-hex suffix from directory name', () => {
+    expect(extractSelfWxid('/path/to/wxid_ojfwi5f52hio12_d1f6')).toBe('wxid_ojfwi5f52hio12')
+  })
+
+  it('returns name unchanged when no 4-hex suffix is present', () => {
+    expect(extractSelfWxid('/path/to/wxid_abc123')).toBe('wxid_abc123')
+  })
+
+  it('handles uppercase hex suffix', () => {
+    expect(extractSelfWxid('/path/to/wxid_abc123_A1B2')).toBe('wxid_abc123')
   })
 })
 

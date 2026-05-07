@@ -7,8 +7,8 @@ import { resolveHexKey } from './sync'
 export type ContactMap = ReadonlyMap<string, string>
 
 interface ContactRow {
-  m_nsUsrName: string
-  m_nsNickName: string
+  username: string
+  display_name: string
 }
 
 /**
@@ -58,21 +58,45 @@ function tryOpenContactDb(dbPath: string, hexKey: string, map: Map<string, strin
     }
     db.pragma('user_version')
 
-    // Try common WeChat contact table schemas
-    const tablesToTry = ['WCContact', 'Contact', 'Friend']
+    // Try common WeChat contact table schemas.
+    // WeChat 4.x uses lowercase 'contact' with 'username'/'nick_name'/'remark'.
+    // Legacy WCDB uses 'WCContact'/'Contact'/'Friend' with 'm_nsUsrName'/'m_nsNickName'.
+    const tablesToTry = ['contact', 'WCContact', 'Contact', 'Friend']
     for (const table of tablesToTry) {
       try {
+        const info = db.prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[]
+        if (info.length === 0) continue  // table doesn't exist
+        const cols = new Set(info.map((c) => c.name))
+
+        let userCol: string
+        let nameExpr: string
+        if (cols.has('username') && cols.has('nick_name')) {
+          // WeChat 4.x schema
+          userCol = 'username'
+          nameExpr = cols.has('remark')
+            ? `COALESCE(NULLIF(TRIM(remark), ''), nick_name)`
+            : 'nick_name'
+        } else if (cols.has('m_nsUsrName') && cols.has('m_nsNickName')) {
+          // Legacy WCDB schema
+          userCol = 'm_nsUsrName'
+          nameExpr = cols.has('m_nsRemark')
+            ? `COALESCE(NULLIF(TRIM(m_nsRemark), ''), m_nsNickName)`
+            : 'm_nsNickName'
+        } else {
+          continue  // unknown schema
+        }
+
         const rows = db.prepare(
-          `SELECT m_nsUsrName, m_nsNickName FROM "${table}"`,
+          `SELECT ${userCol} AS username, ${nameExpr} AS display_name FROM "${table}"`,
         ).all() as ContactRow[]
         for (const row of rows) {
-          if (row.m_nsUsrName && row.m_nsNickName) {
-            map.set(row.m_nsUsrName, row.m_nsNickName)
+          if (row.username && row.display_name) {
+            map.set(row.username, row.display_name)
           }
         }
         break
       } catch {
-        // Table doesn't exist or wrong schema, try next
+        // unexpected error, try next
       }
     }
 

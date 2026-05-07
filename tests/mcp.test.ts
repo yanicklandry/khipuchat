@@ -206,12 +206,28 @@ describe('handleListMessages', () => {
   })
 
   it('result shape includes id, sender_name, text, type, timestamp, is_sender, platform', () => {
+    // With limit=1 the single most-recent text message is returned.
     const [r] = handleListMessages(1, 1)
     expect(r).toMatchObject({
-      sender_name: 'Tony', text: 'hello there', type: 'text', timestamp: T + 1,
-      is_sender: 0, platform: 'telegram',
+      sender_name: 'Me', text: 'doing well', type: 'text', timestamp: T + 6,
+      is_sender: 1, platform: 'telegram',
     })
     expect(typeof r.id).toBe('number')
+  })
+
+  it('returns the N most recent text messages when no beforeTimestamp', () => {
+    upsertChat({ id: 20, name: 'Big Chat', type: 'group', username: null, platform: 'telegram' })
+    for (let i = 1; i <= 10; i++) {
+      insertMessage({
+        external_id: String(500 + i), chat_id: 20, sender_id: '1', sender_name: 'Alice',
+        text: `message ${i}`, type: 'text', timestamp: T + i * 10, is_sender: 0,
+        reply_to_external_id: null, platform: 'telegram',
+      })
+    }
+    const msgs = handleListMessages(20, 3)
+    expect(msgs).toHaveLength(3)
+    // Messages 8, 9, 10 are the 3 most recent, returned in chronological (ASC) order.
+    expect(msgs.map(m => m.text)).toEqual(['message 8', 'message 9', 'message 10'])
   })
 })
 

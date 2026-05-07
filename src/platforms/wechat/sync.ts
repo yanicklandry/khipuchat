@@ -58,6 +58,34 @@ export function mapChat(tableName: string, displayName: string, userName?: strin
 }
 
 /**
+ * Extract the user's own wxid from the WeChat user directory name.
+ * Directory names follow the pattern "{wxid}_{4-hex-suffix}", e.g. "wxid_abc123_d1f6".
+ */
+export function extractSelfWxid(userDir: string): string {
+  const base = path.basename(userDir)
+  return base.replace(/_[0-9a-f]{4}$/i, '')
+}
+
+/**
+ * Build a rowid → username map from the Name2Id table.
+ * Used in V4 to resolve real_sender_id to a wxid for is_sender detection.
+ */
+export function buildSenderIdMap(db: Database.Database): Map<number, string> {
+  const map = new Map<number, string>()
+  try {
+    const rows = db.prepare(
+      'SELECT rowid, user_name FROM Name2Id',
+    ).all() as { rowid: number; user_name: string }[]
+    for (const row of rows) {
+      map.set(row.rowid, row.user_name)
+    }
+  } catch {
+    // Name2Id absent (legacy schema)
+  }
+  return map
+}
+
+/**
  * Build a map from Msg_<md5> table names to the original WeChat user_name (wxid or chatroom ID).
  * WeChat 4.x stores table names as MD5(user_name).
  */
@@ -91,13 +119,32 @@ function extractWechat4Text(content: string | Buffer | null | undefined): string
   return s || null
 }
 
-export function mapMessage(row: WechatMessageRow, chatId: number): Message {
+export interface MessageMapOpts {
+  /** The user's own wxid, used for V4 is_sender detection. */
+  selfWxid?: string
+  /** rowid → username map from Name2Id, used for V4 is_sender detection. */
+  senderIdMap?: Map<number, string>
+}
+
+export function mapMessage(row: WechatMessageRow, chatId: number, opts?: MessageMapOpts): Message {
   // WeChat 4.x uses server_id / create_time / message_content / local_type
   const isV4 = row.server_id !== undefined || row.create_time !== undefined
   const externalId = isV4
     ? String(row.server_id ?? `${chatId}_${row.create_time}`)
     : String(row.MesSvrID ?? row.msgSvrID ?? `${chatId}_${row.CreateTime}`)
-  const isSend: 0 | 1 = row.Des === 0 || row.isSend === 1 ? 1 : 0  // V4 is_sender unknown → 0
+  // V4: real_sender_id is a rowid into Name2Id. Compare the resolved username to selfWxid.
+  // Legacy: Des=0 or isSend=1 means sent by the local user.
+  let isSend: 0 | 1
+  if (isV4) {
+    const { selfWxid, senderIdMap } = opts ?? {}
+    if (selfWxid && senderIdMap && row.real_sender_id !== undefined) {
+      isSend = senderIdMap.get(row.real_sender_id) === selfWxid ? 1 : 0
+    } else {
+      isSend = 0  // context not available, default to received
+    }
+  } else {
+    isSend = row.Des === 0 || row.isSend === 1 ? 1 : 0
+  }
   const rawText = isV4
     ? (row.WCDB_CT_message_content === 0 ? extractWechat4Text(row.message_content) : null)
     : (row.Message ?? row.strContent ?? null)
@@ -289,9 +336,12 @@ export async function runBackfillImpl(
   messageDbs: ReadonlyArray<string>,
   contactMap: ContactMap,
   keyMap: Map<string, string>,
+  userDir?: string,
 ): Promise<void> {
   let totalMessages = 0
   let totalChats = 0
+
+  const selfWxid = userDir ? extractSelfWxid(userDir) : undefined
 
   for (const dbPath of messageDbs) {
     const hexKey = resolveHexKey(dbPath, keyMap)
@@ -299,8 +349,12 @@ export async function runBackfillImpl(
     if (!chatDb) continue
 
     try {
-      // Build Msg_<md5> → user_name map for WeChat 4.x type detection
+      // Build Msg_<md5> → user_name map for WeChat 4.x type/chat detection
       const tableNameMap = buildTableNameMap(chatDb)
+      // Build rowid → username map for V4 is_sender detection
+      const senderIdMap = buildSenderIdMap(chatDb)
+      const msgOpts: MessageMapOpts = { selfWxid, senderIdMap }
+
       const tables = listChatTables(chatDb)
       for (const tableName of tables) {
         const userName = tableNameMap.get(tableName)        // undefined for legacy Chat_ tables
@@ -316,7 +370,7 @@ export async function runBackfillImpl(
           ).all() as WechatMessageRow[]
 
           for (const row of rows) {
-            insertMessage(mapMessage(row, chatId))
+            insertMessage(mapMessage(row, chatId, msgOpts))
           }
           totalMessages += rows.length
         } catch (err) {
@@ -370,7 +424,7 @@ export const wechatAdapter: PlatformAdapter = {
 
     const contactDir = path.join(userDir, 'db_storage', 'contact')
     const contactMap = buildWechatContactMap(contactDir, keyMap)
-    await runBackfillImpl(messageDbs, contactMap, keyMap)
+    await runBackfillImpl(messageDbs, contactMap, keyMap, userDir)
   },
   startListener(_db: Database.Database): void {},
 }

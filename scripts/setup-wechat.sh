@@ -112,7 +112,7 @@ if [ -z "$KEY_JSON" ]; then
   exit 1
 fi
 
-KEY_COUNT=$(echo "$KEY_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d))" 2>/dev/null || echo 0)
+KEY_COUNT=$(echo "$KEY_JSON" | jq 'length' 2>/dev/null || echo 0)
 echo ""
 echo "Extracted $KEY_COUNT database key(s)."
 

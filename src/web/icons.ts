@@ -16,12 +16,12 @@ const KNOWN: Record<string, { svg: string }> = {
   email: siGmail,
 }
 
-/** Resize a simple-icons SVG string to the given pixel size and use currentColor fill. */
+/** Resize a simple-icons SVG string to the given pixel size, use currentColor fill, and strip
+ *  the xmlns attribute (not needed for inline SVG in HTML5). */
 function resizeSvg(svg: string, size: number): string {
-  return svg.replace(
-    '<svg ',
-    `<svg width="${size}" height="${size}" fill="currentColor" `,
-  )
+  return svg
+    .replace(' xmlns="http://www.w3.org/2000/svg"', '')
+    .replace('<svg ', `<svg width="${size}" height="${size}" fill="currentColor" `)
 }
 
 /**

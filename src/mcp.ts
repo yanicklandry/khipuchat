@@ -85,11 +85,14 @@ export function handleListMessages(
       ) ORDER BY timestamp ASC
     `).all(chatId, beforeTimestamp, cap) as MessageResult[]
   }
+  // No beforeTimestamp: return the N most recent messages in chronological order.
   return getDb().prepare(`
-    SELECT id, sender_name, text, type, timestamp, is_sender, platform
-    FROM messages
-    WHERE chat_id = ? AND type = 'text' AND text IS NOT NULL AND text != ''
-    ORDER BY timestamp ASC LIMIT ?
+    SELECT id, sender_name, text, type, timestamp, is_sender, platform FROM (
+      SELECT id, sender_name, text, type, timestamp, is_sender, platform
+      FROM messages
+      WHERE chat_id = ? AND type = 'text' AND text IS NOT NULL AND text != ''
+      ORDER BY timestamp DESC LIMIT ?
+    ) ORDER BY timestamp ASC
   `).all(chatId, cap) as MessageResult[]
 }
 

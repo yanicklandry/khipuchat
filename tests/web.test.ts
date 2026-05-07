@@ -37,8 +37,11 @@ describe('HTML_PAGE', () => {
     expect(HTML_PAGE).toContain('<script')
   })
 
-  it('contains no external https:// references', () => {
-    expect(HTML_PAGE).not.toMatch(/https?:\/\//)
+  it('contains no external resource references (CDN, remote scripts, etc.)', () => {
+    // SVG xmlns namespace URIs (http://www.w3.org/...) are stripped from inline SVGs,
+    // so any remaining http(s) URLs would be unwanted external resource loads.
+    const withoutSvgNamespace = HTML_PAGE.replace(/xmlns="[^"]+"/g, '')
+    expect(withoutSvgNamespace).not.toMatch(/https?:\/\//)
   })
 
   it('references all three API routes in client JS', () => {

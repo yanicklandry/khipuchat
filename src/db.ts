@@ -148,12 +148,14 @@ export function upsertChat(chat: Chat): void {
 
 export function insertMessage(msg: Message): void {
   db().prepare(`
-    INSERT OR IGNORE INTO messages
+    INSERT INTO messages
       (external_id, chat_id, sender_id, sender_name, text, type, timestamp,
        is_sender, reply_to_external_id, platform)
     VALUES
       (@external_id, @chat_id, @sender_id, @sender_name, @text, @type, @timestamp,
        @is_sender, @reply_to_external_id, @platform)
+    ON CONFLICT(external_id, chat_id) DO UPDATE SET
+      is_sender = CASE WHEN excluded.is_sender = 1 THEN 1 ELSE messages.is_sender END
   `).run(msg)
 }
 
