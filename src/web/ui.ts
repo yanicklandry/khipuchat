@@ -1,3 +1,7 @@
+import { buildPlatformIconMap } from './icons'
+
+const PLATFORM_ICONS_JSON = JSON.stringify(buildPlatformIconMap())
+
 export const HTML_PAGE = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,6 +19,10 @@ export const HTML_PAGE = `<!DOCTYPE html>
     #type-filter { display: flex; border-bottom: 1px solid #ddd; }
     #type-filter button { flex: 1; padding: 8px 0; border: none; background: none; font-size: 12px; cursor: pointer; color: #555; border-bottom: 2px solid transparent; }
     #type-filter button.active { color: #0070f3; border-bottom-color: #0070f3; font-weight: 600; }
+    #platform-filter { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid #ddd; }
+    #platform-filter button { display: flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid #ccc; background: none; border-radius: 12px; font-size: 11px; cursor: pointer; color: #555; }
+    #platform-filter button.active { background: #0070f3; color: #fff; border-color: #0070f3; }
+    #platform-filter button svg { display: block; flex-shrink: 0; }
     #chat-list { flex: 1; overflow-y: auto; }
     #panel { flex: 1; overflow-y: auto; padding: 16px; }
     .chat-item { padding: 12px 14px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
@@ -50,20 +58,23 @@ export const HTML_PAGE = `<!DOCTYPE html>
     <div id="sidebar">
       <div id="type-filter">
         <button class="active" data-type="all">All</button>
-        <button data-type="private">Direct</button>
+        <button data-type="direct">Direct</button>
         <button data-type="group">Groups</button>
       </div>
+      <div id="platform-filter"></div>
       <div id="chat-list"></div>
     </div>
     <div id="panel"><div id="placeholder">Select a chat to view messages</div></div>
   </div>
   <script>
+    const PLATFORM_ICONS = ${PLATFORM_ICONS_JSON};
     const chatList = document.getElementById('chat-list');
     const panel = document.getElementById('panel');
     const qInput = document.getElementById('q');
     const searchBtn = document.getElementById('search-btn');
     let allChats = [];
     let activeType = 'all';
+    let activePlatform = 'all';
 
     document.getElementById('type-filter').addEventListener('click', e => {
       const btn = e.target.closest('button[data-type]');
@@ -73,18 +84,58 @@ export const HTML_PAGE = `<!DOCTYPE html>
       renderChatList();
     });
 
+    document.getElementById('platform-filter').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-platform]');
+      if (!btn) return;
+      activePlatform = btn.dataset.platform;
+      document.querySelectorAll('#platform-filter button').forEach(b => b.classList.toggle('active', b === btn));
+      renderChatList();
+    });
+
     function ts(t) {
       return new Date(t * 1000).toLocaleString();
     }
 
+    function isDirectChat(c) {
+      return c.type === 'private' || c.type === 'user';
+    }
+
+    function platformLabel(p) {
+      const icon = PLATFORM_ICONS[p];
+      if (icon) return icon;
+      return \`<span style="font-weight:700;font-size:12px">\${esc(p.charAt(0).toUpperCase())}</span>\`;
+    }
+
+    function renderPlatformFilter() {
+      const platformFilter = document.getElementById('platform-filter');
+      const platforms = [...new Set(allChats.map(c => c.platform))].sort();
+      platformFilter.innerHTML = '';
+      const allBtn = document.createElement('button');
+      allBtn.dataset.platform = 'all';
+      allBtn.textContent = 'All';
+      if (activePlatform === 'all') allBtn.classList.add('active');
+      platformFilter.appendChild(allBtn);
+      platforms.forEach(p => {
+        const btn = document.createElement('button');
+        btn.dataset.platform = p;
+        btn.innerHTML = platformLabel(p);
+        btn.title = p;
+        if (activePlatform === p) btn.classList.add('active');
+        platformFilter.appendChild(btn);
+      });
+    }
+
     function renderChatList() {
       chatList.innerHTML = '';
-      const filtered = activeType === 'all' ? allChats : allChats.filter(c => c.type === activeType);
+      let filtered = allChats;
+      if (activeType === 'direct') filtered = filtered.filter(isDirectChat);
+      else if (activeType !== 'all') filtered = filtered.filter(c => c.type === activeType);
+      if (activePlatform !== 'all') filtered = filtered.filter(c => c.platform === activePlatform);
       filtered.forEach(c => {
         const el = document.createElement('div');
         el.className = 'chat-item';
         el.dataset.chatId = c.chat_id;
-        const typeClass = c.type === 'group' ? 'group' : c.type === 'private' ? 'private' : '';
+        const typeClass = c.type === 'group' ? 'group' : isDirectChat(c) ? 'private' : '';
         el.innerHTML = \`
           <div class="chat-name">\${esc(c.name)}</div>
           <div class="chat-meta">
@@ -103,6 +154,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
     async function loadChats() {
       const res = await fetch('/api/chats');
       allChats = await res.json();
+      renderPlatformFilter();
       renderChatList();
     }
 
