@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import expressBasicAuth from 'express-basic-auth'
-import { handleListChats, handleSearchMessages, handleListMessages } from '../mcp'
+import { handleListChats, handleSearchMessages } from '../mcp'
+import { getMessages } from '../db'
 
 const router = Router()
 
@@ -41,7 +42,9 @@ router.get('/api/messages/:chatId', (req: Request, res: Response) => {
       res.status(400).json({ error: 'invalid chatId' })
       return
     }
-    res.json(handleListMessages(chatId))
+    // Use getMessages (not handleListMessages) so all message types are returned,
+    // not just text. The web UI handles media/other with a [media] placeholder.
+    res.json(getMessages(chatId, 500))
   } catch (err) {
     res.status(500).json({ error: (err as Error).message })
   }

@@ -41,6 +41,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
     .msg.received .msg-bubble { background: #fff; border: 1px solid #ddd; }
     .msg-meta { font-size: 11px; color: #aaa; margin-top: 3px; }
     .msg-media { font-style: italic; color: #888; }
+    .msg-sender { font-size: 12px; color: #5a67d8; font-weight: 600; }
     .result-item { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 8px 0; cursor: pointer; }
     .result-item:hover { background: #f7f7f7; }
     .result-chat { font-weight: 600; font-size: 13px; }
@@ -75,6 +76,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
     let allChats = [];
     let activeType = 'all';
     let activePlatform = 'all';
+    let currentChatType = 'private';
 
     document.getElementById('type-filter').addEventListener('click', e => {
       const btn = e.target.closest('button[data-type]');
@@ -135,16 +137,19 @@ export const HTML_PAGE = `<!DOCTYPE html>
         const el = document.createElement('div');
         el.className = 'chat-item';
         el.dataset.chatId = c.chat_id;
-        const typeClass = c.type === 'group' ? 'group' : isDirectChat(c) ? 'private' : '';
+        const isGroup = c.type === 'group';
+        const typeClass = isGroup ? 'group' : isDirectChat(c) ? 'private' : '';
+        const typeLabel = isGroup ? ' Group' : '';
         el.innerHTML = \`
           <div class="chat-name">\${esc(c.name)}</div>
           <div class="chat-meta">
-            <span class="badge \${typeClass}">\${esc(c.platform)} · \${esc(c.type)}</span>
+            <span class="badge \${typeClass}">\${platformLabel(c.platform)}\${typeLabel}</span>
             <span>\${c.message_count} msgs</span>
           </div>\`;
         el.addEventListener('click', () => {
           document.querySelectorAll('.chat-item').forEach(x => x.classList.remove('active'));
           el.classList.add('active');
+          currentChatType = c.type;
           loadThread(c.chat_id);
         });
         chatList.appendChild(el);
@@ -166,13 +171,20 @@ export const HTML_PAGE = `<!DOCTYPE html>
         panel.innerHTML = '<div id="placeholder">No messages found</div>';
         return;
       }
+      const isGroup = currentChatType === 'group';
       msgs.forEach(m => {
         const sent = m.is_sender === 1;
         const el = document.createElement('div');
         el.className = 'msg ' + (sent ? 'sent' : 'received');
+        const nameHtml = (!sent && isGroup && m.sender_name)
+          ? '<strong class="msg-sender">' + esc(m.sender_name) + '</strong><br>'
+          : '';
+        const bodyHtml = typeof m.text === 'string' && m.text
+          ? esc(m.text)
+          : '<em class="msg-media">[' + esc(m.type || 'media') + ']</em>';
         el.innerHTML = \`
-          <div class="msg-bubble">\${sent ? '' : '<strong>' + esc(m.sender_name || '') + '</strong><br>'}\${typeof m.text === 'string' ? esc(m.text) : '<em class="msg-media">[media]</em>'}</div>
-          <div class="msg-meta"><span class="badge">\${esc(m.platform)}</span> \${ts(m.timestamp)}</div>\`;
+          <div class="msg-bubble">\${nameHtml}\${bodyHtml}</div>
+          <div class="msg-meta">\${ts(m.timestamp)}</div>\`;
         panel.appendChild(el);
       });
       panel.scrollTop = panel.scrollHeight;
@@ -194,7 +206,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         el.className = 'result-item';
         el.dataset.chatId = r.chat_id;
         el.innerHTML = \`
-          <div class="result-chat">\${esc(r.chat_name)} <span class="badge">\${esc(r.platform)}</span></div>
+          <div class="result-chat">\${esc(r.chat_name)} <span class="badge" title="\${esc(r.platform)}">\${platformLabel(r.platform)}</span></div>
           <div class="result-text">\${r.sender_name ? '<strong>' + esc(r.sender_name) + '</strong>: ' : ''}\${esc(r.text || '')}</div>
           <div class="result-meta"><span>\${ts(r.timestamp)}</span></div>\`;
         el.addEventListener('click', () => {
