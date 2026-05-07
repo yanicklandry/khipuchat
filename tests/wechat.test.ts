@@ -20,10 +20,10 @@ import { buildWechatContactMap } from '../src/platforms/wechat/contacts'
 
 // ── Mock DB factories ─────────────────────────────────────────────────────────
 
-/** Create an in-memory SQLite DB with a Chat_<tableName> table containing rows. */
+/** Create an in-memory SQLite DB with a Msg_<tableName> table containing rows. */
 function makeMockChatDb(tableName: string, rows: WechatMessageRow[]): Database.Database {
   const db = new Database(':memory:')
-  const table = `Chat_${tableName}`
+  const table = `Msg_${tableName}`
   db.exec(`
     CREATE TABLE "${table}" (
       msgSvrID   INTEGER,
@@ -190,7 +190,7 @@ describe('buildWechatContactMap', () => {
     fs.writeFileSync(dbPath, contactDb.serialize())
     contactDb.close()
 
-    const map = buildWechatContactMap(tmpDir, '')
+    const map = buildWechatContactMap(tmpDir)
     expect(map.get('wxid_alice')).toBe('Alice')
     expect(map.get('wxid_bob')).toBe('Bob')
   })
@@ -203,18 +203,18 @@ describe('buildWechatContactMap', () => {
     fs.writeFileSync(dbPath, contactDb.serialize())
     contactDb.close()
 
-    const map = buildWechatContactMap(tmpDir, '')
+    const map = buildWechatContactMap(tmpDir)
     expect(map.get('wxid_carol')).toBe('Carol')
   })
 
   it('returns empty map when no contact database found', () => {
-    const map = buildWechatContactMap(tmpDir, '')
+    const map = buildWechatContactMap(tmpDir)
     expect(map.size).toBe(0)
   })
 
   it('returns empty map without throwing for inaccessible directory', () => {
-    expect(() => buildWechatContactMap('/nonexistent/path/xyz', '')).not.toThrow()
-    expect(buildWechatContactMap('/nonexistent/path/xyz', '').size).toBe(0)
+    expect(() => buildWechatContactMap('/nonexistent/path/xyz')).not.toThrow()
+    expect(buildWechatContactMap('/nonexistent/path/xyz').size).toBe(0)
   })
 })
 
@@ -324,10 +324,10 @@ describe('runBackfillImpl integration', () => {
     db2.close()
 
     const contactMap = new Map([
-      ['Chat_wxid_alice', 'Alice'],
-      ['Chat_room1_chatroom', 'Group Chat'],
+      ['Msg_wxid_alice', 'Alice'],
+      ['Msg_room1_chatroom', 'Group Chat'],
     ])
-    await runBackfillImpl([path1, path2], contactMap, '')
+    await runBackfillImpl([path1, path2], contactMap, new Map())
 
     const chats = getChats()
     expect(chats).toHaveLength(2)
@@ -346,15 +346,15 @@ describe('runBackfillImpl integration', () => {
     fs.writeFileSync(dbPath, db.serialize())
     db.close()
 
-    await runBackfillImpl([dbPath], new Map(), '')
-    await runBackfillImpl([dbPath], new Map(), '')
+    await runBackfillImpl([dbPath], new Map(), new Map())
+    await runBackfillImpl([dbPath], new Map(), new Map())
 
     expect(getChats()).toHaveLength(1)
     fs.rmSync(tmpDir, { recursive: true })
   })
 
   it('handles non-existent DB path gracefully (skips it)', async () => {
-    await expect(runBackfillImpl(['/nonexistent/message_0.db'], new Map(), '')).resolves.not.toThrow()
+    await expect(runBackfillImpl(['/nonexistent/message_0.db'], new Map(), new Map())).resolves.not.toThrow()
   })
 
   it('skips tables with unknown schema without crashing', async () => {
@@ -368,7 +368,7 @@ describe('runBackfillImpl integration', () => {
     db.close()
 
     // Missing CreateTime column causes error → should be caught gracefully
-    await expect(runBackfillImpl([dbPath], new Map(), '')).resolves.not.toThrow()
+    await expect(runBackfillImpl([dbPath], new Map(), new Map())).resolves.not.toThrow()
     fs.rmSync(tmpDir, { recursive: true })
   })
 })

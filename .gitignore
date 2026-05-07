@@ -5,3 +5,4 @@ telegram.db
 *.db-shm
 *.db-wal
 scripts/wechat-key-extract
+.wechat-keys.json

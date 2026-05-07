@@ -1,78 +1,75 @@
 /*
  * wechat-key-extract.c
- * Extracts the SQLCipher key from a running WeChat for Mac process by
- * scanning heap memory and verifying candidates against the database HMAC.
+ * Scan a running WeChat 4.x process for its SQLCipher key.
+ *
+ * WeChat stores the key in process memory as the ASCII literal:
+ *   x'<64-hex-enc-key><32-hex-salt>'
+ * We search for that text pattern, then verify each candidate against the
+ * salt embedded in message_0.db's first page.
  *
  * Prerequisites:
- *   - WeChat must be ad-hoc signed (no hardened runtime):
- *       sudo codesign --force --deep --sign - /Applications/WeChat.app
- *   - WeChat must be running with databases open (log in to WeChat first)
+ *   WeChat must be ad-hoc re-signed (removes Hardened Runtime):
+ *     sudo codesign --force --deep --sign - /Applications/WeChat.app
+ *   Then restart WeChat and log in before running this tool.
  *
  * Build:
- *   cc -O2 -o wechat-key-extract wechat-key-extract.c \
- *      -framework Security -framework CoreFoundation \
- *      -lCommonCrypto 2>/dev/null || \
- *   cc -O2 -o wechat-key-extract wechat-key-extract.c \
- *      -framework Security -framework CoreFoundation
+ *   cc -O2 -arch arm64 -arch x86_64 \
+ *      -o wechat-key-extract wechat-key-extract.c \
+ *      -framework CoreFoundation
  *
  * Usage:
- *   ./wechat-key-extract <pid> <path_to_message_0.db>
+ *   sudo ./wechat-key-extract <pid> <path_to_message_0.db>
+ *
+ * Output (stdout):
+ *   WECHAT_DB_KEY=<64-hex-chars>
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
-#include <CommonCrypto/CommonCrypto.h>
-#include <CommonCrypto/CommonKeyDerivation.h>
 
-#define PAGE_SZ   4096
-#define RESERVE   80
-#define SALT_SZ   16
-#define KEY_SZ    32
-#define HMAC_SZ   64   /* SHA-512 */
-#define ITER_MAC  2
+#define CHUNK_SIZE   (2 * 1024 * 1024)  /* read 2 MB at a time */
+#define KEY_HEX_LEN  64
+#define SALT_HEX_LEN 32
+#define PATTERN_LEN  (KEY_HEX_LEN + SALT_HEX_LEN)  /* 96 hex chars */
+#define MAX_KEYS     256
+#define SALT_BYTES   16
+#define PAGE_SZ      4096
 
-/*
- * SQLCipher 4 HMAC verification:
- * mac_salt = salt XOR 0x3a (each byte)
- * mac_key  = PBKDF2-HMAC-SHA512(enc_key, mac_salt, 2, 32)
- * hmac_data = page1[16 .. page_sz-64-1]  (content + IV)
- * stored   = page1[page_sz-64 .. page_sz-1]
- * expected = HMAC-SHA512(mac_key, hmac_data || page_num_le32)
- */
-static int verify_key(const uint8_t *key, const uint8_t *page1)
+typedef struct {
+    char key_hex[KEY_HEX_LEN + 1];
+    char salt_hex[SALT_HEX_LEN + 1];
+} key_entry_t;
+
+static int is_hex(unsigned char c)
 {
-    const uint8_t *salt = page1;
+    return (c >= '0' && c <= '9') ||
+           (c >= 'a' && c <= 'f') ||
+           (c >= 'A' && c <= 'F');
+}
 
-    /* derive MAC key */
-    uint8_t mac_salt[SALT_SZ];
-    for (int i = 0; i < SALT_SZ; i++) mac_salt[i] = salt[i] ^ 0x3a;
+static void to_lower(char *s, int len)
+{
+    for (int i = 0; i < len; i++)
+        if (s[i] >= 'A' && s[i] <= 'F') s[i] += 32;
+}
 
-    uint8_t mac_key[KEY_SZ];
-    CCKeyDerivationPBKDF(kCCPBKDF2,
-                         (const char *)key, KEY_SZ,
-                         mac_salt, SALT_SZ,
-                         kCCPRFHmacAlgSHA512,
-                         ITER_MAC,
-                         mac_key, KEY_SZ);
-
-    /* HMAC-SHA512 over [16..PAGE_SZ-HMAC_SZ) + page_number(=1, 4 bytes LE) */
-    size_t data_len = PAGE_SZ - HMAC_SZ - SALT_SZ; /* 4096-64-16 = 4016 */
-    const uint8_t *hmac_data = page1 + SALT_SZ;
-    uint32_t page_no = 1;
-
-    CCHmacContext ctx;
-    CCHmacInit(&ctx, kCCHmacAlgSHA512, mac_key, KEY_SZ);
-    CCHmacUpdate(&ctx, hmac_data, data_len);
-    CCHmacUpdate(&ctx, &page_no, sizeof(page_no));
-    uint8_t computed[HMAC_SZ];
-    CCHmacFinal(&ctx, computed);
-
-    const uint8_t *stored = page1 + PAGE_SZ - HMAC_SZ;
-    return memcmp(computed, stored, HMAC_SZ) == 0;
+/* Read the first 16 bytes of the DB file and return them as a lowercase hex string. */
+static int read_db_salt(const char *path, char salt_hex_out[SALT_HEX_LEN + 1])
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    unsigned char buf[SALT_BYTES];
+    if ((int)fread(buf, 1, SALT_BYTES, f) != SALT_BYTES) { fclose(f); return -1; }
+    fclose(f);
+    /* Reject unencrypted SQLite files */
+    if (memcmp(buf, "SQLite format 3", 15) == 0) return -1;
+    for (int i = 0; i < SALT_BYTES; i++)
+        sprintf(salt_hex_out + i * 2, "%02x", buf[i]);
+    salt_hex_out[SALT_HEX_LEN] = '\0';
+    return 0;
 }
 
 int main(int argc, char *argv[])
@@ -82,7 +79,7 @@ int main(int argc, char *argv[])
             "Usage: %s <wechat_pid> <path_to_message_0.db>\n\n"
             "WeChat must be ad-hoc signed first:\n"
             "  sudo codesign --force --deep --sign - /Applications/WeChat.app\n"
-            "Then restart WeChat and log in before running this tool.\n",
+            "Then restart WeChat and log in.\n",
             argv[0]);
         return 1;
     }
@@ -90,27 +87,16 @@ int main(int argc, char *argv[])
     pid_t pid = (pid_t)atoi(argv[1]);
     const char *db_path = argv[2];
 
-    /* Read first page of database */
-    FILE *f = fopen(db_path, "rb");
-    if (!f) {
-        fprintf(stderr, "Cannot open database: %s\n", db_path);
+    /* Read the salt from the database file */
+    char db_salt[SALT_HEX_LEN + 1];
+    if (read_db_salt(db_path, db_salt) != 0) {
+        fprintf(stderr, "Cannot read salt from: %s\n"
+            "(File may be missing, too small, or already unencrypted)\n", db_path);
         return 1;
     }
-    uint8_t page1[PAGE_SZ];
-    if (fread(page1, 1, PAGE_SZ, f) != PAGE_SZ) {
-        fprintf(stderr, "Database too small\n");
-        fclose(f);
-        return 1;
-    }
-    fclose(f);
+    fprintf(stderr, "DB salt: %s\n", db_salt);
 
-    /* Sanity: first 16 bytes must not be "SQLite format 3" */
-    if (memcmp(page1, "SQLite format 3", 15) == 0) {
-        fprintf(stderr, "Database is not encrypted.\n");
-        return 1;
-    }
-
-    /* Get task port for the WeChat process */
+    /* Attach to WeChat process */
     mach_port_t task = MACH_PORT_NULL;
     kern_return_t kr = task_for_pid(mach_task_self(), pid, &task);
     if (kr != KERN_SUCCESS) {
@@ -118,79 +104,130 @@ int main(int argc, char *argv[])
             "task_for_pid failed (kr=%d).\n"
             "Make sure WeChat has been ad-hoc signed:\n"
             "  sudo codesign --force --deep --sign - /Applications/WeChat.app\n"
-            "Then restart WeChat and log in.\n",
-            kr);
+            "Then restart WeChat and log in.\n", kr);
         return 1;
     }
 
-    fprintf(stderr, "Scanning WeChat (pid=%d) memory for SQLCipher key...\n", pid);
+    fprintf(stderr, "Scanning WeChat (pid=%d) memory for key pattern...\n", pid);
+
+    key_entry_t keys[MAX_KEYS];
+    int key_count = 0;
+    size_t total_scanned = 0;
 
     mach_vm_address_t addr = 0;
-    uint64_t regions_scanned = 0;
-    uint64_t bytes_scanned = 0;
-    int found = 0;
-
-    while (!found) {
+    while (1) {
         mach_vm_size_t region_size = 0;
         vm_region_basic_info_data_64_t info;
         mach_msg_type_number_t info_count = VM_REGION_BASIC_INFO_COUNT_64;
-        mach_port_t object_name = MACH_PORT_NULL;
+        mach_port_t obj_name = MACH_PORT_NULL;
 
-        kr = mach_vm_region(task, &addr, &region_size,
-                            VM_REGION_BASIC_INFO_64,
-                            (vm_region_info_t)&info,
-                            &info_count, &object_name);
+        kr = mach_vm_region(task, &addr, &region_size, VM_REGION_BASIC_INFO_64,
+                            (vm_region_info_t)&info, &info_count, &obj_name);
         if (kr != KERN_SUCCESS) break;
+        if (region_size == 0) { addr++; continue; }
 
-        if (object_name != MACH_PORT_NULL)
-            mach_port_deallocate(mach_task_self(), object_name);
+        if (obj_name != MACH_PORT_NULL)
+            mach_port_deallocate(mach_task_self(), obj_name);
 
-        /* Only scan read+write regions (heap, stack) */
-        int readable = (info.protection & VM_PROT_READ) != 0;
-        int writable = (info.protection & VM_PROT_WRITE) != 0;
+        /* Only scan read+write regions */
+        if ((info.protection & (VM_PROT_READ | VM_PROT_WRITE)) ==
+                (VM_PROT_READ | VM_PROT_WRITE)) {
 
-        if (readable && writable && region_size >= KEY_SZ) {
-            uint8_t *buf = malloc(region_size);
-            if (buf) {
-                mach_vm_size_t bytes_read = 0;
-                kr = mach_vm_read_overwrite(task, addr, region_size,
-                                            (mach_vm_address_t)buf,
-                                            &bytes_read);
-                if (kr == KERN_SUCCESS && bytes_read >= KEY_SZ) {
-                    for (mach_vm_size_t i = 0;
-                         i + KEY_SZ <= bytes_read && !found;
+            mach_vm_address_t chunk_addr = addr;
+            while (chunk_addr < addr + region_size) {
+                mach_vm_size_t chunk_size = addr + region_size - chunk_addr;
+                if (chunk_size > CHUNK_SIZE) chunk_size = CHUNK_SIZE;
+
+                vm_offset_t data = 0;
+                mach_msg_type_number_t data_count = 0;
+                kr = mach_vm_read(task, chunk_addr, chunk_size, &data, &data_count);
+                if (kr == KERN_SUCCESS) {
+                    unsigned char *buf = (unsigned char *)data;
+                    total_scanned += data_count;
+
+                    /* Search for x'<96 hex chars>' */
+                    for (mach_msg_type_number_t i = 0;
+                         i + PATTERN_LEN + 3 < data_count && key_count < MAX_KEYS;
                          i++) {
-                        if (verify_key(buf + i, page1)) {
-                            /* Print key as 64-char hex */
-                            printf("WECHAT_DB_KEY=");
-                            for (int j = 0; j < KEY_SZ; j++)
-                                printf("%02x", buf[i + j]);
-                            printf("\n");
-                            found = 1;
+                        if (buf[i] != 'x' || buf[i + 1] != '\'') continue;
+
+                        /* Check 96 hex chars */
+                        int valid = 1;
+                        for (int j = 0; j < PATTERN_LEN; j++) {
+                            if (!is_hex(buf[i + 2 + j])) { valid = 0; break; }
+                        }
+                        if (!valid) continue;
+                        if (buf[i + 2 + PATTERN_LEN] != '\'') continue;
+
+                        char key_hex[KEY_HEX_LEN + 1];
+                        char salt_hex[SALT_HEX_LEN + 1];
+                        memcpy(key_hex,  buf + i + 2,                  KEY_HEX_LEN);
+                        memcpy(salt_hex, buf + i + 2 + KEY_HEX_LEN,    SALT_HEX_LEN);
+                        key_hex[KEY_HEX_LEN]   = '\0';
+                        salt_hex[SALT_HEX_LEN] = '\0';
+                        to_lower(key_hex,  KEY_HEX_LEN);
+                        to_lower(salt_hex, SALT_HEX_LEN);
+
+                        /* Deduplicate */
+                        int dup = 0;
+                        for (int k = 0; k < key_count; k++) {
+                            if (strcmp(keys[k].key_hex,  key_hex)  == 0 &&
+                                strcmp(keys[k].salt_hex, salt_hex) == 0) {
+                                dup = 1; break;
+                            }
+                        }
+                        if (!dup) {
+                            memcpy(keys[key_count].key_hex,  key_hex,  KEY_HEX_LEN + 1);
+                            memcpy(keys[key_count].salt_hex, salt_hex, SALT_HEX_LEN + 1);
+                            key_count++;
                         }
                     }
-                    bytes_scanned += bytes_read;
+                    mach_vm_deallocate(mach_task_self(), data, data_count);
                 }
-                free(buf);
-            }
-            regions_scanned++;
-        }
 
+                /* Advance with overlap to catch patterns spanning chunk boundaries */
+                if (chunk_size > (mach_vm_size_t)(PATTERN_LEN + 3))
+                    chunk_addr += chunk_size - (PATTERN_LEN + 3);
+                else
+                    chunk_addr += chunk_size;
+            }
+        }
         addr += region_size;
     }
 
     mach_port_deallocate(mach_task_self(), task);
 
-    if (!found) {
+    fprintf(stderr, "Scan complete: %.1f MB scanned, %d unique key(s) found.\n",
+            (double)total_scanned / (1024 * 1024), key_count);
+
+    if (key_count == 0) {
         fprintf(stderr,
-            "Key not found in %.1f MB scanned across %llu regions.\n"
-            "Make sure WeChat is running and you are logged in.\n",
-            (double)bytes_scanned / (1024 * 1024),
-            regions_scanned);
+            "No keys found. Make sure:\n"
+            "  1. WeChat is ad-hoc signed (hardened runtime removed)\n"
+            "  2. WeChat is running and you are logged in\n"
+            "  3. You have opened at least one chat\n");
         return 1;
     }
 
-    fprintf(stderr, "Key found! Scanned %.1f MB.\n",
-            (double)bytes_scanned / (1024 * 1024));
+    /* Output all key+salt pairs as a JSON object: {"<salt>": "<key>", ...} */
+    printf("{");
+    for (int i = 0; i < key_count; i++) {
+        printf("%s\"%s\": \"%s\"",
+            i > 0 ? ", " : "",
+            keys[i].salt_hex,
+            keys[i].key_hex);
+    }
+    printf("}\n");
+
+    /* Confirm at least the reference DB's salt was found */
+    int matched = 0;
+    for (int i = 0; i < key_count; i++) {
+        if (strcmp(keys[i].salt_hex, db_salt) == 0) { matched = 1; break; }
+    }
+    if (!matched) {
+        fprintf(stderr,
+            "Warning: none of the %d found key(s) matched message_0.db's salt.\n"
+            "Open a few chats in WeChat and re-run setup.\n", key_count);
+    }
     return 0;
 }

@@ -1,6 +1,8 @@
+import 'dotenv/config'
 import fs from 'node:fs'
 import path from 'node:path'
 import Database from 'better-sqlite3-multiple-ciphers'
+import { resolveHexKey } from './sync'
 
 export type ContactMap = ReadonlyMap<string, string>
 
@@ -16,25 +18,26 @@ interface ContactRow {
  *
  * @param contactDir  The db_storage/contact directory for xwechat_files format,
  *                    or any directory to search recursively for WCDB_Contact.db.
- * @param hexKey      64-char hex SQLCipher key, or '' for unencrypted.
+ * @param keyMap      salt→key map from .wechat-keys.json
  */
 export function buildWechatContactMap(
   contactDir: string,
-  hexKey = process.env['WECHAT_DB_KEY'] ?? '',
+  keyMap: Map<string, string> = new Map(),
 ): ContactMap {
   const map = new Map<string, string>()
 
   // Try new format: contact.db directly in contactDir
   const newFormatPath = path.join(contactDir, 'contact.db')
   if (fs.existsSync(newFormatPath)) {
+    const hexKey = resolveHexKey(newFormatPath, keyMap)
     tryOpenContactDb(newFormatPath, hexKey, map)
     return map
   }
 
-  // Fallback: search recursively for WCDB_Contact.db (old format)
+  // Fallback: search recursively for WCDB_Contact.db (old format, unencrypted)
   const oldFormatPath = findDbRecursive(contactDir, 'WCDB_Contact.db')
   if (oldFormatPath) {
-    tryOpenContactDb(oldFormatPath, '', map)  // old format was unencrypted
+    tryOpenContactDb(oldFormatPath, '', map)
     return map
   }
 
@@ -49,6 +52,8 @@ function tryOpenContactDb(dbPath: string, hexKey: string, map: Map<string, strin
   try {
     db = new Database(dbPath, { readonly: true })
     if (hexKey) {
+      db.pragma(`cipher='sqlcipher'`)
+      db.pragma(`legacy=4`)
       db.pragma(`key = "x'${hexKey}'"`)
     }
     db.pragma('user_version')

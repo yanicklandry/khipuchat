@@ -1,3 +1,5 @@
+import 'dotenv/config'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { homedir } from 'node:os'
@@ -9,15 +11,23 @@ import { buildWechatContactMap, type ContactMap } from './contacts'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface WechatMessageRow {
+  // Legacy schema (WeChat 3.x / xwechat older)
   msgSvrID?: number | bigint
   MesSvrID?: number | bigint
-  CreateTime: number
+  CreateTime?: number
   Message?: string | null
   strContent?: string | null
   Des?: 0 | 1
   isSend?: 0 | 1
   Type?: number
   MsgType?: number
+  // WeChat 4.x schema
+  server_id?: number | bigint
+  create_time?: number
+  message_content?: string | Buffer | null
+  WCDB_CT_message_content?: number   // 0=plain text, 4=zstd blob
+  real_sender_id?: number
+  local_type?: number
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
@@ -36,30 +46,71 @@ export function tableNameToChatId(tableName: string): number {
   return hashStr(tableName)
 }
 
-export function mapChat(tableName: string, displayName: string): Chat {
+export function mapChat(tableName: string, displayName: string, userName?: string): Chat {
+  const typeHint = userName ?? displayName
   return {
     id: tableNameToChatId(tableName),
     name: displayName,
-    type: displayName.includes('@chatroom') ? 'group' : 'private',
-    username: null,
+    type: typeHint.includes('@chatroom') ? 'group' : 'private',
+    username: userName ?? null,
     platform: 'wechat' as Platform,
   }
 }
 
+/**
+ * Build a map from Msg_<md5> table names to the original WeChat user_name (wxid or chatroom ID).
+ * WeChat 4.x stores table names as MD5(user_name).
+ */
+export function buildTableNameMap(db: Database.Database): Map<string, string> {
+  const map = new Map<string, string>()
+  try {
+    const rows = db.prepare(
+      "SELECT user_name FROM Name2Id WHERE is_session = 1",
+    ).all() as { user_name: string }[]
+    for (const row of rows) {
+      const hash = createHash('md5').update(row.user_name).digest('hex')
+      map.set(`Msg_${hash}`, row.user_name)
+    }
+  } catch {
+    // Name2Id table absent in this DB (legacy schema or no sessions)
+  }
+  return map
+}
+
+/** Extract readable text from a WeChat 4.x message_content value.
+ *  Group chat messages are prefixed with `sender_wxid:\n`. */
+function extractWechat4Text(content: string | Buffer | null | undefined): string | null {
+  if (!content || Buffer.isBuffer(content)) return null  // zstd blob — skip
+  const s = content as string
+  // Strip group-chat sender prefix: `wxid_xxx:\ntext` or `chatroom_id:\ntext`
+  const newline = s.indexOf('\n')
+  if (newline > 0 && newline < 80 && s[newline - 1] !== undefined) {
+    const prefix = s.slice(0, newline)
+    if (/^[a-zA-Z0-9_@.:-]+$/.test(prefix)) return s.slice(newline + 1) || null
+  }
+  return s || null
+}
+
 export function mapMessage(row: WechatMessageRow, chatId: number): Message {
-  // Handle both old (MesSvrID/Des) and new (msgSvrID/isSend) column names
-  const externalId = String(row.MesSvrID ?? row.msgSvrID ?? chatId + '_' + row.CreateTime)
-  const isSend = row.Des === 0 || row.isSend === 1 ? 1 : 0
-  const text = row.Message ?? row.strContent ?? null
-  const msgType = row.Type ?? row.MsgType ?? 1
+  // WeChat 4.x uses server_id / create_time / message_content / local_type
+  const isV4 = row.server_id !== undefined || row.create_time !== undefined
+  const externalId = isV4
+    ? String(row.server_id ?? `${chatId}_${row.create_time}`)
+    : String(row.MesSvrID ?? row.msgSvrID ?? `${chatId}_${row.CreateTime}`)
+  const isSend: 0 | 1 = row.Des === 0 || row.isSend === 1 ? 1 : 0  // V4 is_sender unknown → 0
+  const rawText = isV4
+    ? (row.WCDB_CT_message_content === 0 ? extractWechat4Text(row.message_content) : null)
+    : (row.Message ?? row.strContent ?? null)
+  const msgType = isV4 ? (row.local_type ?? 1) : (row.Type ?? row.MsgType ?? 1)
+  const timestamp = isV4 ? (row.create_time ?? 0) : (row.CreateTime ?? 0)
   return {
     external_id: externalId,
     chat_id: chatId,
     sender_id: null,
     sender_name: null,
-    text,
-    type: msgType === 1 && text ? 'text' : 'other',
-    timestamp: row.CreateTime,
+    text: rawText,
+    type: msgType === 1 && rawText ? 'text' : 'other',
+    timestamp,
     is_sender: isSend,
     reply_to_external_id: null,
     platform: 'wechat' as Platform,
@@ -123,12 +174,41 @@ export function validateContainer(containerRoot: string): void {
   }
 }
 
+// ── Key loading ───────────────────────────────────────────────────────────────
+
+/** Load the salt→key map from .wechat-keys.json (written by setup-wechat.sh). */
+export function loadWechatKeyMap(): Map<string, string> {
+  const keysFile = path.resolve(process.cwd(), '.wechat-keys.json')
+  try {
+    const raw = fs.readFileSync(keysFile, 'utf8')
+    const obj = JSON.parse(raw) as Record<string, string>
+    return new Map(Object.entries(obj))
+  } catch {
+    return new Map()
+  }
+}
+
+/**
+ * Given a database file path and a salt→key map, return the hex key for that file.
+ * Returns '' if no key found (file will be opened as unencrypted / fail gracefully).
+ */
+export function resolveHexKey(filePath: string, keyMap: Map<string, string>): string {
+  if (keyMap.size === 0) return ''
+  try {
+    const buf = fs.readFileSync(filePath)
+    const salt = buf.slice(0, 16).toString('hex')
+    return keyMap.get(salt) ?? ''
+  } catch {
+    return ''
+  }
+}
+
 // ── Database opening ──────────────────────────────────────────────────────────
 
 /**
  * Open a WeChat SQLCipher database.
  * @param filePath  Path to the .db file
- * @param hexKey    64-char hex SQLCipher key (WECHAT_DB_KEY), or empty for plaintext
+ * @param hexKey    64-char hex key, or '' for plaintext
  */
 export function openWechatDb(
   filePath: string,
@@ -138,7 +218,10 @@ export function openWechatDb(
   try {
     db = new Database(filePath, { readonly: true })
     if (hexKey) {
-      // SQLCipher raw-key syntax: x'<64 hex chars>'
+      // WeChat 4.x uses SQLCipher 4 — must set cipher before key
+      db.pragma(`cipher='sqlcipher'`)
+      db.pragma(`legacy=4`)
+      // Raw-key syntax: bypasses KDF, uses the 32-byte key directly
       db.pragma(`key = "x'${hexKey}'"`)
     }
     // Probe: triggers SQLITE_NOTADB on wrong key or unencrypted file
@@ -164,11 +247,11 @@ export function openWechatDb(
   }
 }
 
-/** Return all Chat_* table names in a database, or [] on failure. */
+/** Return all Chat_* or Msg_* table names in a database, or [] on failure. */
 export function listChatTables(db: Database.Database): string[] {
   try {
     const rows = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Chat_%'",
+      "SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE 'Chat_%' OR name LIKE 'Msg_%')",
     ).all() as { name: string }[]
     return rows.map(r => r.name)
   } catch {
@@ -179,42 +262,51 @@ export function listChatTables(db: Database.Database): string[] {
 // ── Sync core ─────────────────────────────────────────────────────────────────
 
 /**
- * Detect the message column schema from the first row of a Chat_* table.
- * Returns a SQL fragment for SELECT and a type discriminator.
+ * Detect the message column schema (WeChat 3.x vs 4.x) and return the SELECT columns.
+ * WeChat 4.x tables use: server_id, create_time, message_content, WCDB_CT_message_content,
+ *   real_sender_id, local_type.
+ * Older tables use: msgSvrID/MesSvrID, CreateTime, Message/strContent, Des/isSend, Type/MsgType.
  */
 function buildSelectColumns(db: Database.Database, tableName: string): string {
-  // Probe column names
   const info = db.prepare(`PRAGMA table_info("${tableName}")`).all() as { name: string }[]
   const cols = new Set(info.map(c => c.name))
 
+  if (cols.has('create_time') && cols.has('server_id')) {
+    // WeChat 4.x schema
+    const ct = cols.has('WCDB_CT_message_content') ? 'WCDB_CT_message_content' : '0 AS WCDB_CT_message_content'
+    return `server_id, create_time, message_content, ${ct}, real_sender_id, local_type`
+  }
+
+  // Legacy schema
   const externalIdCol = cols.has('msgSvrID') ? 'msgSvrID' : cols.has('MesSvrID') ? 'MesSvrID' : 'rowid'
   const textCol = cols.has('strContent') ? 'strContent' : cols.has('Message') ? 'Message' : 'NULL'
   const dirCol = cols.has('isSend') ? 'isSend' : cols.has('Des') ? 'Des' : '0'
   const typeCol = cols.has('Type') ? 'Type' : cols.has('MsgType') ? 'MsgType' : '1'
-
   return `${externalIdCol} AS msgSvrID, CreateTime, ${textCol} AS Message, ${dirCol} AS Des, ${typeCol} AS Type`
 }
 
 export async function runBackfillImpl(
   messageDbs: ReadonlyArray<string>,
   contactMap: ContactMap,
-  hexKey: string,
+  keyMap: Map<string, string>,
 ): Promise<void> {
   let totalMessages = 0
   let totalChats = 0
 
   for (const dbPath of messageDbs) {
+    const hexKey = resolveHexKey(dbPath, keyMap)
     const chatDb = openWechatDb(dbPath, hexKey)
     if (!chatDb) continue
 
     try {
+      // Build Msg_<md5> → user_name map for WeChat 4.x type detection
+      const tableNameMap = buildTableNameMap(chatDb)
       const tables = listChatTables(chatDb)
       for (const tableName of tables) {
-        // tableName is like Chat_a3f4b7...
-        // Try to find a friendly name from contact map
+        const userName = tableNameMap.get(tableName)        // undefined for legacy Chat_ tables
+        const displayName = (userName && contactMap.get(userName)) ?? userName ?? contactMap.get(tableName) ?? tableName
         const chatId = tableNameToChatId(tableName)
-        const displayName = contactMap.get(tableName) ?? tableName
-        upsertChat(mapChat(tableName, displayName))
+        upsertChat(mapChat(tableName, displayName, userName))
         totalChats++
 
         try {
@@ -260,10 +352,10 @@ export const wechatAdapter: PlatformAdapter = {
       )
     }
 
-    const hexKey = process.env['WECHAT_DB_KEY'] ?? ''
-    if (!hexKey) {
+    const keyMap = loadWechatKeyMap()
+    if (keyMap.size === 0) {
       process.stderr.write(
-        '[wechat] WECHAT_DB_KEY is not set. Databases are encrypted.\n' +
+        '[wechat] No keys found (.wechat-keys.json is missing or empty).\n' +
         'Run: npm run setup:wechat\n',
       )
     }
@@ -277,8 +369,8 @@ export const wechatAdapter: PlatformAdapter = {
     )
 
     const contactDir = path.join(userDir, 'db_storage', 'contact')
-    const contactMap = buildWechatContactMap(contactDir)
-    await runBackfillImpl(messageDbs, contactMap, hexKey)
+    const contactMap = buildWechatContactMap(contactDir, keyMap)
+    await runBackfillImpl(messageDbs, contactMap, keyMap)
   },
   startListener(_db: Database.Database): void {},
 }
