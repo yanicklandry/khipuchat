@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3-multiple-ciphers'
-import { initDb, upsertChat, insertMessage, type Chat, type Message } from '../../db'
+import { initDb, getDb, upsertChat, insertMessage, setLastSyncedAt, type Chat, type Message } from '../../db'
 import type { Platform, PlatformAdapter } from '../types'
 import { createWhatsAppClient, type WhatsAppClient, type WAChat, type WAMessage } from './client'
 
@@ -39,30 +39,65 @@ export function mapMessage(msg: WAMessage, chatId: number, senderName: string): 
 
 export async function runBackfillImpl(client: WhatsAppClient): Promise<void> {
   const chats = await client.getChats()
+
+  // Load per-chat last_synced_at for incremental mode (mirrors Telegram sync pattern)
+  const syncedAt = new Map<number, number>()
+  const rows = getDb().prepare(
+    "SELECT id, last_synced_at FROM chats WHERE platform = 'whatsapp' AND last_synced_at IS NOT NULL",
+  ).all() as { id: number; last_synced_at: number }[]
+  for (const row of rows) syncedAt.set(row.id, row.last_synced_at)
+  const hasPriorSync = syncedAt.size > 0
+
   let totalMessages = 0
+  let checked = 0
+  let skipped = 0
 
   for (const chat of chats) {
-    upsertChat(mapChat(chat))
     const chatId = hashStr(chat.id._serialized)
+    const chatLastSync = syncedAt.get(chatId)
+    const chatTimestamp = chat.timestamp
+
+    // Skip chats with no new activity since last sync
+    if (hasPriorSync && chatLastSync !== undefined && chatTimestamp !== undefined && chatTimestamp <= chatLastSync) {
+      skipped++
+      continue
+    }
+
+    checked++
+    upsertChat(mapChat(chat))
     const messages = await client.fetchMessages(chat.id._serialized)
 
+    let newCount = 0
     for (const msg of messages) {
+      // Skip messages already covered by the previous sync
+      if (chatLastSync !== undefined && msg.timestamp <= chatLastSync) continue
+
       const senderId = msg.fromMe ? null : (msg.author ?? msg.from)
       const senderName = senderId ? await client.getContactName(senderId) : ''
       insertMessage(mapMessage(msg, chatId, senderName))
+      newCount++
     }
-    totalMessages += messages.length
+
+    setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
+    totalMessages += newCount
   }
-  console.log(`[whatsapp] Sync complete: ${chats.length} chats, ${totalMessages} messages imported.`)
+
+  const mode = hasPriorSync ? 'incremental' : 'first'
+  console.log(`[whatsapp] Sync complete (${mode}): ${checked} chats checked, ${skipped} skipped, ${totalMessages} new messages.`)
+}
+
+export function parseArgs(argv: string[]): { debug: boolean } {
+  return { debug: argv.includes('--debug') }
 }
 
 export const whatsappAdapter: PlatformAdapter = {
   platform: 'whatsapp',
   async runBackfill(_db: Database.Database): Promise<void> {
+    const { debug } = parseArgs(process.argv)
     const sessionPath = process.env['WHATSAPP_SESSION']
     let client: WhatsAppClient | null = null
     try {
-      client = await createWhatsAppClient(sessionPath)
+      client = await createWhatsAppClient({ sessionDataPath: sessionPath, debug })
       await runBackfillImpl(client)
     } catch (err) {
       const e = err as Error

@@ -6,3 +6,5 @@ telegram.db
 *.db-wal
 scripts/wechat-key-extract
 .wechat-keys.json
+.wwebjs_auth/
+.wwebjs_cache/

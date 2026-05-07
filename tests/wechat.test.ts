@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
-import { initDb, getChats } from '../src/db'
+import { initDb, getChats, getDb } from '../src/db'
 import {
   hashStr,
   tableNameToChatId,
@@ -534,6 +534,34 @@ describe('runBackfillImpl integration', () => {
 
     // Missing CreateTime column causes error → should be caught gracefully
     await expect(runBackfillImpl([dbPath], new Map(), new Map())).resolves.not.toThrow()
+    fs.rmSync(tmpDir, { recursive: true })
+  })
+
+  it('incremental sync: only imports messages newer than last_synced_at', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-incremental-'))
+    const syncTime = 1700000010
+    const rows: WechatMessageRow[] = [
+      { msgSvrID: 4001, CreateTime: syncTime - 100, Message: 'Old msg', Des: 1 },
+      { msgSvrID: 4002, CreateTime: syncTime + 100, Message: 'New msg', Des: 0 },
+    ]
+    const db = makeMockChatDb('wxid_frank', rows)
+    const dbPath = path.join(tmpDir, 'message_0.db')
+    fs.writeFileSync(dbPath, db.serialize())
+    db.close()
+
+    // Seed last_synced_at so incremental mode activates
+    const chatId = tableNameToChatId('Msg_wxid_frank')
+    getDb().prepare(
+      "INSERT INTO chats (id, name, type, username, platform, last_synced_at, message_count) VALUES (?, 'Frank', 'private', NULL, 'wechat', ?, 0)",
+    ).run(chatId, syncTime)
+
+    await runBackfillImpl([dbPath], new Map(), new Map())
+
+    const msgs = getDb().prepare('SELECT external_id FROM messages WHERE chat_id = ?').all(chatId) as { external_id: string }[]
+    const ids = msgs.map(m => m.external_id)
+    expect(ids).not.toContain('4001')
+    expect(ids).toContain('4002')
+
     fs.rmSync(tmpDir, { recursive: true })
   })
 })

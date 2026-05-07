@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { initDb, getChats } from '../src/db'
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { initDb, getChats, getDb } from '../src/db'
 import {
   hashStr,
   mapChat,
   mapMessage,
   runBackfillImpl,
+  parseArgs,
 } from '../src/platforms/whatsapp/sync'
 import type { WhatsAppClient, WAChat, WAMessage } from '../src/platforms/whatsapp/client'
 
@@ -43,6 +44,84 @@ function makeMockClient(
     destroy: async () => {},
   }
 }
+
+// ── parseArgs ─────────────────────────────────────────────────────────────────
+
+describe('parseArgs', () => {
+  it('debug=false when --debug is absent', () => {
+    expect(parseArgs(['node', 'sync.ts'])).toEqual({ debug: false })
+  })
+
+  it('debug=true when --debug is present', () => {
+    expect(parseArgs(['node', 'sync.ts', '--debug'])).toEqual({ debug: true })
+  })
+
+  it('debug=false for unrelated flags', () => {
+    expect(parseArgs(['node', 'sync.ts', '--verbose'])).toEqual({ debug: false })
+  })
+
+  it('debug=true regardless of flag position', () => {
+    expect(parseArgs(['--debug', 'node', 'sync.ts'])).toEqual({ debug: true })
+  })
+})
+
+// ── debug logging ─────────────────────────────────────────────────────────────
+
+describe('createWhatsAppClient debug option', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('writes debug lines to stderr when debug=true', async () => {
+    const { createWhatsAppClient } = await import('../src/platforms/whatsapp/client')
+
+    // Mock whatsapp-web.js so Puppeteer never actually launches
+    vi.doMock('whatsapp-web.js', () => ({
+      default: {
+        Client: class MockClient {
+          on() {}
+          initialize() { return new Promise(() => {}) } // hangs — we only care about the dbg line
+          destroy() { return Promise.resolve() }
+        },
+        LocalAuth: class MockLocalAuth {},
+      },
+    }))
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    // Suppress progress bar stdout writes so the timer doesn't leak into other tests
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    // Fire-and-forget — we only want to observe the initial dbg output
+    createWhatsAppClient({ debug: true }).catch(() => {})
+    await new Promise(r => setTimeout(r, 50))
+
+    const output = stderrSpy.mock.calls.map(c => String(c[0])).join('')
+    expect(output).toContain('[whatsapp:debug]')
+    expect(output).toContain('creating Client')
+  })
+
+  it('writes nothing to stderr when debug=false', async () => {
+    const { createWhatsAppClient } = await import('../src/platforms/whatsapp/client')
+
+    vi.doMock('whatsapp-web.js', () => ({
+      default: {
+        Client: class MockClient {
+          on() {}
+          initialize() { return new Promise(() => {}) }
+          destroy() { return Promise.resolve() }
+        },
+        LocalAuth: class MockLocalAuth {},
+      },
+    }))
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    createWhatsAppClient({ debug: false }).catch(() => {})
+    await new Promise(r => setTimeout(r, 50))
+
+    const output = stderrSpy.mock.calls.map(c => String(c[0])).join('')
+    expect(output).not.toContain('[whatsapp:debug]')
+  })
+})
 
 // ── hashStr ───────────────────────────────────────────────────────────────────
 
@@ -149,5 +228,71 @@ describe('runBackfillImpl', () => {
     const client = makeMockClient([], [])
     await expect(runBackfillImpl(client)).resolves.not.toThrow()
     expect(getChats()).toHaveLength(0)
+  })
+
+  it('skips chats with no new activity in incremental mode', async () => {
+    const chatId = 'carol@c.us'
+    const fetchSpy = vi.fn(async () => [makeMsg({ id: { _serialized: 'msg-x@c.us' } })])
+    const client: WhatsAppClient = {
+      getChats: async () => [makeChat({ id: { _serialized: chatId }, timestamp: 1700000000 })],
+      fetchMessages: fetchSpy,
+      getContactName: async () => 'Carol',
+      destroy: async () => {},
+    }
+
+    // First sync
+    await runBackfillImpl(client)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+
+    // Second sync with same chat.timestamp — should skip
+    fetchSpy.mockClear()
+    await runBackfillImpl(client)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('processes chats with new activity in incremental mode', async () => {
+    const chatId = 'dave@c.us'
+    const syncTime = 1700000000
+    const fetchSpy = vi.fn(async () => [makeMsg({ id: { _serialized: 'msg-new@c.us' }, timestamp: syncTime + 100 })])
+    const client: WhatsAppClient = {
+      // chat.timestamp > last_synced_at → should NOT be skipped
+      getChats: async () => [makeChat({ id: { _serialized: chatId }, timestamp: syncTime + 100 })],
+      fetchMessages: fetchSpy,
+      getContactName: async () => 'Dave',
+      destroy: async () => {},
+    }
+
+    // Seed a prior sync record
+    getDb().prepare(
+      "INSERT INTO chats (id, name, type, username, platform, last_synced_at, message_count) VALUES (?, 'Dave', 'private', NULL, 'whatsapp', ?, 0)",
+    ).run(hashStr(chatId), syncTime)
+
+    await runBackfillImpl(client)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('filters out already-synced messages by timestamp', async () => {
+    const chatId = 'eve@c.us'
+    const syncTime = 1700000000
+    const oldMsg = makeMsg({ id: { _serialized: 'old@c.us' }, timestamp: syncTime - 60 })
+    const newMsg = makeMsg({ id: { _serialized: 'new@c.us' }, timestamp: syncTime + 60 })
+    const client: WhatsAppClient = {
+      getChats: async () => [makeChat({ id: { _serialized: chatId }, timestamp: syncTime + 60 })],
+      fetchMessages: async () => [oldMsg, newMsg],
+      getContactName: async () => 'Eve',
+      destroy: async () => {},
+    }
+
+    // Seed prior sync at syncTime
+    getDb().prepare(
+      "INSERT INTO chats (id, name, type, username, platform, last_synced_at, message_count) VALUES (?, 'Eve', 'private', NULL, 'whatsapp', ?, 0)",
+    ).run(hashStr(chatId), syncTime)
+
+    await runBackfillImpl(client)
+
+    const msgs = getDb().prepare("SELECT external_id FROM messages WHERE chat_id = ?").all(hashStr(chatId)) as { external_id: string }[]
+    const ids = msgs.map(m => m.external_id)
+    expect(ids).not.toContain('old@c.us')
+    expect(ids).toContain('new@c.us')
   })
 })

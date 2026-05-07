@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import { join } from 'path'
 import { homedir } from 'os'
-import { initDb, upsertChat, insertMessage, type Chat, type Message } from '../../db'
+import { initDb, getDb, upsertChat, insertMessage, setLastSyncedAt, type Chat, type Message } from '../../db'
 import type { Platform, PlatformAdapter } from '../types'
 import { buildContactMap } from './contacts'
 
@@ -102,6 +102,18 @@ export async function runBackfillImpl(chatDb: Database.Database): Promise<void> 
   const chats = chatDb
     .prepare('SELECT ROWID, guid, chat_identifier, display_name, room_name FROM chat')
     .all() as ChatDbRow[]
+
+  // Load per-chat last_synced_at for incremental mode
+  const syncedAt = new Map<number, number>()
+  const rows = getDb().prepare(
+    "SELECT id, last_synced_at FROM chats WHERE platform = 'imessage' AND last_synced_at IS NOT NULL",
+  ).all() as { id: number; last_synced_at: number }[]
+  for (const row of rows) syncedAt.set(row.id, row.last_synced_at)
+  const hasPriorSync = syncedAt.size > 0
+
+  // iMessage chat.db dates: Cocoa epoch (seconds since 2001-01-01). May be nanoseconds on newer macOS.
+  // cocoaToUnix converts to Unix seconds. We need the inverse: Unix seconds → Cocoa nanoseconds.
+  const COCOA_OFFSET = 978307200
   let totalMessages = 0
 
   for (const chatRow of chats) {
@@ -109,22 +121,32 @@ export async function runBackfillImpl(chatDb: Database.Database): Promise<void> 
       'SELECT h.id FROM handle h JOIN chat_handle_join chj ON chj.handle_id = h.ROWID WHERE chj.chat_id = ?',
     ).all(chatRow.ROWID) as { id: string }[]).map(r => r.id)
 
+    const chatId = hashGuid(chatRow.guid)
     upsertChat(mapChat(chatRow, chatHandles, contactMap))
+
+    const chatLastSync = hasPriorSync ? syncedAt.get(chatId) : undefined
+    // Convert Unix seconds threshold to Cocoa nanoseconds (what chat.db stores on modern macOS)
+    const cocoaThreshold = chatLastSync !== undefined
+      ? BigInt(chatLastSync - COCOA_OFFSET) * 1_000_000_000n
+      : undefined
 
     const msgRows = chatDb.prepare(`
       SELECT m.ROWID, m.guid, m.text, m.date, m.is_from_me, m.handle_id, m.reply_to_guid
       FROM message m
       JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
-      WHERE cmj.chat_id = ?
-    `).all(chatRow.ROWID) as MessageDbRow[]
+      WHERE cmj.chat_id = ?${cocoaThreshold !== undefined ? ' AND m.date > ?' : ''}
+    `).all(...(cocoaThreshold !== undefined ? [chatRow.ROWID, cocoaThreshold] : [chatRow.ROWID])) as MessageDbRow[]
 
     for (const msgRow of msgRows) {
       const handleRow = msgRow.handle_id !== null ? handleIndex.get(msgRow.handle_id) : undefined
-      insertMessage(mapMessage(msgRow, hashGuid(chatRow.guid), handleRow, contactMap))
+      insertMessage(mapMessage(msgRow, chatId, handleRow, contactMap))
     }
+    setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
     totalMessages += msgRows.length
   }
-  console.log(`iMessage sync complete: ${chats.length} chats, ${totalMessages} messages imported.`)
+
+  const mode = hasPriorSync ? 'incremental' : 'first'
+  console.log(`iMessage sync complete (${mode}): ${chats.length} chats, ${totalMessages} new messages imported.`)
 }
 
 export const iMessageAdapter: PlatformAdapter = {

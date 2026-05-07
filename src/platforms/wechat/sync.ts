@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { homedir } from 'node:os'
 import Database from 'better-sqlite3-multiple-ciphers'
-import { initDb, upsertChat, insertMessage, type Chat, type Message } from '../../db'
+import { initDb, getDb, upsertChat, insertMessage, setLastSyncedAt, type Chat, type Message } from '../../db'
 import type { Platform, PlatformAdapter } from '../types'
 import { buildWechatContactMap, type ContactMap } from './contacts'
 
@@ -308,20 +308,27 @@ export function listChatTables(db: Database.Database): string[] {
 
 // ── Sync core ─────────────────────────────────────────────────────────────────
 
+interface SchemaInfo {
+  selectCols: string
+  /** Column name to use in WHERE timeCol > ? for incremental sync. */
+  timeCol: string
+}
+
 /**
- * Detect the message column schema (WeChat 3.x vs 4.x) and return the SELECT columns.
- * WeChat 4.x tables use: server_id, create_time, message_content, WCDB_CT_message_content,
- *   real_sender_id, local_type.
- * Older tables use: msgSvrID/MesSvrID, CreateTime, Message/strContent, Des/isSend, Type/MsgType.
+ * Detect the message column schema (WeChat 3.x vs 4.x) and return both SELECT columns
+ * and the timestamp column name (for incremental WHERE filtering).
  */
-function buildSelectColumns(db: Database.Database, tableName: string): string {
+function buildSchemaInfo(db: Database.Database, tableName: string): SchemaInfo {
   const info = db.prepare(`PRAGMA table_info("${tableName}")`).all() as { name: string }[]
   const cols = new Set(info.map(c => c.name))
 
   if (cols.has('create_time') && cols.has('server_id')) {
     // WeChat 4.x schema
     const ct = cols.has('WCDB_CT_message_content') ? 'WCDB_CT_message_content' : '0 AS WCDB_CT_message_content'
-    return `server_id, create_time, message_content, ${ct}, real_sender_id, local_type`
+    return {
+      selectCols: `server_id, create_time, message_content, ${ct}, real_sender_id, local_type`,
+      timeCol: 'create_time',
+    }
   }
 
   // Legacy schema
@@ -329,7 +336,10 @@ function buildSelectColumns(db: Database.Database, tableName: string): string {
   const textCol = cols.has('strContent') ? 'strContent' : cols.has('Message') ? 'Message' : 'NULL'
   const dirCol = cols.has('isSend') ? 'isSend' : cols.has('Des') ? 'Des' : '0'
   const typeCol = cols.has('Type') ? 'Type' : cols.has('MsgType') ? 'MsgType' : '1'
-  return `${externalIdCol} AS msgSvrID, CreateTime, ${textCol} AS Message, ${dirCol} AS Des, ${typeCol} AS Type`
+  return {
+    selectCols: `${externalIdCol} AS msgSvrID, CreateTime, ${textCol} AS Message, ${dirCol} AS Des, ${typeCol} AS Type`,
+    timeCol: 'CreateTime',
+  }
 }
 
 export async function runBackfillImpl(
@@ -342,6 +352,14 @@ export async function runBackfillImpl(
   let totalChats = 0
 
   const selfWxid = userDir ? extractSelfWxid(userDir) : undefined
+
+  // Load per-chat last_synced_at for incremental mode
+  const syncedAt = new Map<number, number>()
+  const rows = getDb().prepare(
+    "SELECT id, last_synced_at FROM chats WHERE platform = 'wechat' AND last_synced_at IS NOT NULL",
+  ).all() as { id: number; last_synced_at: number }[]
+  for (const row of rows) syncedAt.set(row.id, row.last_synced_at)
+  const hasPriorSync = syncedAt.size > 0
 
   for (const dbPath of messageDbs) {
     const hexKey = resolveHexKey(dbPath, keyMap)
@@ -364,15 +382,18 @@ export async function runBackfillImpl(
         totalChats++
 
         try {
-          const selectCols = buildSelectColumns(chatDb, tableName)
-          const rows = chatDb.prepare(
-            `SELECT ${selectCols} FROM "${tableName}"`,
+          const { selectCols, timeCol } = buildSchemaInfo(chatDb, tableName)
+          const chatLastSync = hasPriorSync ? syncedAt.get(chatId) : undefined
+          const whereClause = chatLastSync !== undefined ? `WHERE "${timeCol}" > ${chatLastSync}` : ''
+          const msgRows = chatDb.prepare(
+            `SELECT ${selectCols} FROM "${tableName}" ${whereClause}`,
           ).all() as WechatMessageRow[]
 
-          for (const row of rows) {
+          for (const row of msgRows) {
             insertMessage(mapMessage(row, chatId, msgOpts))
           }
-          totalMessages += rows.length
+          setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
+          totalMessages += msgRows.length
         } catch (err) {
           process.stderr.write(
             `[wechat] Error reading ${tableName}: ${(err as Error).message}\n`,
@@ -384,8 +405,9 @@ export async function runBackfillImpl(
     }
   }
 
+  const mode = hasPriorSync ? 'incremental' : 'first'
   process.stdout.write(
-    `[wechat] Sync complete: ${totalChats} chats, ${totalMessages} messages imported.\n`,
+    `[wechat] Sync complete (${mode}): ${totalChats} chats, ${totalMessages} new messages imported.\n`,
   )
 }
 
