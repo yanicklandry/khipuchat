@@ -22,10 +22,14 @@ if [ ! -d "$XWECHAT_FILES" ]; then
 fi
 
 # Find a user directory (wxid_*_* pattern)
-USER_DIR=""
-for d in "$XWECHAT_FILES"/wxid_*; do
-  if [ -d "$d" ]; then USER_DIR="$d"; break; fi
-done
+
+# USER_DIR=""
+# for d in "$XWECHAT_FILES"/wxid_*; do
+#   if [ -d "$d" ]; then USER_DIR="$d"; break; fi
+# done
+
+# Instead of wxid_*, look for directories containing 'db_storage'
+USER_DIR=$(find "$XWECHAT_FILES" -maxdepth 2 -name "db_storage" -print -quit | sed 's/\/db_storage//')
 
 if [ -z "$USER_DIR" ]; then
   echo "ERROR: No WeChat user directory found. Log in to WeChat first."
@@ -54,17 +58,17 @@ echo "WeChat PID: $WECHAT_PID"
 # ── 3. Compile the key extractor ─────────────────────────────────────────────
 if [ ! -f "$EXTRACTOR" ] || [ "$SRC" -nt "$EXTRACTOR" ]; then
   echo "Compiling key extractor..."
-  cc -O2 -o "$EXTRACTOR" "$SRC" \
+  cc -O2 -arch arm64 -arch x86_64 -o "$EXTRACTOR" "$SRC" \
     -framework Security -framework CoreFoundation 2>/dev/null || \
-  cc -O2 -o "$EXTRACTOR" "$SRC" \
+  cc -O2 -arch arm64 -arch x86_64 -o "$EXTRACTOR" "$SRC" \
     -framework CoreFoundation
   echo "Compiled: $EXTRACTOR"
 fi
 
 # ── 4. Try to extract the key (may fail if WeChat has hardened runtime) ────────
 echo ""
-echo "Attempting to read WeChat process memory..."
-KEY_LINE=$("$EXTRACTOR" "$WECHAT_PID" "$DB_FILE" 2>/tmp/wechat_key_err.txt || true)
+echo "Attempting to read WeChat process memory (requires sudo)..."
+KEY_LINE=$(sudo "$EXTRACTOR" "$WECHAT_PID" "$DB_FILE" 2>/tmp/wechat_key_err.txt || true)
 
 if [ -z "$KEY_LINE" ]; then
   ERR=$(cat /tmp/wechat_key_err.txt 2>/dev/null)
@@ -102,8 +106,17 @@ if [ -z "$KEY_LINE" ]; then
     fi
     echo "WeChat PID: $WECHAT_PID"
 
-    echo "Extracting key from memory..."
-    KEY_LINE=$("$EXTRACTOR" "$WECHAT_PID" "$DB_FILE" 2>/tmp/wechat_key_err.txt || true)
+    echo "Extracting key from memory (sudo)..."
+    KEY_LINE=$(sudo "$EXTRACTOR" "$WECHAT_PID" "$DB_FILE" 2>/tmp/wechat_key_err.txt || true)
+  fi
+fi
+
+# Second attempt with sudo if still empty (task_for_pid needs root on macOS 12+)
+if [ -z "$KEY_LINE" ]; then
+  ERR=$(cat /tmp/wechat_key_err.txt 2>/dev/null)
+  if echo "$ERR" | grep -q "task_for_pid failed"; then
+    echo "Retrying with sudo (task_for_pid requires root on macOS 12+)..."
+    KEY_LINE=$(sudo "$EXTRACTOR" "$WECHAT_PID" "$DB_FILE" 2>/tmp/wechat_key_err.txt || true)
   fi
 fi
 
