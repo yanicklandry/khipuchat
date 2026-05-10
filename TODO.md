@@ -1,0 +1,15 @@
+- release : prepare for publish to github : github.io marketing page in pages branch, README with basic setup, make sure no private is pushed
+- .env : telegram stuff should be prefixed
+- sync all platforms with one command : npm run sync
+- sync background service : keep running, add new messages
+- slack : ability to have multiple accounts
+- slack : does it use the official API ? i want to get all messages (private and groups) accessible by me
+- slack : document how to get the SLACK_USER_TOKEN
+- discord : does it use the official API ? i want to get all messages (private and groups) accessible by me
+- discord : document how to get DISCORD_TOKEN
+- add Signal
+- add Zalo
+- add Facebook Messenger
+- research : ability to add Facebook Groups
+- research : ability to add SMS
+- explore next steps : web UI in React, ability to run as a local service, in cloud server or in a separate local machine (popular to use Mac Mini M3 these days), run local ollama
