@@ -75,10 +75,3 @@ OUTPUT STYLE: expert-terse
 - Zero narration, zero filler
 - BUDGET: ≤100 tokens per non-code response
 <!-- /lean-ctx-compression -->
-
-<!-- lean-ctx -->
-## lean-ctx
-
-Prefer lean-ctx MCP tools over native equivalents for token savings.
-Full rules: @LEAN-CTX.md
-<!-- /lean-ctx -->
