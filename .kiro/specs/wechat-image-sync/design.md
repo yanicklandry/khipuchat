@@ -1,159 +1,98 @@
-# Design Document
+# Technical Design: WeChat Image Sync
 
-## Overview 
+## Overview
+This document outlines the technical design for enhancing image message handling in the WeChat sync functionality. The goal is to properly detect, process, and sync all image-related messages from WeChat databases, including both legacy and V4 schemas.
 
-This feature delivers WeChat image synchronization capabilities to the Khipu chat platform. It extends the existing WeChat adapter to detect, process, and map image-type messages from WeChat databases to the generic message schema.
+## Requirements Mapping
+- Requirement 1 (Enhanced Image Detection): Expand message type detection to include all specified image types
+- Requirement 2 (Rich Metadata): Extract file paths/URLs and metadata for image messages
+- Requirement 3 (Cross-Schema Compatibility): Ensure consistent handling across legacy and V4 schemas
+- Requirement 4 (Performance & Compatibility): Maintain existing functionality without performance impact
+- Requirement 5 (Platform Integration): Follow existing code patterns in the wechat adapter
 
-**Purpose**: Enable users to view and interact with image content in their WeChat conversation history within the Khipu platform.
+## Architecture Design
+### Component: `mapMessage` function in `src/platforms/wechat/sync.ts`
 
-**Users**: Users of the Khipu chat platform who sync with WeChat accounts containing image content.
+The core enhancement will be made to the existing `mapMessage` function which processes WeChat message rows into standardized message objects.
 
-**Impact**: Expands the range of supported message types beyond text-only, enabling full media support for WeChat conversations.
+### Key Changes
+1. **Enhanced Image Type Detection**: 
+   - Update image detection logic to include all specified types:
+     - Type 4 (legacy schema)
+     - Type 43 (WeChat schema)  
+     - Type 49 (WeChat schema)
+     - local_type 4 (V4 schema)
 
-### Goals
-- Detect image messages in both WeChat 3.x and 4.x database schemas
-- Extract file paths or metadata from image messages for downstream systems
-- Map detected images to generic 'image' type in the message schema
-- Maintain compatibility with existing text and non-image message handling
+2. **Metadata Extraction for Images**:
+   - For image messages, extract file paths/URLs from message content when available
+   - Preserve original message identifiers for tracking purposes
 
-### Non-Goals
-- Download or store actual image files (handled by separate media services)
-- Support video or other media types beyond images
-- Modify WeChat database schemas or structure
-- Implement advanced image processing features
+3. **Cross-Schema Consistency**:
+   - Apply the same enhanced detection logic to both legacy and V4 schemas
+   - Maintain existing behavior for non-image messages
 
-## Boundary Commitments
+## Implementation Details
 
-### This Spec Owns
-- Message type detection logic for image content in WeChat databases
-- File path extraction from image messages
-- Mapping of WeChat-specific image message types to generic 'image' schema
-- Integration with existing incremental sync capabilities
+### Current Code Analysis
+The current implementation in `src/platforms/wechat/sync.ts` already contains some image message detection logic at lines 155-159:
 
-### Out of Boundary
-- Actual image file downloading or storage
-- Media processing or enhancement features
-- Database schema modifications
-- Cross-platform media synchronization beyond WeChat
+```typescript
+const isImageMessage = 
+  msgType === 43 || // Image type in WeChat
+  msgType === 49 || // Media type in WeChat  
+  (isV4 && row.local_type === 4) || // Image type in v4 schema
+  (!isV4 && row.Type === 4); // Image type in legacy schema
+```
 
-### Allowed Dependencies
-- Existing WeChat database connectivity and encryption handling
-- Current message processing pipeline in the sync adapter
-- Incremental sync capabilities for existing chat processing
+However, this logic needs refinement to match the exact requirements and properly handle metadata extraction.
 
-### Revalidation Triggers
-- Changes to WeChat database schemas (3.x vs 4.x)
-- Updates to message type mappings or field definitions
-- Modifications to incremental sync implementation
+### Proposed Implementation
 
-## Architecture
+#### File: `src/platforms/wechat/sync.ts`
+- **Location**: Within the existing `mapMessage` function (around line 129)
+- **Key Changes**:
+  - Update image type detection to exactly match requirement criteria
+  - Add logic for extracting image metadata when available
+  - Ensure consistent handling across all schema versions
 
-### Existing Architecture Analysis
-
-The current WeChat platform adapter follows a well-defined architecture pattern:
-- Database abstraction layer for schema detection and connection management
-- Message processing pipeline with type mapping functions
-- Incremental sync implementation with time-based filtering
-- Support for both legacy 3.x and modern 4.x database schemas
-
-### Architecture Pattern & Boundary Map
-
-**Selected Pattern**: Adapter Pattern with Database Schema Detection
-**Domain Boundaries**: WeChat-specific message handling within the broader platform adapter architecture
-**Existing Patterns Preserved**: Incremental sync, schema detection, message mapping
-
-### Technology Stack
-
-| Layer | Choice / Version | Role in Feature | Notes |
-|-------|------------------|-----------------|-------|
-| Backend / Services | TypeScript/Node.js | Platform adapter logic | Uses existing codebase patterns |
-| Data / Storage | SQLite (WeChat databases) | Message persistence | No schema changes required |
-| Messaging / Events | None | N/A | Feature handles internal state |
+#### Message Type Mapping
+The enhanced implementation will ensure that:
+- Legacy schema Type 4 messages are correctly identified as images
+- WeChat schema Type 43 and Type 49 messages are correctly identified as images  
+- V4 schema local_type 4 messages are correctly identified as images
+- All other message types maintain their current behavior
 
 ## File Structure Plan
+1. **Primary Implementation**: `src/platforms/wechat/sync.ts` - Modify the `mapMessage` function to enhance image detection and metadata extraction
+2. **Test Coverage**: Add unit tests for the enhanced image message handling logic in `src/platforms/wechat/__tests__/sync.test.ts`
 
-### Directory Structure
-```
-src/
-└── platforms/
-    └── wechat/
-        ├── sync.ts          # Main sync logic and message mapping
-        └── contacts.ts      # Contact handling (unchanged)
-```
-
-### Modified Files
-- `src/platforms/wechat/sync.ts` — Enhanced mapMessage function to handle image detection and mapping
-
-## Components and Interfaces
-
-### Platform Adapter Domain
-
-#### WeChatMessageMapper
-| Field | Detail |
-|-------|--------|
-| Intent | Maps WeChat database messages to generic message schema |
-| Requirements | 1.1, 1.2, 1.3, 1.4 |
-| Owner / Reviewers | WeChat platform team |
-
-**Responsibilities & Constraints**
-- Primary responsibility: Convert WeChat-specific message data to generic schema
-- Domain boundary: Only handles WeChat database schema conversion
-- Data ownership: Message content, type mapping, metadata
-
-**Dependencies**
-- Inbound: WeChat database connection (P0)
-- Outbound: Generic message schema (P0)
-- External: WeChat database encryption handling (P1)
-
-**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
-
-##### Service Interface
-```typescript
-interface WeChatMessageMapperService {
-  mapMessage(msg: WeChatMessage, schemaInfo: SchemaInfo): Message;
-}
-```
-
-**Implementation Notes**
-- Integration: Extends existing message mapping pipeline  
-- Validation: Ensures proper field mapping for image messages
-- Risks: Potential false positives in type detection
-
-## Data Models
-
-### Domain Model
-- Message entity with type field (text, image, other)
-- WeChat database schema abstraction
-- Contact information for chat context
-
-### Logical Data Model
-
-**Structure Definition**:
-- Entities: Message, Chat, Contact
-- Attributes: external_id, chat_id, timestamp, is_sender, type, content
-- Natural keys: server_id, msgSvrID, local_type
-- Referential integrity: Chat reference in Message
-
-### Data Contracts & Integration
-
-**API Data Transfer**
-- Request/Response schemas for message processing  
-- Validation rules for field mapping
-- Serialization format: JSON objects
-
-## Error Handling
-
-### Error Strategy
-- Graceful handling of unsupported message types
-- Logging of detection failures for debugging
-- Preserving existing error recovery mechanisms
-
-### Error Categories and Responses
-**System Errors** (5xx): Database connectivity issues → retry logic with exponential backoff
-**Business Logic Errors** (422): Invalid field formats → log warning and skip message
+## Data Flow
+1. WeChat message rows are read from databases (legacy or V4 schemas)
+2. Each row is passed to the `mapMessage` function
+3. The function detects if it's an image message based on Type/local_type values
+4. For image messages, metadata extraction occurs when available
+5. Standardized message object is returned with appropriate type and metadata
 
 ## Testing Strategy
+- Unit tests for existing image detection logic in `sync.test.ts`
+- Test cases covering all supported image types (4, 43, 49, local_type 4)
+- Integration tests to ensure compatibility with both legacy and V4 schemas
+- Performance tests to verify no regression in message processing speed
 
-### Default sections (adapt names/sections to fit the domain)
-- Unit Tests: 3–5 items from core functions/modules (e.g., type detection, field mapping)
-- Integration Tests: 3–5 cross-component flows (e.g., sync integration, incremental processing)
+## Backward Compatibility
+- All existing functionality will be preserved
+- No breaking changes to the API or data structures
+- Existing message handling behavior for non-images remains unchanged
+
+## Risks & Mitigations
+1. **Performance Impact**: 
+   - Risk: Enhanced image detection may add processing overhead
+   - Mitigation: Profile implementation and optimize if needed
+
+2. **Metadata Extraction Issues**:
+   - Risk: Incorrect or missing metadata extraction
+   - Mitigation: Implement fallback behavior and comprehensive test coverage
+
+3. **Schema Compatibility**:
+   - Risk: Missing edge cases in schema handling
+   - Mitigation: Comprehensive testing across different WeChat versions
