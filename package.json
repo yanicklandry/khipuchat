@@ -21,8 +21,10 @@
     "setup:wechat": "bash scripts/setup-wechat.sh"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.0.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3-multiple-ciphers": "^11.10.0",
+    "sqlite-vec": "^0.1.0",
     "dotenv": "^16.0.0",
     "express": "^5.2.1",
     "express-basic-auth": "^1.2.1",
