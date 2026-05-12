@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, upsertChat, insertMessage, type Chat, type Message } from '../../db'
+import { isIndexed } from '../../vec-db'
+import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
 import { createSlackClient, type SlackClient, type SlackConversation, type SlackMessage } from './client'
 
@@ -57,6 +59,8 @@ export async function runBackfillImpl(client: SlackClient): Promise<void> {
       insertMessage(mapMessage(msg, chatId, senderName))
       totalMessages++
     }
+    if (isIndexed('messages')) await embedNewMessages([chatId])
+    if (isIndexed('chats')) await embedNewChats([chatId])
   }
   console.log(`[slack] Sync complete: ${totalChats} channels, ${totalMessages} messages imported.`)
 }

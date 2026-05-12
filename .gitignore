@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.lean-ctx/
 .env
 telegram.db
 *.db-shm

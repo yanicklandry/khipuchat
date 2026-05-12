@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, upsertChat, insertMessage, type Chat, type Message } from '../../db'
+import { isIndexed } from '../../vec-db'
+import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
 import { createDiscordClient, type DiscordClient, type DiscordChannel, type DiscordMessage } from './client'
 
@@ -72,6 +74,8 @@ export async function runBackfillImpl(client: DiscordClient): Promise<void> {
       if (messages.length < 100) break
       before = messages[messages.length - 1]!.id
     }
+    if (isIndexed('messages')) await embedNewMessages([chatId])
+    if (isIndexed('chats')) await embedNewChats([chatId])
   }
   console.log(`[discord] Sync complete: ${channels.length} channels, ${totalMessages} messages imported.`)
 }

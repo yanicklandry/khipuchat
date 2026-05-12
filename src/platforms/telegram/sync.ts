@@ -3,6 +3,8 @@ import { StringSession } from 'telegram/sessions'
 import { NewMessage } from 'telegram/events'
 import { config, saveSessionString, type Config } from '../../config'
 import { initDb, getDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, type Chat, type Message, type MessageType } from '../../db'
+import { isIndexed } from '../../vec-db'
+import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 
 export type PromptFn = (question: string) => Promise<string>
 export interface WizardConfig { sessionString: string }
@@ -167,6 +169,8 @@ export async function runBackfill(
         }
       }
       setLastSyncedAt(chat.id, Math.floor(Date.now() / 1000))
+      if (isIndexed('messages')) await embedNewMessages([chat.id])
+      if (isIndexed('chats')) await embedNewChats([chat.id])
       if (synced > 0) console.log(`\n  [${chat.name}] +${synced} messages`)
     } catch (err) {
       console.log(`\n  [${chat.name}] skipped: ${(err as Error).message}`)
@@ -184,7 +188,12 @@ export function startListener(client: TelegramClient): void {
     const chatId = getPeerChatId(msg.peerId)
     if (chatId === null) return
     const row = msgToRow(msg, chatId)
-    if (row) { insertMessage(row); console.log(`New message in chat ${chatId}`) }
+    if (row) {
+      insertMessage(row)
+      if (isIndexed('messages')) await embedNewMessages([chatId])
+      if (isIndexed('chats')) await embedNewChats([chatId])
+      console.log(`New message in chat ${chatId}`)
+    }
   }, new NewMessage({}))
 }
 

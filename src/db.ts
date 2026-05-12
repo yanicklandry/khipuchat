@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import type { Platform } from './platforms/types'
+import { loadVecExtension, createVecSchema } from './vec-db'
 
 export type { Platform }
 export type ChatType = 'user' | 'group' | 'channel' | 'private'
@@ -58,8 +59,10 @@ export function initDb(path: string): Database.Database {
   }
   _db.pragma('journal_mode = WAL')
   _db.pragma('foreign_keys = ON')
+  loadVecExtension(_db)
   createSchema(_db)
   runMigrations(_db)
+  createVecSchema(_db)
   _db.exec("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')")
   return _db
 }

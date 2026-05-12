@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, upsertChat, insertMessage, type Message } from '../../db'
+import { isIndexed } from '../../vec-db'
+import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
 import { createEmailClient, type EmailClient, type RawEmailMessage } from './client'
 
@@ -83,6 +85,9 @@ export async function runBackfillImpl(client: EmailClient, userEmail: string): P
     process.stderr.write('[email] Sent folder not found — only INBOX synced.\n')
   }
 
+  const chatIds = Array.from(seenChats)
+  if (isIndexed('messages')) await embedNewMessages(chatIds)
+  if (isIndexed('chats')) await embedNewChats(chatIds)
   console.log(`[email] Sync complete: ${seenChats.size} threads, ${totalMessages} messages imported.`)
 }
 

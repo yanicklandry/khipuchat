@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { initDb, upsertChat, insertMessage, getDb, rebuildFtsIndex } from '../src/db'
 import {
   handleListChats,
@@ -6,7 +6,18 @@ import {
   handleListMessages,
   handleSearchMessages,
   handleGetChatSummary,
+  handleSemanticFindContacts,
+  handleSemanticSearchMessages,
 } from '../src/mcp'
+import {
+  upsertChatVector,
+  upsertMessageVector,
+  upsertEmbeddingMeta,
+} from '../src/vec-db'
+
+vi.mock('../src/embeddings', () => ({
+  embedOne: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.9)),
+}))
 
 const T = 1700000000
 
@@ -322,5 +333,125 @@ describe('handleGetChatSummary', () => {
   it('result includes platform field', () => {
     const s = handleGetChatSummary(3)
     expect(s.platform).toBe('imessage')
+  })
+})
+
+// ── semantic_find_contacts ────────────────────────────────────────────────────
+
+const CLOSE_VEC = new Float32Array(384).fill(0.9)
+const FAR_VEC = (() => {
+  const v = new Float32Array(384)
+  for (let i = 0; i < 192; i++) v[i] = 1.0
+  for (let i = 192; i < 384; i++) v[i] = -1.0
+  return v
+})()
+
+describe('handleSemanticFindContacts', () => {
+  it('returns error object when chats index is not built', async () => {
+    const result = await handleSemanticFindContacts('old friend', {})
+    expect(result).toMatchObject({ error: expect.stringContaining('index') })
+  })
+
+  it('returns results after index is built and vectors seeded', async () => {
+    upsertEmbeddingMeta('chats', Date.now())
+    upsertChatVector(1, CLOSE_VEC)  // Tony Lin — close to query
+    upsertChatVector(2, FAR_VEC)    // Work Group — far (filtered by distance threshold)
+    upsertChatVector(3, CLOSE_VEC)  // iMsg Friend — close
+
+    const result = await handleSemanticFindContacts('old friend', {})
+    expect(Array.isArray(result)).toBe(true)
+    const results = result as { chat_id: number; name: string; platform: string; distance: number }[]
+    expect(results.length).toBeGreaterThan(0)
+    expect(results.every(r => r.distance <= 0.7)).toBe(true)
+    expect(results.find(r => r.chat_id === 1)).toBeDefined()
+    expect(results.find(r => r.chat_id === 2)).toBeUndefined() // filtered by threshold
+  })
+
+  it('platform filter returns only matching platform', async () => {
+    upsertEmbeddingMeta('chats', Date.now())
+    upsertChatVector(1, CLOSE_VEC)
+    upsertChatVector(3, CLOSE_VEC)
+
+    const result = await handleSemanticFindContacts('friend', { platform: 'imessage' })
+    expect(Array.isArray(result)).toBe(true)
+    const results = result as { chat_id: number; platform: string }[]
+    expect(results.every(r => r.platform === 'imessage')).toBe(true)
+    expect(results.find(r => r.platform === 'telegram')).toBeUndefined()
+  })
+
+  it('result shape includes chat_id, name, platform, distance', async () => {
+    upsertEmbeddingMeta('chats', Date.now())
+    upsertChatVector(1, CLOSE_VEC)
+
+    const result = await handleSemanticFindContacts('tony', {})
+    const results = result as { chat_id: number; name: string; platform: string; distance: number }[]
+    const tony = results.find(r => r.chat_id === 1)
+    expect(tony).toMatchObject({ chat_id: 1, name: 'Tony Lin', platform: 'telegram' })
+    expect(typeof tony!.distance).toBe('number')
+  })
+})
+
+// ── semantic_search_messages ──────────────────────────────────────────────────
+
+describe('handleSemanticSearchMessages', () => {
+  it('returns error object when messages index is not built', async () => {
+    const result = await handleSemanticSearchMessages('hello', {})
+    expect(result).toMatchObject({ error: expect.stringContaining('index') })
+  })
+
+  it('returns results after index is built and vectors seeded', async () => {
+    upsertEmbeddingMeta('messages', Date.now())
+    // seed all text messages (IDs 1-3 from Tony Lin, IDs 4-6 from Work Group, ID 7 from iMsg)
+    // We don't know exact IDs so seed broadly
+    const db = getDb()
+    const rows = db.prepare("SELECT id FROM messages WHERE type='text' AND text IS NOT NULL AND text != ''").all() as { id: number }[]
+    for (const { id } of rows) upsertMessageVector(id, CLOSE_VEC)
+
+    const result = await handleSemanticSearchMessages('greeting', {})
+    expect(Array.isArray(result)).toBe(true)
+    const results = result as { id: number; text: string; distance: number }[]
+    expect(results.length).toBeGreaterThan(0)
+    expect(results.every(r => r.distance <= 0.7)).toBe(true)
+  })
+
+  it('platform filter returns only matching platform messages', async () => {
+    upsertEmbeddingMeta('messages', Date.now())
+    const db = getDb()
+    const rows = db.prepare("SELECT id FROM messages WHERE type='text' AND text IS NOT NULL AND text != ''").all() as { id: number }[]
+    for (const { id } of rows) upsertMessageVector(id, CLOSE_VEC)
+
+    const result = await handleSemanticSearchMessages('hey', { platform: 'imessage' })
+    const results = result as { platform: string }[]
+    expect(results.every(r => r.platform === 'imessage')).toBe(true)
+  })
+
+  it('before_timestamp filter excludes later messages', async () => {
+    upsertEmbeddingMeta('messages', Date.now())
+    const db = getDb()
+    const rows = db.prepare("SELECT id FROM messages WHERE type='text' AND text IS NOT NULL AND text != ''").all() as { id: number }[]
+    for (const { id } of rows) upsertMessageVector(id, CLOSE_VEC)
+
+    const cutoff = T + 5
+    const result = await handleSemanticSearchMessages('message', { before_timestamp: cutoff })
+    const results = result as { timestamp: number }[]
+    expect(results.every(r => r.timestamp < cutoff)).toBe(true)
+  })
+
+  it('result shape includes id, text, platform, timestamp, distance', async () => {
+    upsertEmbeddingMeta('messages', Date.now())
+    const db = getDb()
+    const rows = db.prepare("SELECT id FROM messages WHERE type='text' AND text IS NOT NULL AND text != ''").all() as { id: number }[]
+    for (const { id } of rows) upsertMessageVector(id, CLOSE_VEC)
+
+    const result = await handleSemanticSearchMessages('hello', {})
+    const results = result as { chat_id: number; chat_name: string; text: string; platform: string; timestamp: number; distance: number }[]
+    expect(results.length).toBeGreaterThan(0)
+    const r = results[0]
+    expect(typeof r.chat_id).toBe('number')
+    expect(typeof r.chat_name).toBe('string')
+    expect(typeof r.text).toBe('string')
+    expect(typeof r.platform).toBe('string')
+    expect(typeof r.timestamp).toBe('number')
+    expect(typeof r.distance).toBe('number')
   })
 })

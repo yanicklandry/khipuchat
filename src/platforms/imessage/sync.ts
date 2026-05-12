@@ -2,6 +2,8 @@ import Database from 'better-sqlite3-multiple-ciphers'
 import { join } from 'path'
 import { homedir } from 'os'
 import { initDb, getDb, upsertChat, insertMessage, setLastSyncedAt, type Chat, type Message } from '../../db'
+import { isIndexed } from '../../vec-db'
+import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
 import { buildContactMap } from './contacts'
 
@@ -142,6 +144,8 @@ export async function runBackfillImpl(chatDb: Database.Database): Promise<void> 
       insertMessage(mapMessage(msgRow, chatId, handleRow, contactMap))
     }
     setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
+    if (isIndexed('messages')) await embedNewMessages([chatId])
+    if (isIndexed('chats')) await embedNewChats([chatId])
     totalMessages += msgRows.length
   }
 

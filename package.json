@@ -15,8 +15,9 @@
     "mcp": "tsx src/mcp.ts",
     "setup-claude": "tsx src/setup-claude.ts",
     "setup-sync": "tsx src/setup-sync.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --pool=forks --poolOptions.forks.singleFork",
+    "test:watch": "vitest --pool=forks --poolOptions.forks.singleFork",
+    "index:embeddings": "tsx src/index-embeddings.ts",
     "web": "tsx src/web/server.ts",
     "setup:wechat": "bash scripts/setup-wechat.sh"
   },
