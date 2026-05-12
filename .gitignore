@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 telegram.db
+khipuchat.db
 *.db-shm
 *.db-wal
 scripts/wechat-key-extract
