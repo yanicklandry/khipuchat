@@ -456,7 +456,7 @@ export const wechatAdapter: PlatformAdapter = {
 }
 
 async function main(): Promise<void> {
-  const db = initDb('./telegram.db')
+  const db = initDb('./khipuchat.db')
   try {
     await wechatAdapter.runBackfill(db)
   } catch (err) {

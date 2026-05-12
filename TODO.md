@@ -1,5 +1,4 @@
 - release : prepare for publish to github : github.io marketing page in pages branch, README with basic setup, make sure no private is pushed
-- .env : telegram stuff should be prefixed
 - sync all platforms with one command : npm run sync
 - sync background service : keep running, add new messages
 - slack : ability to have multiple accounts

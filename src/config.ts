@@ -22,10 +22,10 @@ function requireEnv(key: string): string {
 }
 
 export const config: Config = {
-  apiId: parseInt(requireEnv('API_ID'), 10),
-  apiHash: requireEnv('API_HASH'),
-  phoneNumber: requireEnv('PHONE_NUMBER'),
-  sessionString: process.env['SESSION_STRING'] ?? '',
+  apiId: parseInt(requireEnv('TELEGRAM_API_ID'), 10),
+  apiHash: requireEnv('TELEGRAM_API_HASH'),
+  phoneNumber: requireEnv('TELEGRAM_PHONE_NUMBER'),
+  sessionString: process.env['TELEGRAM_SESSION_STRING'] ?? '',
 }
 
 // ── Write-back ────────────────────────────────────────────────────────────────
@@ -34,9 +34,9 @@ const ENV_PATH = path.resolve(process.cwd(), '.env')
 
 export function saveSessionString(value: string, envPath: string = ENV_PATH): void {
   const raw = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : ''
-  const updated = raw.match(/^SESSION_STRING=/m)
-    ? raw.replace(/^SESSION_STRING=.*/m, `SESSION_STRING=${value}`)
-    : raw + `\nSESSION_STRING=${value}\n`
+  const updated = raw.match(/^TELEGRAM_SESSION_STRING=/m)
+    ? raw.replace(/^TELEGRAM_SESSION_STRING=.*/m, `TELEGRAM_SESSION_STRING=${value}`)
+    : raw + `\nTELEGRAM_SESSION_STRING=${value}\n`
   fs.writeFileSync(envPath, updated, 'utf8')
   config.sessionString = value
 }

@@ -94,7 +94,7 @@ export const discordAdapter: PlatformAdapter = {
 }
 
 async function main(): Promise<void> {
-  const db = initDb('./telegram.db')
+  const db = initDb('./khipuchat.db')
   try { await discordAdapter.runBackfill(db) } catch { process.exit(1) }
 }
 

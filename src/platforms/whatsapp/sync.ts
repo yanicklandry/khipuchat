@@ -118,7 +118,7 @@ export const whatsappAdapter: PlatformAdapter = {
 }
 
 async function main(): Promise<void> {
-  const db = initDb('./telegram.db')
+  const db = initDb('./khipuchat.db')
   try { await whatsappAdapter.runBackfill(db) } catch { process.exit(1) }
 }
 

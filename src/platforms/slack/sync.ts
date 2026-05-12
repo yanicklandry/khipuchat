@@ -79,7 +79,7 @@ export const slackAdapter: PlatformAdapter = {
 }
 
 async function main(): Promise<void> {
-  const db = initDb('./telegram.db')
+  const db = initDb('./khipuchat.db')
   try { await slackAdapter.runBackfill(db) } catch { process.exit(1) }
 }
 

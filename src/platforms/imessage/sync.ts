@@ -164,7 +164,7 @@ export const iMessageAdapter: PlatformAdapter = {
 }
 
 async function main(): Promise<void> {
-  const db = initDb('./telegram.db')
+  const db = initDb('./khipuchat.db')
   try { await iMessageAdapter.runBackfill(db) } catch { process.exit(1) }
 }
 

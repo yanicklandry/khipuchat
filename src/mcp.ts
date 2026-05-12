@@ -223,7 +223,7 @@ export function createMcpServer(): Server {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const dbPath = require('path').join(__dirname, '..', 'telegram.db')
+  const dbPath = require('path').join(__dirname, '..', 'khipuchat.db')
   initDb(dbPath)
   const server = createMcpServer()
   const transport = new StdioServerTransport()

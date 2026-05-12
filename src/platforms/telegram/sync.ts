@@ -214,7 +214,7 @@ async function main(): Promise<void> {
   // GramJS fires unhandled rejections from its internal update loop on disconnect — suppress them
   process.on('unhandledRejection', () => {})
 
-  initDb('./telegram.db')
+  initDb('./khipuchat.db')
   await runBackfill(client)
   if (backfillOnly) { await client.disconnect(); return }
   startListener(client)

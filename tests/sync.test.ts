@@ -107,12 +107,12 @@ describe('saveSessionString', () => {
     if (existsSync(envPath)) unlinkSync(envPath)
   })
 
-  it('replaces existing SESSION_STRING= line', () => {
-    envPath = tempEnvFile('API_ID=123\nSESSION_STRING=old\nAPI_HASH=abc\n')
+  it('replaces existing TELEGRAM_SESSION_STRING= line', () => {
+    envPath = tempEnvFile('API_ID=123\nTELEGRAM_SESSION_STRING=old\nAPI_HASH=abc\n')
     saveSessionString('new-session', envPath)
     const result = readFileSync(envPath, 'utf8')
-    expect(result).toContain('SESSION_STRING=new-session')
-    expect(result).not.toContain('SESSION_STRING=old')
+    expect(result).toContain('TELEGRAM_SESSION_STRING=new-session')
+    expect(result).not.toContain('TELEGRAM_SESSION_STRING=old')
     expect(result).toContain('API_ID=123')
     expect(result).toContain('API_HASH=abc')
   })
@@ -121,7 +121,7 @@ describe('saveSessionString', () => {
     envPath = tempEnvFile('API_ID=123\nAPI_HASH=abc\n')
     saveSessionString('brand-new', envPath)
     const result = readFileSync(envPath, 'utf8')
-    expect(result).toContain('SESSION_STRING=brand-new')
+    expect(result).toContain('TELEGRAM_SESSION_STRING=brand-new')
     expect(result).toContain('API_ID=123')
   })
 
@@ -129,11 +129,11 @@ describe('saveSessionString', () => {
     envPath = tempEnvFile('')
     saveSessionString('fresh', envPath)
     const result = readFileSync(envPath, 'utf8')
-    expect(result).toContain('SESSION_STRING=fresh')
+    expect(result).toContain('TELEGRAM_SESSION_STRING=fresh')
   })
 
   it('updates config.sessionString in memory', () => {
-    envPath = tempEnvFile('SESSION_STRING=\n')
+    envPath = tempEnvFile('TELEGRAM_SESSION_STRING=\n')
     saveSessionString('mem-session', envPath)
     expect(config.sessionString).toBe('mem-session')
   })
@@ -168,7 +168,7 @@ describe('runAuthWizard', () => {
   let envPath: string
 
   beforeEach(() => {
-    envPath = tempEnvFile('SESSION_STRING=\n')
+    envPath = tempEnvFile('TELEGRAM_SESSION_STRING=\n')
   })
 
   afterEach(() => {
@@ -191,7 +191,7 @@ describe('runAuthWizard', () => {
     await runAuthWizard(client as unknown as TelegramClient, promptFn, { sessionString: '' }, envPath)
 
     const result = readFileSync(envPath, 'utf8')
-    expect(result).toContain('SESSION_STRING=fresh-session-abc')
+    expect(result).toContain('TELEGRAM_SESSION_STRING=fresh-session-abc')
   })
 
   it('calls client.connect() and skips start() when sessionString exists', async () => {
