@@ -126,18 +126,22 @@ export function getChatSnippets(chatId: number, n = 5): string[] {
 
 // ── Vector upsert ─────────────────────────────────────────────────────────────
 
-/** Store or replace a message embedding. */
+/** Store or replace a message embedding.
+ *  vec0 virtual tables don't support INSERT OR REPLACE, so we use DELETE + INSERT. */
 export function upsertMessageVector(id: number, vector: Float32Array): void {
-  getDb()
-    .prepare('INSERT OR REPLACE INTO vec_messages(rowid, embedding) VALUES(?, ?)')
-    .run(BigInt(id), vector)
+  const db = getDb()
+  const bigId = BigInt(id)
+  db.prepare('DELETE FROM vec_messages WHERE rowid = ?').run(bigId)
+  db.prepare('INSERT INTO vec_messages(rowid, embedding) VALUES(?, ?)').run(bigId, vector)
 }
 
-/** Store or replace a chat embedding. */
+/** Store or replace a chat embedding.
+ *  vec0 virtual tables don't support INSERT OR REPLACE, so we use DELETE + INSERT. */
 export function upsertChatVector(id: number, vector: Float32Array): void {
-  getDb()
-    .prepare('INSERT OR REPLACE INTO vec_chats(rowid, embedding) VALUES(?, ?)')
-    .run(BigInt(id), vector)
+  const db = getDb()
+  const bigId = BigInt(id)
+  db.prepare('DELETE FROM vec_chats WHERE rowid = ?').run(bigId)
+  db.prepare('INSERT INTO vec_chats(rowid, embedding) VALUES(?, ?)').run(bigId, vector)
 }
 
 // ── kNN queries ───────────────────────────────────────────────────────────────

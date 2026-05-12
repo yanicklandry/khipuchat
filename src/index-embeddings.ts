@@ -93,7 +93,8 @@ export async function embedNewChats(chatIds: number[]): Promise<void> {
   for (const chat of chats) {
     try {
       const snippets = getChatSnippets(chat.id)
-      const input = [chat.name, ...snippets].join('. ')
+      const input = [chat.name, ...snippets].filter(Boolean).join('. ')
+      if (!input.trim()) continue
       const vec = await embedOne(input)
       upsertChatVector(chat.id, vec)
     } catch (err) {
@@ -157,7 +158,13 @@ async function main(): Promise<void> {
   for (const chat of unindexedChats) {
     try {
       const snippets = getChatSnippets(chat.id)
-      const input = [chat.name, ...snippets].join('. ')
+      const input = [chat.name, ...snippets].filter(Boolean).join('. ')
+      if (!input.trim()) {
+        process.stderr.write(`\n[embed] chat ${chat.id} skipped: no indexable content\n`)
+        chatTotal++
+        process.stdout.write(renderBar(chatTotal, chatCount, chatStart))
+        continue
+      }
       const vec = await embedOne(input)
       upsertChatVector(chat.id, vec)
     } catch (err) {

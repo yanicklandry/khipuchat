@@ -363,7 +363,13 @@ export async function runBackfillImpl(
   for (const row of rows) syncedAt.set(row.id, row.last_synced_at)
   const hasPriorSync = syncedAt.size > 0
 
-  for (const dbPath of messageDbs) {
+  const dbCount = messageDbs.length
+
+  for (let dbIdx = 0; dbIdx < messageDbs.length; dbIdx++) {
+    const dbPath = messageDbs[dbIdx]
+    const dbName = path.basename(dbPath)
+    process.stdout.write(`[wechat] [${dbIdx + 1}/${dbCount}] Decrypting ${dbName}...\n`)
+
     const hexKey = resolveHexKey(dbPath, keyMap)
     const chatDb = openWechatDb(dbPath, hexKey)
     if (!chatDb) continue
@@ -376,12 +382,18 @@ export async function runBackfillImpl(
       const msgOpts: MessageMapOpts = { selfWxid, senderIdMap }
 
       const tables = listChatTables(chatDb)
-      for (const tableName of tables) {
+      process.stdout.write(`[wechat] [${dbIdx + 1}/${dbCount}] ${tables.length} chats in ${dbName}\n`)
+
+      for (let tIdx = 0; tIdx < tables.length; tIdx++) {
+        const tableName = tables[tIdx]
         const userName = tableNameMap.get(tableName)        // undefined for legacy Chat_ tables
         const displayName = (userName && contactMap.get(userName)) ?? userName ?? contactMap.get(tableName) ?? tableName
         const chatId = tableNameToChatId(tableName)
         upsertChat(mapChat(tableName, displayName, userName))
         totalChats++
+
+        const label = displayName.slice(0, 30).padEnd(30)
+        process.stdout.write(`\r  [${tIdx + 1}/${tables.length}] ${label}`)
 
         try {
           const { selectCols, timeCol } = buildSchemaInfo(chatDb, tableName)
@@ -400,10 +412,11 @@ export async function runBackfillImpl(
           totalMessages += msgRows.length
         } catch (err) {
           process.stderr.write(
-            `[wechat] Error reading ${tableName}: ${(err as Error).message}\n`,
+            `\n[wechat] Error reading ${tableName}: ${(err as Error).message}\n`,
           )
         }
       }
+      process.stdout.write('\n')
     } finally {
       chatDb.close()
     }
