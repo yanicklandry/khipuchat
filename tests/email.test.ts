@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { initDb, getChats } from '../src/db'
 import {
   hashStr,
@@ -6,7 +6,7 @@ import {
   mapMessage,
   runBackfillImpl,
 } from '../src/platforms/email/sync'
-import type { EmailClient, RawEmailMessage } from '../src/platforms/email/client'
+import type { EmailClient, RawEmailMessage, EmailSearchCriteria } from '../src/platforms/email/client'
 
 // ── Mock factory ──────────────────────────────────────────────────────────────
 
@@ -32,11 +32,26 @@ function makeMockClient(
   sentFolder: string | null = 'Sent',
 ): EmailClient {
   return {
-    fetchFolder: (folder: string) => folder === 'INBOX'
+    fetchFolder: (folder: string, _criteria?: EmailSearchCriteria) => folder === 'INBOX'
       ? asyncOf(...inboxMsgs)
       : asyncOf(...sentMsgs),
     listSpecialFolder: async () => sentFolder,
   }
+}
+
+function makeSpyClient(
+  inboxMsgs: RawEmailMessage[],
+  sentMsgs: RawEmailMessage[] = [],
+  sentFolder: string | null = 'Sent',
+): { client: EmailClient; fetchFolderSpy: ReturnType<typeof vi.fn> } {
+  const fetchFolderSpy = vi.fn((folder: string, _criteria?: EmailSearchCriteria) =>
+    folder === 'INBOX' ? asyncOf(...inboxMsgs) : asyncOf(...sentMsgs),
+  )
+  const client: EmailClient = {
+    fetchFolder: fetchFolderSpy,
+    listSpecialFolder: async () => sentFolder,
+  }
+  return { client, fetchFolderSpy }
 }
 
 // ── resolveThreadChatId ───────────────────────────────────────────────────────
@@ -157,6 +172,41 @@ describe('runBackfillImpl', () => {
     const client = makeMockClient([raw], [], null)
 
     await expect(runBackfillImpl(client, 'user@ex.com')).resolves.not.toThrow()
+    expect(getChats()).toHaveLength(1)
+  })
+})
+
+// ── syncIncremental: passes since to fetchFolder ──────────────────────────────
+
+describe('runBackfillImpl with since criteria', () => {
+  beforeEach(() => { initDb(':memory:') })
+
+  it('passes { since } to fetchFolder when criteria provided', async () => {
+    const since = new Date('2024-06-01T00:00:00Z')
+    const raw = makeRaw({ messageId: 'since-test@ex.com' })
+    const { client, fetchFolderSpy } = makeSpyClient([raw])
+
+    await runBackfillImpl(client, 'user@ex.com', { since })
+
+    // fetchFolder should be called with the criteria containing since
+    expect(fetchFolderSpy).toHaveBeenCalledWith('INBOX', { since })
+  })
+
+  it('passes undefined criteria to fetchFolder in backfill (no since)', async () => {
+    const raw = makeRaw({ messageId: 'no-since@ex.com' })
+    const { client, fetchFolderSpy } = makeSpyClient([raw])
+
+    await runBackfillImpl(client, 'user@ex.com')
+
+    expect(fetchFolderSpy).toHaveBeenCalledWith('INBOX', undefined)
+  })
+
+  it('imports messages when since criteria is passed', async () => {
+    const since = new Date('2024-01-01T00:00:00Z')
+    const raw = makeRaw({ messageId: 'inc-email@ex.com', date: new Date('2024-06-01') })
+    const client = makeMockClient([raw])
+
+    await runBackfillImpl(client, 'user@ex.com', { since })
     expect(getChats()).toHaveLength(1)
   })
 })

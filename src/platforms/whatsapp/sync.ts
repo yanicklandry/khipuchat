@@ -90,6 +90,36 @@ export async function runBackfillImpl(client: WhatsAppClient): Promise<void> {
   console.log(`[whatsapp] Sync complete (${mode}): ${checked} chats checked, ${skipped} skipped, ${totalMessages} new messages.`)
 }
 
+export async function runIncrementalImpl(client: WhatsAppClient, since: Date): Promise<void> {
+  const sinceTs = since.getTime() / 1000
+  console.log('[whatsapp] incremental: client-side filter only (WhatsApp Web API has no server-side time filter)')
+
+  const chats = await client.getChats()
+  let totalMessages = 0
+
+  for (const chat of chats) {
+    const chatId = hashStr(chat.id._serialized)
+    upsertChat(mapChat(chat))
+    const messages = await client.fetchMessages(chat.id._serialized)
+
+    let newCount = 0
+    for (const msg of messages) {
+      if (msg.timestamp <= sinceTs) continue
+      const senderId = msg.fromMe ? null : (msg.author ?? msg.from)
+      const senderName = senderId ? await client.getContactName(senderId) : ''
+      insertMessage(mapMessage(msg, chatId, senderName))
+      newCount++
+    }
+
+    setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
+    if (isIndexed('messages')) await embedNewMessages([chatId])
+    if (isIndexed('chats')) await embedNewChats([chatId])
+    totalMessages += newCount
+  }
+
+  console.log(`[whatsapp] Incremental sync complete: ${chats.length} chats checked, ${totalMessages} new messages.`)
+}
+
 export function parseArgs(argv: string[]): { debug: boolean } {
   return { debug: argv.includes('--debug') }
 }
@@ -103,6 +133,24 @@ export const whatsappAdapter: PlatformAdapter = {
     try {
       client = await createWhatsAppClient({ sessionDataPath: sessionPath, debug })
       await runBackfillImpl(client)
+    } catch (err) {
+      const e = err as Error
+      process.stderr.write(
+        `[whatsapp] Error: ${e.message}\n` +
+        '[whatsapp] Note: whatsapp-web.js uses an unofficial API and may break on WhatsApp updates.\n',
+      )
+      process.exit(1)
+    } finally {
+      await client?.destroy()
+    }
+  },
+  async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
+    const { debug } = parseArgs(process.argv)
+    const sessionPath = process.env['WHATSAPP_SESSION']
+    let client: WhatsAppClient | null = null
+    try {
+      client = await createWhatsAppClient({ sessionDataPath: sessionPath, debug })
+      await runIncrementalImpl(client, since)
     } catch (err) {
       const e = err as Error
       process.stderr.write(

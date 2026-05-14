@@ -3,7 +3,7 @@ import { initDb, upsertChat, insertMessage, type Message } from '../../db'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
-import { createEmailClient, type EmailClient, type RawEmailMessage } from './client'
+import { createEmailClient, type EmailClient, type RawEmailMessage, type EmailSearchCriteria } from './client'
 
 export function hashStr(s: string): number {
   let h = 2166136261
@@ -49,13 +49,13 @@ export function mapMessage(raw: RawEmailMessage, chatId: number, userEmail: stri
   }
 }
 
-export async function runBackfillImpl(client: EmailClient, userEmail: string): Promise<void> {
+export async function runBackfillImpl(client: EmailClient, userEmail: string, criteria?: EmailSearchCriteria): Promise<void> {
   const threadMap = new Map<string, number>()
   const seenChats = new Set<number>()
   let totalMessages = 0
 
   async function processFolder(folder: string) {
-    for await (const raw of client.fetchFolder(folder)) {
+    for await (const raw of client.fetchFolder(folder, criteria)) {
       if (!raw.messageId) {
         process.stderr.write(`[email] Skipping message with no Message-ID in ${folder}\n`)
         continue
@@ -104,6 +104,18 @@ export const emailAdapter: PlatformAdapter = {
       process.exit(1)
     }
     await runBackfillImpl(createEmailClient(host!, user!, pass!), user!)
+  },
+  async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
+    const host = process.env['EMAIL_IMAP_HOST']
+    const user = process.env['EMAIL_IMAP_USER']
+    const pass = process.env['EMAIL_IMAP_PASS']
+    const missing = (['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'] as const)
+      .filter(k => !process.env[k])
+    if (missing.length > 0) {
+      process.stderr.write(`[email] Missing environment variables: ${missing.join(', ')}. Set them and re-run.\n`)
+      process.exit(1)
+    }
+    await runBackfillImpl(createEmailClient(host!, user!, pass!), user!, { since })
   },
   startListener(_db: Database.Database): void {},
 }

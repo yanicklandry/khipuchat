@@ -9,8 +9,12 @@ export interface RawEmailMessage {
   text: string | null
 }
 
+export interface EmailSearchCriteria {
+  since?: Date
+}
+
 export interface EmailClient {
-  fetchFolder(folder: string): AsyncGenerator<RawEmailMessage>
+  fetchFolder(folder: string, criteria?: EmailSearchCriteria): AsyncGenerator<RawEmailMessage>
   listSpecialFolder(use: '\\Sent'): Promise<string | null>
 }
 
@@ -47,15 +51,59 @@ export function createEmailClient(host: string, user: string, pass: string): Ema
       })
     },
 
-    async *fetchFolder(folder) {
+    async *fetchFolder(folder, criteria?) {
       const client = new ImapFlow({ host, port: 993, secure: true, auth: { user, pass }, logger: false })
       await client.connect()
       try {
         const mailbox = await client.mailboxOpen(folder, { readOnly: true })
-        const total = mailbox.exists
+        if (mailbox.exists === 0) return
+
+        // If search criteria provided, use IMAP SEARCH to narrow results
+        let uids: number[] | undefined
+        if (criteria?.since) {
+          const searchResult = await (client as unknown as {
+            search(criteria: Record<string, unknown>, opts: Record<string, unknown>): Promise<number[]>
+          }).search({ since: criteria.since }, { uid: true })
+          if (searchResult.length === 0) return
+          uids = searchResult
+        }
+
+        const fetchRange = uids ? uids.join(',') : `1:${mailbox.exists}`
+        const fetchOpts = uids ? { uid: true } : {}
+        const total = uids ? uids.length : mailbox.exists
+
         if (total === 0) return
 
         const BATCH = 200
+        // For UID-based fetch, process in batches differently
+        if (uids) {
+          for (let i = 0; i < uids.length; i += BATCH) {
+            const batchUids = uids.slice(i, i + BATCH).join(',')
+            for await (const msg of client.fetch(batchUids, {
+              envelope: true,
+              bodyParts: ['text'],
+              bodyStructure: false,
+            }, { uid: true })) {
+              const env = msg.envelope
+              if (!env?.messageId) continue
+              let text: string | null = null
+              for (const [, part] of (msg.bodyParts ?? new Map())) {
+                text = (part as Buffer).toString('utf8').trim() || null
+                break
+              }
+              yield {
+                messageId: stripAngles(parseHeader(env.messageId)),
+                inReplyTo: env.inReplyTo ? stripAngles(parseHeader(env.inReplyTo)) : null,
+                from: env.from?.[0] ? `${env.from[0].name ?? ''} <${env.from[0].address ?? ''}>`.trim() : '',
+                subject: parseHeader(env.subject),
+                date: env.date ?? new Date(),
+                text,
+              }
+            }
+          }
+          return
+        }
+
         for (let start = 1; start <= total; start += BATCH) {
           const end = Math.min(start + BATCH - 1, total)
           for await (const msg of client.fetch(`${start}:${end}`, {

@@ -11,6 +11,7 @@ import {
   mapChat,
   mapMessage,
   runBackfillImpl,
+  runIncrementalImpl,
   openWechatDb,
   discoverMessageDbs,
   findUserDir,
@@ -561,6 +562,57 @@ describe('runBackfillImpl integration', () => {
     const ids = msgs.map(m => m.external_id)
     expect(ids).not.toContain('4001')
     expect(ids).toContain('4002')
+
+    fs.rmSync(tmpDir, { recursive: true })
+  })
+})
+
+// ── runIncrementalImpl: WHERE clause with time threshold ──────────────────────
+
+describe('runIncrementalImpl', () => {
+  beforeEach(() => { initDb(':memory:') })
+
+  it('only imports messages with CreateTime > sinceTs', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-inc-'))
+    const sinceUnix = 1700000010
+    const rows: WechatMessageRow[] = [
+      { msgSvrID: 5001, CreateTime: sinceUnix - 100, Message: 'Before', Des: 1 },
+      { msgSvrID: 5002, CreateTime: sinceUnix + 100, Message: 'After', Des: 0 },
+    ]
+    const db = makeMockChatDb('wxid_henry', rows)
+    const dbPath = path.join(tmpDir, 'message_0.db')
+    fs.writeFileSync(dbPath, db.serialize())
+    db.close()
+
+    const since = new Date(sinceUnix * 1000)
+    await runIncrementalImpl([dbPath], new Map(), new Map(), since)
+
+    const chatId = tableNameToChatId('Msg_wxid_henry')
+    const imported = getDb().prepare('SELECT external_id FROM messages WHERE chat_id = ?').all(chatId) as { external_id: string }[]
+    const ids = imported.map(m => m.external_id)
+    expect(ids).not.toContain('5001')
+    expect(ids).toContain('5002')
+
+    fs.rmSync(tmpDir, { recursive: true })
+  })
+
+  it('imports nothing when all messages are before since', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-inc-empty-'))
+    const sinceUnix = 1700000010
+    const rows: WechatMessageRow[] = [
+      { msgSvrID: 6001, CreateTime: sinceUnix - 200, Message: 'Old 1', Des: 1 },
+      { msgSvrID: 6002, CreateTime: sinceUnix - 100, Message: 'Old 2', Des: 0 },
+    ]
+    const db = makeMockChatDb('wxid_iris', rows)
+    const dbPath = path.join(tmpDir, 'message_0.db')
+    fs.writeFileSync(dbPath, db.serialize())
+    db.close()
+
+    const since = new Date(sinceUnix * 1000)
+    await runIncrementalImpl([dbPath], new Map(), new Map(), since)
+
+    const count = getDb().prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }
+    expect(count.n).toBe(0)
 
     fs.rmSync(tmpDir, { recursive: true })
   })

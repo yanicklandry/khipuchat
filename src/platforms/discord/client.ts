@@ -18,7 +18,7 @@ export interface DiscordClient {
   getGuilds(): Promise<Array<{ id: string }>>
   getGuildChannels(guildId: string): Promise<DiscordChannel[]>
   getDirectMessageChannels(): Promise<DiscordChannel[]>
-  getMessages(channelId: string, before?: string): Promise<DiscordMessage[]>
+  getMessages(channelId: string, before?: string, after?: string): Promise<DiscordMessage[]>
 }
 
 type DiscordErrorBody = { message?: string }
@@ -50,9 +50,11 @@ export function createDiscordClient(token: string): DiscordClient {
     getGuilds: () => discordFetch(`${BASE}/users/@me/guilds`, token) as Promise<Array<{ id: string }>>,
     getGuildChannels: (guildId) => discordFetch(`${BASE}/guilds/${guildId}/channels`, token) as Promise<DiscordChannel[]>,
     getDirectMessageChannels: () => discordFetch(`${BASE}/users/@me/channels`, token) as Promise<DiscordChannel[]>,
-    getMessages: (channelId, before?) => {
-      const qs = before ? `?before=${before}&limit=100` : '?limit=100'
-      return discordFetch(`${BASE}/channels/${channelId}/messages${qs}`, token) as Promise<DiscordMessage[]>
+    getMessages: (channelId, before?, after?) => {
+      const params = new URLSearchParams({ limit: '100' })
+      if (before) params.set('before', before)
+      if (after) params.set('after', after)
+      return discordFetch(`${BASE}/channels/${channelId}/messages?${params.toString()}`, token) as Promise<DiscordMessage[]>
     },
   }
 }

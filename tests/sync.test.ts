@@ -4,8 +4,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import type { TelegramClient } from 'telegram'
 import { config, saveSessionString } from '../src/config'
-import { runAuthWizard, runBackfill, startListener, type PromptFn } from '../src/platforms/telegram/sync'
-import { initDb, upsertChat, getChats, getMessages } from '../src/db'
+import { runAuthWizard, runBackfill, runSync, startListener, syncIncrementalImpl, type PromptFn } from '../src/platforms/telegram/sync'
+import { initDb, upsertChat, getChats, getMessages, getPlatformLastSyncedAt, setPlatformLastSyncedAt } from '../src/db'
 
 const T = 1700000000
 
@@ -360,5 +360,131 @@ describe('startListener', () => {
 
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('1'))
     consoleSpy.mockRestore()
+  })
+})
+
+// ── runSync (mode-select logic) ───────────────────────────────────────────────
+
+describe('runSync', () => {
+  beforeEach(() => {
+    initDb(':memory:')
+  })
+
+  it('logs sync mode: backfill when --backfill flag is set (even with prior timestamp)', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const client = makeMockClient()
+    const syncFn = vi.fn().mockResolvedValue(undefined)
+
+    await runSync(client as unknown as TelegramClient, { backfillFlag: true, since: 1700000000 }, syncFn)
+
+    expect(consoleSpy).toHaveBeenCalledWith('[telegram] sync mode: backfill')
+    consoleSpy.mockRestore()
+  })
+
+  it('logs sync mode: backfill when no prior timestamp', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const client = makeMockClient()
+    const syncFn = vi.fn().mockResolvedValue(undefined)
+
+    await runSync(client as unknown as TelegramClient, { backfillFlag: false, since: null }, syncFn)
+
+    expect(consoleSpy).toHaveBeenCalledWith('[telegram] sync mode: backfill')
+    consoleSpy.mockRestore()
+  })
+
+  it('logs sync mode: incremental when no flag and prior timestamp exists', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const client = makeMockClient()
+    const syncFn = vi.fn().mockResolvedValue(undefined)
+
+    await runSync(client as unknown as TelegramClient, { backfillFlag: false, since: 1700000000 }, syncFn)
+
+    expect(consoleSpy).toHaveBeenCalledWith('[telegram] sync mode: incremental')
+    consoleSpy.mockRestore()
+  })
+
+  it('updates sync_state after successful sync', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const client = makeMockClient()
+    const syncFn = vi.fn().mockResolvedValue(undefined)
+
+    await runSync(client as unknown as TelegramClient, { backfillFlag: false, since: null }, syncFn)
+
+    const ts = getPlatformLastSyncedAt('telegram')
+    expect(ts).not.toBeNull()
+    expect(ts).toBeGreaterThan(0)
+    vi.restoreAllMocks()
+  })
+
+  it('does not update sync_state when sync throws (error leaves sync_state unchanged)', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const client = makeMockClient()
+    const syncFn = vi.fn().mockRejectedValue(new Error('network failure'))
+
+    await expect(
+      runSync(client as unknown as TelegramClient, { backfillFlag: false, since: null }, syncFn)
+    ).rejects.toThrow('network failure')
+
+    expect(getPlatformLastSyncedAt('telegram')).toBeNull()
+    vi.restoreAllMocks()
+  })
+})
+
+// ── syncIncrementalImpl ───────────────────────────────────────────────────────
+
+describe('syncIncrementalImpl', () => {
+  beforeEach(() => {
+    initDb(':memory:')
+  })
+
+  it('skips dialogs where dialogDate <= sinceTs', async () => {
+    const since = new Date(T * 1000)  // sinceTs = T
+    const entity = makeUserEntity(1, 'Alice')
+    // dialogDate = T (equal to sinceTs — should be skipped)
+    const client = makeMockClient()
+    client.getDialogs.mockResolvedValue([{ entity, date: T }])
+    const sleep = vi.fn().mockResolvedValue(undefined)
+
+    await syncIncrementalImpl(client as unknown as TelegramClient, since, sleep, 20)
+
+    // No messages fetched because dialog was skipped
+    expect(client.getMessages).not.toHaveBeenCalled()
+    expect(getChats()).toHaveLength(0)
+  })
+
+  it('processes dialogs where dialogDate > sinceTs', async () => {
+    const since = new Date(T * 1000)
+    const entity = makeUserEntity(1, 'Bob')
+    const msgs = [makeMsg(10, 'hello', T + 1)]
+    const client = makeMockClient()
+    client.getDialogs.mockResolvedValue([{ entity, date: T + 1 }])
+    client.getMessages.mockResolvedValue(msgs)
+    const sleep = vi.fn().mockResolvedValue(undefined)
+
+    await syncIncrementalImpl(client as unknown as TelegramClient, since, sleep, 20)
+
+    expect(getChats()).toHaveLength(1)
+    expect(getChats()[0].name).toBe('Bob')
+  })
+
+  it('skips messages within the dialog that are at or before sinceTs', async () => {
+    const since = new Date(T * 1000)
+    const entity = makeUserEntity(1, 'Carol')
+    // dialogDate > sinceTs, but some messages are old
+    const msgs = [
+      makeMsg(1, 'old msg', T - 1),   // before since — skip
+      makeMsg(2, 'at since', T),       // equal — skip
+      makeMsg(3, 'new msg', T + 1),    // after — keep
+    ]
+    const client = makeMockClient()
+    client.getDialogs.mockResolvedValue([{ entity, date: T + 1 }])
+    client.getMessages.mockResolvedValue(msgs)
+    const sleep = vi.fn().mockResolvedValue(undefined)
+
+    await syncIncrementalImpl(client as unknown as TelegramClient, since, sleep, 20)
+
+    const stored = getMessages(1, 10)
+    expect(stored).toHaveLength(1)
+    expect(stored[0].external_id).toBe('3')
   })
 })

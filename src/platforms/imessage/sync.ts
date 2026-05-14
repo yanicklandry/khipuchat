@@ -153,12 +153,60 @@ export async function runBackfillImpl(chatDb: Database.Database): Promise<void> 
   console.log(`iMessage sync complete (${mode}): ${chats.length} chats, ${totalMessages} new messages imported.`)
 }
 
+/** Incremental sync: only fetch messages with Cocoa date > cocoaThreshold derived from `since`. */
+export async function runIncrementalImpl(chatDb: Database.Database, since: Date): Promise<void> {
+  const COCOA_OFFSET = 978307200
+  const cocoaThreshold = BigInt(Math.floor(since.getTime() / 1000) - COCOA_OFFSET) * 1_000_000_000n
+
+  const handles = chatDb.prepare('SELECT ROWID, id FROM handle').all() as HandleRow[]
+  const contactMap = buildContactMap(handles.map(h => h.id))
+  const handleIndex = new Map(handles.map(h => [h.ROWID, h]))
+
+  const chats = chatDb
+    .prepare('SELECT ROWID, guid, chat_identifier, display_name, room_name FROM chat')
+    .all() as ChatDbRow[]
+
+  let totalMessages = 0
+
+  for (const chatRow of chats) {
+    const chatHandles = (chatDb.prepare(
+      'SELECT h.id FROM handle h JOIN chat_handle_join chj ON chj.handle_id = h.ROWID WHERE chj.chat_id = ?',
+    ).all(chatRow.ROWID) as { id: string }[]).map(r => r.id)
+
+    const chatId = hashGuid(chatRow.guid)
+    upsertChat(mapChat(chatRow, chatHandles, contactMap))
+
+    const msgRows = chatDb.prepare(`
+      SELECT m.ROWID, m.guid, m.text, m.date, m.is_from_me, m.handle_id, m.reply_to_guid
+      FROM message m
+      JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+      WHERE cmj.chat_id = ? AND m.date > ?
+    `).all(chatRow.ROWID, cocoaThreshold) as MessageDbRow[]
+
+    for (const msgRow of msgRows) {
+      const handleRow = msgRow.handle_id !== null ? handleIndex.get(msgRow.handle_id) : undefined
+      insertMessage(mapMessage(msgRow, chatId, handleRow, contactMap))
+    }
+    setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
+    if (isIndexed('messages')) await embedNewMessages([chatId])
+    if (isIndexed('chats')) await embedNewChats([chatId])
+    totalMessages += msgRows.length
+  }
+
+  console.log(`iMessage incremental sync complete: ${chats.length} chats, ${totalMessages} new messages imported.`)
+}
+
 export const iMessageAdapter: PlatformAdapter = {
   platform: 'imessage',
   async runBackfill(_db: Database.Database): Promise<void> {
     const chatDbPath = join(homedir(), 'Library', 'Messages', 'chat.db')
     const chatDb = openChatDb(chatDbPath)
     try { await runBackfillImpl(chatDb) } finally { chatDb.close() }
+  },
+  async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
+    const chatDbPath = join(homedir(), 'Library', 'Messages', 'chat.db')
+    const chatDb = openChatDb(chatDbPath)
+    try { await runIncrementalImpl(chatDb, since) } finally { chatDb.close() }
   },
   startListener(_db: Database.Database): void {},
 }
