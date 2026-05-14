@@ -7,6 +7,8 @@ import {
   getMessages,
   searchMessages,
   getLastSyncedId,
+  getPlatformLastSyncedAt,
+  setPlatformLastSyncedAt,
 } from '../src/db'
 
 const T = 1700000000
@@ -298,5 +300,37 @@ describe('getLastSyncedId', () => {
       reply_to_external_id: null, platform: 'telegram',
     })
     expect(getLastSyncedId(1)).toBeNull()
+  })
+})
+
+// ── sync_state ────────────────────────────────────────────────────────────────
+
+describe('sync_state', () => {
+  it('initDb creates the sync_state table', () => {
+    const tables = initDb(':memory:')
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .pluck()
+      .all() as string[]
+    expect(tables).toContain('sync_state')
+  })
+
+  it('getPlatformLastSyncedAt returns null for unknown platform', () => {
+    expect(getPlatformLastSyncedAt('telegram')).toBeNull()
+  })
+
+  it('getPlatformLastSyncedAt returns stored value after setPlatformLastSyncedAt', () => {
+    setPlatformLastSyncedAt('telegram', 1000)
+    expect(getPlatformLastSyncedAt('telegram')).toBe(1000)
+  })
+
+  it('setPlatformLastSyncedAt overwrites on second call (upsert semantics)', () => {
+    setPlatformLastSyncedAt('telegram', 1000)
+    setPlatformLastSyncedAt('telegram', 2000)
+    expect(getPlatformLastSyncedAt('telegram')).toBe(2000)
+  })
+
+  it('platforms are independent — setting one does not affect another', () => {
+    setPlatformLastSyncedAt('telegram', 1000)
+    expect(getPlatformLastSyncedAt('slack')).toBeNull()
   })
 })
