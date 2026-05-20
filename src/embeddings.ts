@@ -31,6 +31,11 @@ async function getPipeline(): Promise<Pipeline> {
 export async function embed(texts: string[]): Promise<Float32Array[]> {
   if (texts.length === 0) throw new Error('No texts to embed')
 
+  // E2E test hook: returns deterministic fake vectors without downloading the model
+  if (process.env['KHIPUCHAT_EMBED_MOCK'] === '1') {
+    return texts.map(() => new Float32Array(384).fill(0.1))
+  }
+
   const extractor = await getPipeline()
   const results: Float32Array[] = []
 

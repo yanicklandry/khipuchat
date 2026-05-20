@@ -128,7 +128,7 @@
   - _Requirements: 2.1, 2.2, 2.3_
   - _Depends: 4.2_
 
-- [ ]* 6.5 E2E test: index:embeddings CLI on seeded database
+- [x] 6.5 E2E test: index:embeddings CLI on seeded database
   - Seed a test SQLite file with known chats and messages; run `npx tsx src/index-embeddings.ts` via `child_process.execSync` pointed at the seeded file
   - Assert: exit code 0; stdout contains `Done. Indexed`; `embedding_meta` table has rows for both 'messages' and 'chats'
   - Run again on same DB; assert second run prints `Done. Indexed 0 messages, 0 chats.` (incremental skip)

@@ -106,7 +106,11 @@ export async function embedNewChats(chatIds: number[]): Promise<void> {
 // ── CLI entry point ────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const dbPath = path.join(__dirname, '..', 'khipuchat.db')
+  const dbArgIdx = process.argv.indexOf('--db')
+  const dbPath = dbArgIdx !== -1
+    ? process.argv[dbArgIdx + 1]
+    : path.join(__dirname, '..', 'khipuchat.db')
+  if (!dbPath) throw new Error('--db requires a path argument')
   initDb(dbPath)
 
   // ── Index messages ────────────────────────────────────────────────────────
