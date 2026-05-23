@@ -46,7 +46,7 @@
 ---
 
 - [ ] 2. Add `/api/semantic-search` route
-- [ ] 2.1 Add `GET /api/semantic-search` handler to `src/web/routes.ts`
+- [x] 2.1 Add `GET /api/semantic-search` handler to `src/web/routes.ts`
   - Validate `q` (string, non-empty) and optional `limit` (int 1–100, default 20); return 400 on invalid `limit`.
   - If `q` is missing or empty: respond `200 []`.
   - Call `isIndexed('messages')`; if false: respond `200 { error: 'Embedding index not built. Run: npm run index:embeddings', results: [] }`.

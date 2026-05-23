@@ -2,6 +2,8 @@ import { Router } from 'express'
 import type { Request, Response } from 'express'
 import expressBasicAuth from 'express-basic-auth'
 import { handleListChats, handleSearchMessages, handleListMessages } from '../mcp'
+import { isIndexed, semanticSearchMessages } from '../vec-db'
+import { embedOne } from '../embeddings'
 
 const router = Router()
 
@@ -68,6 +70,59 @@ router.get('/api/messages/:chatId', (req: Request, res: Response) => {
 
     const result = handleListMessages(chatId, { before, limit })
     res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message })
+  }
+})
+
+router.get('/api/semantic-search', async (req: Request, res: Response) => {
+  try {
+    const q = req.query['q']
+
+    // No query or empty query → return empty array
+    if (typeof q !== 'string' || q.trim() === '') {
+      res.json([])
+      return
+    }
+
+    // Parse optional `limit` param (1–100, default 20)
+    let limit = 20
+    const limitRaw = req.query['limit']
+    if (limitRaw !== undefined) {
+      const limitVal = Number(limitRaw)
+      if (!Number.isInteger(limitVal) || limitVal < 1 || limitVal > 100) {
+        res.status(400).json({ error: 'invalid limit parameter' })
+        return
+      }
+      limit = limitVal
+    }
+
+    // Check index exists before embedding
+    if (!isIndexed('messages')) {
+      res.json({ error: 'Embedding index not built. Run: npm run index:embeddings', results: [] })
+      return
+    }
+
+    const vector = await embedOne(q)
+    const raw = semanticSearchMessages(vector, { limit })
+
+    // semanticSearchMessages returns SemanticMessageResult[] directly (no error shape)
+    if (!Array.isArray(raw)) {
+      const errMsg = (raw as { error: string }).error ?? 'semantic search failed'
+      res.status(500).json({ error: errMsg })
+      return
+    }
+
+    const results = raw.map(r => ({
+      chat_id: r.chat_id,
+      chat_name: r.chat_name,
+      sender_name: r.sender_name ?? '',
+      text: r.text ?? '',
+      timestamp: r.timestamp,
+      platform: r.platform,
+    }))
+
+    res.json(results)
   } catch (err) {
     res.status(500).json({ error: (err as Error).message })
   }
