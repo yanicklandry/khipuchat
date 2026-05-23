@@ -32,7 +32,7 @@
   - _Boundary: src/web/routes.ts_
   - _Depends: 1.1, 1.2_
 
-- [ ] 1.4 Update `tests/web.test.ts` to cover pagination behavior and fix the response-shape regression
+- [x] 1.4 Update `tests/web.test.ts` to cover pagination behavior and fix the response-shape regression
   - Update existing `GET /api/messages/:chatId` assertion to expect `{ messages: [...], has_more: boolean }` shape.
   - Add test: `GET /api/messages/1?limit=2` returns 2 messages and a `has_more` field.
   - Add test: `GET /api/messages/1?before=99999` returns `{ messages: [], has_more: false }`.

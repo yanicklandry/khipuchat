@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import request from 'supertest'
 
 import { initDb, upsertChat, insertMessage } from '../src/db'
@@ -126,20 +126,95 @@ describe('GET /api/messages/:chatId', () => {
     expect(res.body).toEqual({ error: 'invalid chatId' })
   })
 
-  it('returns 200 with an empty array for unknown chatId', async () => {
+  it('returns 200 with { messages: [], has_more: false } for unknown chatId', async () => {
     const res = await request(makeApp()).get('/api/messages/9999')
     expect(res.status).toBe(200)
-    expect(Array.isArray(res.body)).toBe(true)
+    expect(res.body).toHaveProperty('messages')
+    expect(Array.isArray(res.body.messages)).toBe(true)
+    expect(res.body.has_more).toBe(false)
   })
 
-  it('returns 200 with messages for a seeded chat', async () => {
+  it('returns 200 with { messages, has_more } for a seeded chat', async () => {
     const app = seedChat()
     const res = await request(app).get('/api/messages/1')
     expect(res.status).toBe(200)
-    expect(Array.isArray(res.body)).toBe(true)
-    const [msg] = res.body as { sender_name: string; text: string; is_sender: number; platform: string }[]
+    expect(res.body).toHaveProperty('messages')
+    expect(res.body).toHaveProperty('has_more')
+    expect(Array.isArray(res.body.messages)).toBe(true)
+    const [msg] = res.body.messages as { sender_name: string; text: string; is_sender: number; platform: string }[]
     expect(typeof msg.text).toBe('string')
     expect(typeof msg.is_sender).toBe('number')
     expect(msg.platform).toBe('imessage')
+  })
+
+  it('returns 400 for non-integer before param', async () => {
+    const res = await request(makeApp()).get('/api/messages/1?before=abc')
+    expect(res.status).toBe(400)
+    expect(res.body).toEqual({ error: 'invalid before parameter' })
+  })
+
+  it('returns 400 for negative before param', async () => {
+    const res = await request(makeApp()).get('/api/messages/1?before=-1')
+    expect(res.status).toBe(400)
+    expect(res.body).toEqual({ error: 'invalid before parameter' })
+  })
+
+  it('returns 400 for limit out of range (> 100)', async () => {
+    const res = await request(makeApp()).get('/api/messages/1?limit=200')
+    expect(res.status).toBe(400)
+    expect(res.body).toEqual({ error: 'invalid limit parameter' })
+  })
+
+  it('returns 400 for non-integer limit param', async () => {
+    const res = await request(makeApp()).get('/api/messages/1?limit=abc')
+    expect(res.status).toBe(400)
+    expect(res.body).toEqual({ error: 'invalid limit parameter' })
+  })
+
+  it('returns 400 for limit of 0', async () => {
+    const res = await request(makeApp()).get('/api/messages/1?limit=0')
+    expect(res.status).toBe(400)
+    expect(res.body).toEqual({ error: 'invalid limit parameter' })
+  })
+
+  it('returns messages with has_more: false for before timestamp beyond all messages', async () => {
+    const app = seedChat()
+    const res = await request(app).get('/api/messages/1?before=99999')
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body.messages)).toBe(true)
+    expect(res.body.has_more).toBe(false)
+  })
+
+  it('returns 400 for before=0', async () => {
+    const res = await request(makeApp()).get('/api/messages/1?before=0')
+    expect(res.status).toBe(400)
+    expect(res.body).toEqual({ error: 'invalid before parameter' })
+  })
+
+  it('without before returns most recent messages (not oldest), sorted ascending', async () => {
+    initDb(':memory:')
+    upsertChat({ id: 2, name: 'Bob', type: 'private', username: null, platform: 'imessage' })
+    // Insert 5 messages with distinct timestamps
+    for (let i = 1; i <= 5; i++) {
+      insertMessage({
+        external_id: `msg-ts-${i}`, chat_id: 2, sender_id: null, sender_name: 'Bob',
+        text: `Message ${i}`, type: 'text', timestamp: 1700000000 + i * 100,
+        is_sender: 0, reply_to_external_id: null, platform: 'imessage',
+      })
+    }
+    const app = createApp()
+    // With limit=3, should return messages 3, 4, 5 (most recent), not 1, 2, 3 (oldest)
+    const res = await request(app).get('/api/messages/2?limit=3')
+    expect(res.status).toBe(200)
+    const msgs = res.body.messages as { text: string; timestamp: number }[]
+    expect(msgs).toHaveLength(3)
+    // Must be sorted ascending
+    expect(msgs[0].timestamp).toBeLessThan(msgs[1].timestamp)
+    expect(msgs[1].timestamp).toBeLessThan(msgs[2].timestamp)
+    // The most recent 3 are timestamps 300, 400, 500 (messages 3, 4, 5)
+    expect(msgs[0].text).toBe('Message 3')
+    expect(msgs[2].text).toBe('Message 5')
+    // has_more should be true since there are 2 more older messages
+    expect(res.body.has_more).toBe(true)
   })
 })
