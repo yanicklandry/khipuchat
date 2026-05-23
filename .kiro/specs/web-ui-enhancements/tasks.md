@@ -87,7 +87,7 @@
 ---
 
 - [ ] 4. Update `src/web/ui.ts` — thread scroll integration
-- [ ] 4.1 (P) Wire scroll-to-bottom into thread open and thread re-select
+- [x] 4.1 (P) Wire scroll-to-bottom into thread open and thread re-select
   - Import `SCROLL_JS` from `./ui-scroll` and embed it in the `<script>` block of `HTML_PAGE`.
   - In the `openThread(chatId)` JS function: after rendering messages call `scrollToBottom(threadContainer)`.
   - On re-select of the same chat: call `scrollToBottom(threadContainer)` again (Req 2.3).
