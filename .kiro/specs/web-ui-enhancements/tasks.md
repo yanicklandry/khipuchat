@@ -110,7 +110,7 @@
 ---
 
 - [ ] 5. Update `src/web/ui.ts` — semantic search toggle
-- [ ] 5.1 Add keyword/semantic pill toggle to search bar markup
+- [x] 5.1 Add keyword/semantic pill toggle to search bar markup
   - Add two adjacent `<button>` elements (`data-mode="keyword"` and `data-mode="semantic"`) inside the search bar container.
   - Style as a pill: background highlight on `.active` class; default active mode is `keyword`.
   - Clicking a mode button sets the `searchMode` JS variable and updates `.active` class.

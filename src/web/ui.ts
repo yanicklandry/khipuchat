@@ -14,7 +14,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; background: #f5f5f5; }
     #search-bar { display: flex; gap: 8px; padding: 12px 16px; background: #fff; border-bottom: 1px solid #ddd; }
     #search-bar input { flex: 1; padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
-    #search-bar button { padding: 8px 16px; background: #0070f3; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    #search-btn { padding: 8px 16px; background: #0070f3; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .mode-btn { padding: 6px 12px; border: 1px solid #ccc; background: none; font-size: 13px; cursor: pointer; color: #555; } .mode-btn:first-of-type { border-radius: 6px 0 0 6px; } .mode-btn:last-of-type { border-radius: 0 6px 6px 0; border-left: none; } .mode-btn.active { background: #0070f3; color: #fff; border-color: #0070f3; }
     #main { display: flex; flex: 1; overflow: hidden; }
     #sidebar { width: 280px; display: flex; flex-direction: column; background: #fff; border-right: 1px solid #ddd; }
     #type-filter { display: flex; border-bottom: 1px solid #ddd; }
@@ -31,10 +32,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
     .chat-item.active { background: #e8f0fe; }
     .chat-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .chat-meta { display: flex; justify-content: space-between; margin-top: 4px; font-size: 12px; color: #888; }
-    .badge { background: #6c757d; color: #fff; border-radius: 4px; padding: 1px 5px; font-size: 11px; }
-    .badge.group { background: #5a67d8; } .badge.private { background: #38a169; }
-    .msg { display: flex; flex-direction: column; margin: 8px 0; }
-    .msg.sent { align-items: flex-end; } .msg.received { align-items: flex-start; }
+    .badge { background: #6c757d; color: #fff; border-radius: 4px; padding: 1px 5px; font-size: 11px; } .badge.group { background: #5a67d8; } .badge.private { background: #38a169; }
+    .msg { display: flex; flex-direction: column; margin: 8px 0; } .msg.sent { align-items: flex-end; } .msg.received { align-items: flex-start; }
     .msg-bubble { max-width: 65%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.4; }
     .msg.sent .msg-bubble { background: #0070f3; color: #fff; } .msg.received .msg-bubble { background: #fff; border: 1px solid #ddd; }
     .msg-meta { font-size: 11px; color: #aaa; margin-top: 3px; } .msg-media { font-style: italic; color: #888; } .msg-sender { font-size: 12px; color: #5a67d8; font-weight: 600; }
@@ -46,6 +45,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
 <body>
   <div id="search-bar">
     <input id="q" type="text" placeholder="Search messages…" />
+    <div style="display:flex"><button class="mode-btn active" data-mode="keyword">Keyword</button><button class="mode-btn" data-mode="semantic">Semantic</button></div>
     <button id="search-btn">Search</button>
   </div>
   <div id="main">
@@ -68,7 +68,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
     const qInput = document.getElementById('q');
     const searchBtn = document.getElementById('search-btn');
     let allChats = [], activeType = 'all', activePlatform = 'all';
-    let currentChatType = 'private', currentChatId = null;
+    let currentChatType = 'private', currentChatId = null, searchMode = 'keyword';
+    document.getElementById('search-bar').addEventListener('click', e => { const btn = e.target.closest('.mode-btn'); if (!btn) return; searchMode = btn.dataset.mode; document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b === btn)); });
 
     document.getElementById('type-filter').addEventListener('click', e => {
       const btn = e.target.closest('button[data-type]'); if (!btn) return;
