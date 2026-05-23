@@ -1,9 +1,7 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import expressBasicAuth from 'express-basic-auth'
-import { handleListChats, handleSearchMessages } from '../mcp'
-import { getDb } from '../db'
-import type { MessageRow } from '../db'
+import { handleListChats, handleSearchMessages, handleListMessages } from '../mcp'
 
 const router = Router()
 
@@ -68,27 +66,8 @@ router.get('/api/messages/:chatId', (req: Request, res: Response) => {
       limit = limitVal
     }
 
-    // Fetch limit+1 rows in DESC order to detect has_more, then re-order ASC.
-    // Fetching DESC first ensures we always get the *most recent* N messages
-    // (same pattern as handleListMessages in mcp.ts).
-    let descRows: MessageRow[]
-    if (before !== undefined) {
-      descRows = getDb().prepare(`
-        SELECT * FROM messages
-        WHERE chat_id = ? AND timestamp < ?
-        ORDER BY timestamp DESC LIMIT ?
-      `).all(chatId, before, limit + 1) as MessageRow[]
-    } else {
-      descRows = getDb().prepare(`
-        SELECT * FROM messages
-        WHERE chat_id = ?
-        ORDER BY timestamp DESC LIMIT ?
-      `).all(chatId, limit + 1) as MessageRow[]
-    }
-    const has_more = descRows.length > limit
-    // Take at most `limit` rows (dropping the extra probe row), then re-order ASC
-    const messages = descRows.slice(0, limit).reverse()
-    res.json({ messages, has_more })
+    const result = handleListMessages(chatId, { before, limit })
+    res.json(result)
   } catch (err) {
     res.status(500).json({ error: (err as Error).message })
   }

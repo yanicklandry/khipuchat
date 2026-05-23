@@ -24,7 +24,7 @@
   - _Boundary: mcp.ts handleListMessages_
   - _Depends: 1.1_
 
-- [ ] 1.3 Update `GET /api/messages/:chatId` route to delegate to `handleListMessages` (replaces direct `db.getMessages` call)
+- [x] 1.3 Update `GET /api/messages/:chatId` route to delegate to `handleListMessages` (replaces direct `db.getMessages` call)
   - After task 1.1 adds param parsing and task 1.2 extends `handleListMessages`, update the route to call `handleListMessages(chatId, { before, limit })` instead of `getMessages` directly.
   - Forward the `{ messages, has_more }` response object to the client unchanged.
   - Remove the direct `import { getMessages } from '../db'` if no longer needed.
