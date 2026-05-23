@@ -58,7 +58,7 @@
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 6.2, 6.3_
   - _Boundary: API Routes routes.ts_
 
-- [ ] 2.2 Add `tests/web.test.ts` coverage for `/api/semantic-search`
+- [x] 2.2 Add `tests/web.test.ts` coverage for `/api/semantic-search`
   - Add test: `GET /api/semantic-search` (no `q`) returns `200 []`.
   - Add test: with index seeded, `GET /api/semantic-search?q=hello` returns `200` results array matching `SearchResult` shape.
   - Add test: with no index, `GET /api/semantic-search?q=hello` returns `200 { error: '...', results: [] }`.
