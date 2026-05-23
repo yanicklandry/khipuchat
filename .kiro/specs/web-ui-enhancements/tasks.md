@@ -71,7 +71,7 @@
 ---
 
 - [ ] 3. Extract scroll JS to `src/web/ui-scroll.ts`
-- [ ] 3.1 Create `src/web/ui-scroll.ts` exporting `SCROLL_JS: string`
+- [x] 3.1 Create `src/web/ui-scroll.ts` exporting `SCROLL_JS: string`
   - The string contains self-contained vanilla JS (no `import` syntax) implementing:
     - `scrollToBottom(container)` — schedules `container.scrollTop = container.scrollHeight` via `requestAnimationFrame`.
     - `attachScrollSentinel(container, chatId, oldestId, onOlderLoaded)` — inserts `<div id="scroll-sentinel">` as first child of `container`; creates an `IntersectionObserver` (threshold `0`, rootMargin `'100px'`) targeting the sentinel.
