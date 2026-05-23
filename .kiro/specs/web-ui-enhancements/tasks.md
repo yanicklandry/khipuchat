@@ -5,7 +5,7 @@
 ---
 
 - [ ] 1. Extend message handler with pagination support
-- [ ] 1.1 Extend `GET /api/messages/:chatId` in `src/web/routes.ts` to accept `?before=<timestamp>` and `?limit=<n>` query params
+- [x] 1.1 Extend `GET /api/messages/:chatId` in `src/web/routes.ts` to accept `?before=<timestamp>` and `?limit=<n>` query params
   - The current handler calls `getMessages(chatId, 500)` (hard-coded limit, no `before`). Replace this with param-aware logic.
   - Parse `before` as a positive integer (unix timestamp) if present; respond 400 `{ error: 'invalid before parameter' }` if non-integer or negative.
   - Parse `limit` as a positive integer in range 1–100 if present (default 50); respond 400 `{ error: 'invalid limit parameter' }` if out of range or non-integer.
