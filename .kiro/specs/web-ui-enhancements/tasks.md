@@ -118,7 +118,7 @@
   - _Requirements: 5.1, 5.6, 6.1_
   - _Boundary: ui.ts_
 
-- [ ] 5.2 Wire search submission to mode-aware fetch URL
+- [x] 5.2 Wire search submission to mode-aware fetch URL
   - On search submit: if `searchMode === 'keyword'` fetch `/api/search?q=`; else fetch `/api/semantic-search?q=`.
   - If the semantic response contains an `error` field (index not built case), render an error banner in the results panel instead of an empty list (Req 5.5).
   - Semantic results render with the same HTML template as keyword results: sender name, message text, timestamp, platform badge, click handler to load thread (Req 5.4).

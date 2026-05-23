@@ -70,7 +70,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
     let allChats = [], activeType = 'all', activePlatform = 'all';
     let currentChatType = 'private', currentChatId = null, searchMode = 'keyword';
     document.getElementById('search-bar').addEventListener('click', e => { const btn = e.target.closest('.mode-btn'); if (!btn) return; searchMode = btn.dataset.mode; document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b === btn)); });
-
     document.getElementById('type-filter').addEventListener('click', e => {
       const btn = e.target.closest('button[data-type]'); if (!btn) return;
       activeType = btn.dataset.type;
@@ -170,10 +169,11 @@ export const HTML_PAGE = `<!DOCTYPE html>
     async function doSearch() {
       const q = qInput.value.trim();
       if (!q) return;
-      const res = await fetch('/api/search?q=' + encodeURIComponent(q));
-      const results = await res.json();
+      const data = await (await fetch((searchMode === 'keyword' ? '/api/search?q=' : '/api/semantic-search?q=') + encodeURIComponent(q))).json();
       panel.innerHTML = '';
       document.querySelectorAll('.chat-item').forEach(x => x.classList.remove('active'));
+      if (data.error) { panel.innerHTML = '<div class="search-error">' + esc(data.error) + '</div>'; return; }
+      const results = Array.isArray(data) ? data : (data.results || []);
       if (results.length === 0) { panel.innerHTML = '<div id="placeholder">No results for "' + esc(q) + '"</div>'; return; }
       results.forEach(r => {
         const el = document.createElement('div');
