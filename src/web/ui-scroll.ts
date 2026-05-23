@@ -9,6 +9,7 @@ export const SCROLL_JS = `
   }
 
   function attachScrollSentinel(container, chatId, oldestId, onOlderLoaded, hasMore) {
+    var _oldestId = oldestId;
     // Disconnect any previous observer
     disconnectScroll();
     _isFetching = false;
@@ -53,13 +54,14 @@ export const SCROLL_JS = `
       var prevError = document.getElementById('scroll-error');
       if (prevError) prevError.remove();
 
-      fetch('/api/messages/' + chatId + '?before=' + oldestId + '&limit=50')
+      fetch('/api/messages/' + chatId + '?before=' + _oldestId + '&limit=50')
         .then(function(r) { return r.json(); })
         .then(function(data) {
           var msgs = data.messages || [];
           if (loading) loading.style.display = 'none';
 
           if (msgs.length > 0) {
+            _oldestId = msgs[0].timestamp;
             onOlderLoaded(msgs);
             // Restore scroll position
             if (firstVisible) {
@@ -93,7 +95,7 @@ export const SCROLL_JS = `
           retryBtn.textContent = 'Retry';
           retryBtn.onclick = function() {
             errDiv.remove();
-            attachScrollSentinel(container, chatId, oldestId, onOlderLoaded);
+            attachScrollSentinel(container, chatId, _oldestId, onOlderLoaded, hasMore);
           };
           errDiv.appendChild(retryBtn);
           var s = document.getElementById('scroll-sentinel');
