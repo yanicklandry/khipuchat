@@ -157,14 +157,13 @@ export const HTML_PAGE = `<!DOCTYPE html>
       disconnectScroll();
       currentChatId = chatId;
       const res = await fetch('/api/messages/' + chatId);
-      const data = await res.json();
-      const msgs = data.messages || data;
+      const { messages: msgs, has_more } = await res.json();
       panel.innerHTML = '';
       if (msgs.length === 0) { panel.innerHTML = '<div id="placeholder">No messages found</div>'; return; }
       const isGroup = currentChatType === 'group';
       msgs.forEach(m => panel.appendChild(buildMsgEl(m, isGroup)));
       scrollToBottom(panel);
-      attachScrollSentinel(panel, chatId, msgs[0].timestamp, prependMessages);
+      attachScrollSentinel(panel, chatId, msgs[0].timestamp, prependMessages, has_more);
     }
 
     async function doSearch() {

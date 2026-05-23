@@ -99,7 +99,7 @@
   - _Boundary: ui.ts_
   - _Depends: 3.1_
 
-- [ ] 4.2 (P) Update message rendering to use `{ messages, has_more }` response shape
+- [x] 4.2 (P) Update message rendering to use `{ messages, has_more }` response shape
   - The JS fetch in `openThread` now receives `{ messages, has_more }` from `/api/messages/:chatId`.
   - Extract `messages` array for rendering; pass `has_more` (and the oldest message id) to `attachScrollSentinel`.
   - No visible change to message rendering HTML (sender, text, timestamp, badge unchanged).

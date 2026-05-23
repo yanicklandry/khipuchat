@@ -8,10 +8,13 @@ export const SCROLL_JS = `
     });
   }
 
-  function attachScrollSentinel(container, chatId, oldestId, onOlderLoaded) {
+  function attachScrollSentinel(container, chatId, oldestId, onOlderLoaded, hasMore) {
     // Disconnect any previous observer
     disconnectScroll();
     _isFetching = false;
+
+    // No more pages to load — skip sentinel
+    if (hasMore === false) return;
 
     // Insert sentinel as first child
     var sentinel = document.createElement('div');
