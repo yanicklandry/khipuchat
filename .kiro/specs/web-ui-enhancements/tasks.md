@@ -15,7 +15,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
   - _Boundary: src/web/routes.ts_
 
-- [ ] 1.2 Update `handleListMessages` in `src/mcp.ts` to accept `{ before?: number; limit?: number }` options and return `{ messages: MessageResult[], has_more: boolean }`
+- [x] 1.2 Update `handleListMessages` in `src/mcp.ts` to accept `{ before?: number; limit?: number }` options and return `{ messages: MessageResult[], has_more: boolean }`
   - Add optional second parameter `opts?: { before?: number; limit?: number }` with defaults `limit=50`.
   - SQL query: `SELECT … WHERE chat_id = ? [AND id < before] ORDER BY timestamp ASC LIMIT limit+1`. Use the extra row to determine `has_more`, then slice to `limit`.
   - Return `{ messages: MessageResult[], has_more: boolean }` instead of the flat array.

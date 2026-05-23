@@ -80,12 +80,16 @@ export function handleFindChatByName(name: string, platform?: Platform): ChatRes
 
 export function handleListMessages(
   chatId: number,
-  limit = 50,
-  beforeTimestamp?: number,
-): MessageResult[] {
+  opts?: { before?: number; limit?: number },
+): { messages: MessageResult[]; has_more: boolean } {
+  const limit = opts?.limit ?? 50
+  const beforeTimestamp = opts?.before
   const cap = Math.min(limit, 200)
+  const fetchCount = cap + 1
   if (beforeTimestamp !== undefined) {
-    return getDb().prepare(`
+    // With before: fetch DESC LIMIT cap+1, reverse to ASC.
+    // After reversing, probe row (oldest) is at index 0 — drop it when has_more.
+    const rows = getDb().prepare(`
       SELECT id, sender_name, text, type, timestamp, is_sender, platform FROM (
         SELECT id, sender_name, text, type, timestamp, is_sender, platform
         FROM messages
@@ -93,17 +97,26 @@ export function handleListMessages(
           AND timestamp < ?
         ORDER BY timestamp DESC LIMIT ?
       ) ORDER BY timestamp ASC
-    `).all(chatId, beforeTimestamp, cap) as MessageResult[]
+    `).all(chatId, beforeTimestamp, fetchCount) as MessageResult[]
+    const has_more = rows.length > cap
+    const messages = has_more ? rows.slice(1) : rows
+    return { messages, has_more }
+  } else {
+    // No beforeTimestamp: return the N most recent messages in chronological order.
+    // Fetch cap+1 DESC to detect if there are older messages (has_more).
+    // After reversing to ASC, the extra "probe" row is at index 0 (oldest) — drop it when has_more.
+    const rows = getDb().prepare(`
+      SELECT id, sender_name, text, type, timestamp, is_sender, platform FROM (
+        SELECT id, sender_name, text, type, timestamp, is_sender, platform
+        FROM messages
+        WHERE chat_id = ? AND type = 'text' AND text IS NOT NULL AND text != ''
+        ORDER BY timestamp DESC LIMIT ?
+      ) ORDER BY timestamp ASC
+    `).all(chatId, fetchCount) as MessageResult[]
+    const has_more = rows.length > cap
+    const messages = has_more ? rows.slice(1) : rows
+    return { messages, has_more }
   }
-  // No beforeTimestamp: return the N most recent messages in chronological order.
-  return getDb().prepare(`
-    SELECT id, sender_name, text, type, timestamp, is_sender, platform FROM (
-      SELECT id, sender_name, text, type, timestamp, is_sender, platform
-      FROM messages
-      WHERE chat_id = ? AND type = 'text' AND text IS NOT NULL AND text != ''
-      ORDER BY timestamp DESC LIMIT ?
-    ) ORDER BY timestamp ASC
-  `).all(chatId, cap) as MessageResult[]
 }
 
 export function handleSearchMessages(query: string, chatId?: number, platform?: Platform) {
@@ -193,7 +206,7 @@ export function createMcpServer(): Server {
     else if (name === 'find_chat_by_name')
       result = handleFindChatByName(String(args['name']), platform)
     else if (name === 'list_messages')
-      result = handleListMessages(Number(args['chat_id']), args['limit'] !== undefined ? Number(args['limit']) : undefined, args['before_timestamp'] !== undefined ? Number(args['before_timestamp']) : undefined)
+      result = handleListMessages(Number(args['chat_id']), { limit: args['limit'] !== undefined ? Number(args['limit']) : undefined, before: args['before_timestamp'] !== undefined ? Number(args['before_timestamp']) : undefined })
     else if (name === 'search_messages')
       result = handleSearchMessages(String(args['query']), args['chat_id'] !== undefined ? Number(args['chat_id']) : undefined, platform)
     else if (name === 'get_chat_summary')

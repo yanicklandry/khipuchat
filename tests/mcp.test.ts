@@ -160,31 +160,31 @@ describe('handleFindChatByName', () => {
 
 describe('handleListMessages', () => {
   it('only returns type=text messages with non-null, non-empty text', () => {
-    const msgs = handleListMessages(1, 50)
-    expect(msgs).toHaveLength(3)
-    expect(msgs.every(m => m.type === 'text')).toBe(true)
-    expect(msgs.every(m => m.text !== null && m.text !== '')).toBe(true)
+    const { messages } = handleListMessages(1, { limit: 50 })
+    expect(messages).toHaveLength(3)
+    expect(messages.every(m => m.type === 'text')).toBe(true)
+    expect(messages.every(m => m.text !== null && m.text !== '')).toBe(true)
   })
 
   it('returns messages ordered by timestamp ASC', () => {
-    const msgs = handleListMessages(1, 50)
-    const timestamps = msgs.map(m => m.timestamp)
+    const { messages } = handleListMessages(1, { limit: 50 })
+    const timestamps = messages.map(m => m.timestamp)
     expect(timestamps).toEqual([...timestamps].sort((a, b) => a - b))
   })
 
   it('defaults to limit 50 when not specified', () => {
-    expect(handleListMessages(1)).toHaveLength(3)
+    expect(handleListMessages(1).messages).toHaveLength(3)
   })
 
   it('caps limit at 200', () => {
-    expect(() => handleListMessages(1, 999)).not.toThrow()
-    expect(handleListMessages(1, 999)).toHaveLength(3)
+    expect(() => handleListMessages(1, { limit: 999 })).not.toThrow()
+    expect(handleListMessages(1, { limit: 999 }).messages).toHaveLength(3)
   })
 
   it('supports before_timestamp pagination', () => {
-    const msgs = handleListMessages(1, 50, T + 5)
-    expect(msgs).toHaveLength(2)
-    expect(msgs.map(m => m.text)).toEqual(['hello there', 'how are you'])
+    const { messages } = handleListMessages(1, { limit: 50, before: T + 5 })
+    expect(messages).toHaveLength(2)
+    expect(messages.map(m => m.text)).toEqual(['hello there', 'how are you'])
   })
 
   it('returns the N most recent messages before timestamp when more than N exist', () => {
@@ -196,9 +196,9 @@ describe('handleListMessages', () => {
         reply_to_external_id: null, platform: 'telegram',
       })
     }
-    const msgs = handleListMessages(10, 3, T + 100)
-    expect(msgs).toHaveLength(3)
-    expect(msgs.map(m => m.timestamp)).toEqual([T + 70, T + 80, T + 90])
+    const { messages } = handleListMessages(10, { limit: 3, before: T + 100 })
+    expect(messages).toHaveLength(3)
+    expect(messages.map(m => m.timestamp)).toEqual([T + 70, T + 80, T + 90])
   })
 
   it('returns results in chronological order even when paginating backwards', () => {
@@ -210,15 +210,16 @@ describe('handleListMessages', () => {
         reply_to_external_id: null, platform: 'telegram',
       })
     }
-    const msgs = handleListMessages(11, 3, T + 500)
-    const timestamps = msgs.map(m => m.timestamp)
+    const { messages } = handleListMessages(11, { limit: 3, before: T + 500 })
+    const timestamps = messages.map(m => m.timestamp)
     expect(timestamps).toEqual([...timestamps].sort((a, b) => a - b))
     expect(timestamps[timestamps.length - 1]).toBeLessThan(T + 500)
   })
 
   it('result shape includes id, sender_name, text, type, timestamp, is_sender, platform', () => {
     // With limit=1 the single most-recent text message is returned.
-    const [r] = handleListMessages(1, 1)
+    const { messages } = handleListMessages(1, { limit: 1 })
+    const [r] = messages
     expect(r).toMatchObject({
       sender_name: 'Me', text: 'doing well', type: 'text', timestamp: T + 6,
       is_sender: 1, platform: 'telegram',
@@ -235,10 +236,38 @@ describe('handleListMessages', () => {
         reply_to_external_id: null, platform: 'telegram',
       })
     }
-    const msgs = handleListMessages(20, 3)
-    expect(msgs).toHaveLength(3)
+    const { messages } = handleListMessages(20, { limit: 3 })
+    expect(messages).toHaveLength(3)
     // Messages 8, 9, 10 are the 3 most recent, returned in chronological (ASC) order.
-    expect(msgs.map(m => m.text)).toEqual(['message 8', 'message 9', 'message 10'])
+    expect(messages.map(m => m.text)).toEqual(['message 8', 'message 9', 'message 10'])
+  })
+
+  it('returns has_more=true when there are more messages beyond the page', () => {
+    upsertChat({ id: 21, name: 'HasMore Chat', type: 'group', username: null, platform: 'telegram' })
+    for (let i = 1; i <= 5; i++) {
+      insertMessage({
+        external_id: String(600 + i), chat_id: 21, sender_id: '1', sender_name: 'Alice',
+        text: `msg ${i}`, type: 'text', timestamp: T + i * 10, is_sender: 0,
+        reply_to_external_id: null, platform: 'telegram',
+      })
+    }
+    const result = handleListMessages(21, { limit: 3 })
+    expect(result.has_more).toBe(true)
+    expect(result.messages).toHaveLength(3)
+  })
+
+  it('returns has_more=false when all messages fit in the page', () => {
+    upsertChat({ id: 22, name: 'Small Chat', type: 'group', username: null, platform: 'telegram' })
+    for (let i = 1; i <= 3; i++) {
+      insertMessage({
+        external_id: String(700 + i), chat_id: 22, sender_id: '1', sender_name: 'Alice',
+        text: `msg ${i}`, type: 'text', timestamp: T + i * 10, is_sender: 0,
+        reply_to_external_id: null, platform: 'telegram',
+      })
+    }
+    const result = handleListMessages(22, { limit: 10 })
+    expect(result.has_more).toBe(false)
+    expect(result.messages).toHaveLength(3)
   })
 })
 
