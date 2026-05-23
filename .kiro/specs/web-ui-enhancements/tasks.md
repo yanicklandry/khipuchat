@@ -130,8 +130,8 @@
 
 ---
 
-- [ ] 6. Integration validation and regression
-- [ ] 6.1 Run full test suite and verify all requirements
+- [x] 6. Integration validation and regression
+- [x] 6.1 Run full test suite and verify all requirements
   - `npm test` passes with all existing and new tests green.
   - Manual browser check: open a chat with 100+ messages; confirm auto-scroll to bottom, load-older on scroll-up, no scroll jump after prepend.
   - Manual browser check: semantic search returns results matching keyword search semantically; error banner appears when index not built.
