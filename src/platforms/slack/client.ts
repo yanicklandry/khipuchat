@@ -16,7 +16,7 @@ export interface SlackMessage {
 
 export interface SlackClient {
   listConversations(): AsyncGenerator<SlackConversation>
-  fetchHistory(channelId: string): AsyncGenerator<SlackMessage>
+  fetchHistory(channelId: string, oldest?: string): AsyncGenerator<SlackMessage>
   getUserName(userId: string): Promise<string>
 }
 
@@ -62,10 +62,13 @@ export function createSlackClient(token: string): SlackClient {
       }
     },
 
-    async *fetchHistory(channelId) {
+    async *fetchHistory(channelId, oldest?) {
       let cursor = ''
       while (true) {
-        const url = `${BASE}/conversations.history?channel=${channelId}&limit=200${cursor ? `&cursor=${cursor}` : ''}`
+        const params = new URLSearchParams({ channel: channelId, limit: '200' })
+        if (cursor) params.set('cursor', cursor)
+        if (oldest) params.set('oldest', oldest)
+        const url = `${BASE}/conversations.history?${params.toString()}`
         const data = await slackFetch(url, token)
         if (!data.ok) throw new Error(`Slack conversations.history error: ${data.error ?? ''}`)
         for (const msg of data.messages ?? []) {

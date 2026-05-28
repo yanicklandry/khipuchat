@@ -3,6 +3,16 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { getDb, searchMessages, initDb, type Platform } from './db'
 import { isClaudeConfigured } from './setup-claude'
+import {
+  isIndexed,
+  semanticFindContacts,
+  semanticSearchMessages,
+  type SemanticContactResult,
+  type SemanticMessageResult,
+  type ContactFilters,
+  type MessageFilters,
+} from './vec-db'
+import { embedOne } from './embeddings'
 
 // ── Result types ──────────────────────────────────────────────────────────────
 
@@ -70,12 +80,16 @@ export function handleFindChatByName(name: string, platform?: Platform): ChatRes
 
 export function handleListMessages(
   chatId: number,
-  limit = 50,
-  beforeTimestamp?: number,
-): MessageResult[] {
+  opts?: { before?: number; limit?: number },
+): { messages: MessageResult[]; has_more: boolean } {
+  const limit = opts?.limit ?? 50
+  const beforeTimestamp = opts?.before
   const cap = Math.min(limit, 200)
+  const fetchCount = cap + 1
   if (beforeTimestamp !== undefined) {
-    return getDb().prepare(`
+    // With before: fetch DESC LIMIT cap+1, reverse to ASC.
+    // After reversing, probe row (oldest) is at index 0 — drop it when has_more.
+    const rows = getDb().prepare(`
       SELECT id, sender_name, text, type, timestamp, is_sender, platform FROM (
         SELECT id, sender_name, text, type, timestamp, is_sender, platform
         FROM messages
@@ -83,17 +97,26 @@ export function handleListMessages(
           AND timestamp < ?
         ORDER BY timestamp DESC LIMIT ?
       ) ORDER BY timestamp ASC
-    `).all(chatId, beforeTimestamp, cap) as MessageResult[]
+    `).all(chatId, beforeTimestamp, fetchCount) as MessageResult[]
+    const has_more = rows.length > cap
+    const messages = has_more ? rows.slice(1) : rows
+    return { messages, has_more }
+  } else {
+    // No beforeTimestamp: return the N most recent messages in chronological order.
+    // Fetch cap+1 DESC to detect if there are older messages (has_more).
+    // After reversing to ASC, the extra "probe" row is at index 0 (oldest) — drop it when has_more.
+    const rows = getDb().prepare(`
+      SELECT id, sender_name, text, type, timestamp, is_sender, platform FROM (
+        SELECT id, sender_name, text, type, timestamp, is_sender, platform
+        FROM messages
+        WHERE chat_id = ? AND type = 'text' AND text IS NOT NULL AND text != ''
+        ORDER BY timestamp DESC LIMIT ?
+      ) ORDER BY timestamp ASC
+    `).all(chatId, fetchCount) as MessageResult[]
+    const has_more = rows.length > cap
+    const messages = has_more ? rows.slice(1) : rows
+    return { messages, has_more }
   }
-  // No beforeTimestamp: return the N most recent messages in chronological order.
-  return getDb().prepare(`
-    SELECT id, sender_name, text, type, timestamp, is_sender, platform FROM (
-      SELECT id, sender_name, text, type, timestamp, is_sender, platform
-      FROM messages
-      WHERE chat_id = ? AND type = 'text' AND text IS NOT NULL AND text != ''
-      ORDER BY timestamp DESC LIMIT ?
-    ) ORDER BY timestamp ASC
-  `).all(chatId, cap) as MessageResult[]
 }
 
 export function handleSearchMessages(query: string, chatId?: number, platform?: Platform) {
@@ -126,6 +149,26 @@ export function handleGetChatSummary(chatId: number): SummaryResult {
   return { ...row, last_5_texts: texts }
 }
 
+const INDEX_NOT_BUILT_MSG = 'Embedding index not built. Run: npm run index:embeddings'
+
+export async function handleSemanticFindContacts(
+  query: string,
+  filters: ContactFilters,
+): Promise<SemanticContactResult[] | { error: string }> {
+  if (!isIndexed('chats')) return { error: INDEX_NOT_BUILT_MSG }
+  const vector = await embedOne(query)
+  return semanticFindContacts(vector, filters)
+}
+
+export async function handleSemanticSearchMessages(
+  query: string,
+  filters: MessageFilters,
+): Promise<SemanticMessageResult[] | { error: string }> {
+  if (!isIndexed('messages')) return { error: INDEX_NOT_BUILT_MSG }
+  const vector = await embedOne(query)
+  return semanticSearchMessages(vector, filters)
+}
+
 // ── MCP server ────────────────────────────────────────────────────────────────
 
 export function createMcpServer(): Server {
@@ -141,6 +184,8 @@ export function createMcpServer(): Server {
       { name: 'list_messages', description: 'List text messages in a chat', inputSchema: { type: 'object', properties: { chat_id: { type: 'number' }, limit: { type: 'number' }, before_timestamp: { type: 'number' } }, required: ['chat_id'] } },
       { name: 'search_messages', description: 'Full-text search across messages', inputSchema: { type: 'object', properties: { query: { type: 'string' }, chat_id: { type: 'number' }, platform: { type: 'string' } }, required: ['query'] } },
       { name: 'get_chat_summary', description: 'Get summary and recent texts for a chat', inputSchema: { type: 'object', properties: { chat_id: { type: 'number' } }, required: ['chat_id'] } },
+      { name: 'semantic_find_contacts', description: 'Find contacts by meaning (e.g. "old friend from Shanghai around 2019"). Requires npm run index:embeddings first.', inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Natural-language description of the contact or relationship' }, limit: { type: 'number', description: 'Max results (default 10, max 50)' }, before: { type: 'number', description: 'Unix timestamp — restrict to chats last active before this date' }, after: { type: 'number', description: 'Unix timestamp — restrict to chats last active after this date' }, platform: { type: 'string', description: 'Filter by platform' } }, required: ['query'] } },
+      { name: 'semantic_search_messages', description: 'Search messages by meaning rather than exact keywords. Requires npm run index:embeddings first.', inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Natural-language description of the message content' }, limit: { type: 'number', description: 'Max results (default 20, max 100)' }, chat_id: { type: 'number' }, platform: { type: 'string' }, before_timestamp: { type: 'number' }, after_timestamp: { type: 'number' } }, required: ['query'] } },
     ],
   }))
 
@@ -161,11 +206,26 @@ export function createMcpServer(): Server {
     else if (name === 'find_chat_by_name')
       result = handleFindChatByName(String(args['name']), platform)
     else if (name === 'list_messages')
-      result = handleListMessages(Number(args['chat_id']), args['limit'] !== undefined ? Number(args['limit']) : undefined, args['before_timestamp'] !== undefined ? Number(args['before_timestamp']) : undefined)
+      result = handleListMessages(Number(args['chat_id']), { limit: args['limit'] !== undefined ? Number(args['limit']) : undefined, before: args['before_timestamp'] !== undefined ? Number(args['before_timestamp']) : undefined })
     else if (name === 'search_messages')
       result = handleSearchMessages(String(args['query']), args['chat_id'] !== undefined ? Number(args['chat_id']) : undefined, platform)
     else if (name === 'get_chat_summary')
       result = handleGetChatSummary(Number(args['chat_id']))
+    else if (name === 'semantic_find_contacts')
+      result = await handleSemanticFindContacts(String(args['query']), {
+        limit: args['limit'] !== undefined ? Number(args['limit']) : undefined,
+        before: args['before'] !== undefined ? Number(args['before']) : undefined,
+        after: args['after'] !== undefined ? Number(args['after']) : undefined,
+        platform,
+      })
+    else if (name === 'semantic_search_messages')
+      result = await handleSemanticSearchMessages(String(args['query']), {
+        limit: args['limit'] !== undefined ? Number(args['limit']) : undefined,
+        chat_id: args['chat_id'] !== undefined ? Number(args['chat_id']) : undefined,
+        platform,
+        before_timestamp: args['before_timestamp'] !== undefined ? Number(args['before_timestamp']) : undefined,
+        after_timestamp: args['after_timestamp'] !== undefined ? Number(args['after_timestamp']) : undefined,
+      })
     else throw new Error(`Unknown tool: ${name}`)
     return { content: [{ type: 'text', text: JSON.stringify(result) }] }
   })
@@ -176,7 +236,7 @@ export function createMcpServer(): Server {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const dbPath = require('path').join(__dirname, '..', 'telegram.db')
+  const dbPath = require('path').join(__dirname, '..', 'khipuchat.db')
   initDb(dbPath)
   const server = createMcpServer()
   const transport = new StdioServerTransport()

@@ -1,7 +1,8 @@
 node_modules/
 dist/
+.lean-ctx/
 .env
-telegram.db
+khipuchat.db
 *.db-shm
 *.db-wal
 scripts/wechat-key-extract

@@ -5,6 +5,8 @@ import {
   mapChat,
   mapMessage,
   runBackfillImpl,
+  runIncrementalImpl,
+  dateToDiscordSnowflake,
 } from '../src/platforms/discord/sync'
 import type { DiscordClient, DiscordChannel, DiscordMessage } from '../src/platforms/discord/client'
 
@@ -36,6 +38,31 @@ function makeMockClient(
     getMessages: vi.fn().mockResolvedValue(messages),
   }
 }
+
+// ── dateToDiscordSnowflake ────────────────────────────────────────────────────
+
+describe('dateToDiscordSnowflake', () => {
+  it('returns expected snowflake for Discord epoch (2015-01-01)', () => {
+    const discordEpoch = new Date('2015-01-01T00:00:00.000Z')
+    const snowflake = dateToDiscordSnowflake(discordEpoch)
+    // (0n << 22n) = 0
+    expect(snowflake).toBe('0')
+  })
+
+  it('produces a larger snowflake for a later date', () => {
+    const earlier = new Date('2020-01-01T00:00:00.000Z')
+    const later = new Date('2021-01-01T00:00:00.000Z')
+    expect(BigInt(dateToDiscordSnowflake(later))).toBeGreaterThan(BigInt(dateToDiscordSnowflake(earlier)))
+  })
+
+  it('produces correct snowflake for known date', () => {
+    // Known: 2015-01-01T00:00:00.500Z → 500ms after epoch
+    // (500 << 22) = 500 * 4194304 = 2097152000
+    const date = new Date(1420070400500) // 2015-01-01T00:00:00.500Z
+    const expected = ((BigInt(1420070400500) - 1420070400000n) << 22n).toString()
+    expect(dateToDiscordSnowflake(date)).toBe(expected)
+  })
+})
 
 // ── hashStr ───────────────────────────────────────────────────────────────────
 
@@ -162,5 +189,38 @@ describe('runBackfillImpl', () => {
     const client = makeMockClient([], [{ id: 'guild-1' }], [voiceChannel], [])
     await runBackfillImpl(client)
     expect(getChats()).toHaveLength(0)
+  })
+})
+
+// ── runIncrementalImpl ────────────────────────────────────────────────────────
+
+describe('runIncrementalImpl', () => {
+  beforeEach(() => { initDb(':memory:') })
+
+  it('passes after snowflake to getMessages', async () => {
+    const dm = makeChannel({ id: 'dm-inc-1', type: 1, name: null })
+    const getMessagesSpy = vi.fn().mockResolvedValue([makeMsg()])
+    const client: DiscordClient = {
+      getGuilds: vi.fn().mockResolvedValue([]),
+      getGuildChannels: vi.fn().mockResolvedValue([]),
+      getDirectMessageChannels: vi.fn().mockResolvedValue([dm]),
+      getMessages: getMessagesSpy,
+    }
+
+    const since = new Date('2024-01-01T00:00:00.000Z')
+    await runIncrementalImpl(client, since)
+
+    expect(getMessagesSpy).toHaveBeenCalledWith(
+      'dm-inc-1',
+      undefined,
+      dateToDiscordSnowflake(since),
+    )
+  })
+
+  it('imports messages from incremental sync', async () => {
+    const dm = makeChannel({ id: 'dm-inc-2', type: 1, name: null })
+    const client = makeMockClient([dm], [], [], [makeMsg({ id: 'inc-msg-1' })])
+    await runIncrementalImpl(client, new Date('2024-01-01T00:00:00.000Z'))
+    expect(getChats()).toHaveLength(1)
   })
 })

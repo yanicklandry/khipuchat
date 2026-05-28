@@ -41,10 +41,10 @@ cp .env.example .env
 ```
 
 ```
-API_ID=your_api_id
-API_HASH=your_api_hash
-PHONE_NUMBER=+1234567890
-SESSION_STRING=        # leave empty — filled automatically on first run
+TELEGRAM_API_ID=your_api_id
+TELEGRAM_API_HASH=your_api_hash
+TELEGRAM_PHONE_NUMBER=+1234567890
+TELEGRAM_SESSION_STRING=        # leave empty — filled automatically on first run
 ```
 
 ## Setup (one time)
@@ -122,8 +122,8 @@ If you run `npm run setup-claude` or `npm run setup-sync` again (e.g. after a No
 
 ## Database
 
-Messages are stored in `./telegram.db` (SQLite). Inspect with:
+Messages are stored in `./khipuchat.db` (SQLite). Inspect with:
 
 ```bash
-sqlite3 telegram.db "SELECT name, message_count, datetime(last_synced_at, 'unixepoch', 'localtime') FROM chats ORDER BY message_count DESC"
+sqlite3 khipuchat.db "SELECT name, message_count, datetime(last_synced_at, 'unixepoch', 'localtime') FROM chats ORDER BY message_count DESC"
 ```

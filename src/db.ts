@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import type { Platform } from './platforms/types'
+import { loadVecExtension, createVecSchema } from './vec-db'
 
 export type { Platform }
 export type ChatType = 'user' | 'group' | 'channel' | 'private'
@@ -58,8 +59,10 @@ export function initDb(path: string): Database.Database {
   }
   _db.pragma('journal_mode = WAL')
   _db.pragma('foreign_keys = ON')
+  loadVecExtension(_db)
   createSchema(_db)
   runMigrations(_db)
+  createVecSchema(_db)
   _db.exec("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')")
   return _db
 }
@@ -100,6 +103,11 @@ function createSchema(database: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_messages_chat_type
       ON messages(chat_id, type);
+
+    CREATE TABLE IF NOT EXISTS sync_state (
+      platform       TEXT    NOT NULL PRIMARY KEY,
+      last_synced_at INTEGER NOT NULL
+    );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
       USING fts5(text, content='messages', content_rowid='id');
@@ -205,4 +213,17 @@ export function getLastSyncedId(chatId: number): string | null {
     SELECT external_id FROM messages WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 1
   `).get(chatId) as { external_id: string } | undefined
   return row?.external_id ?? null
+}
+
+export function getPlatformLastSyncedAt(platform: Platform): number | null {
+  const row = db().prepare(
+    'SELECT last_synced_at FROM sync_state WHERE platform = ?'
+  ).get(platform) as { last_synced_at: number } | undefined
+  return row?.last_synced_at ?? null
+}
+
+export function setPlatformLastSyncedAt(platform: Platform, timestamp: number): void {
+  db().prepare(
+    'INSERT OR REPLACE INTO sync_state (platform, last_synced_at) VALUES (?, ?)'
+  ).run(platform, timestamp)
 }

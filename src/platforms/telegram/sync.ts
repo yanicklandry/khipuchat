@@ -1,8 +1,12 @@
 import { TelegramClient } from 'telegram'
 import { StringSession } from 'telegram/sessions'
 import { NewMessage } from 'telegram/events'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { config, saveSessionString, type Config } from '../../config'
-import { initDb, getDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, type Chat, type Message, type MessageType } from '../../db'
+import { initDb, getDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, getPlatformLastSyncedAt, setPlatformLastSyncedAt, type Chat, type Message, type MessageType } from '../../db'
+import { isIndexed } from '../../vec-db'
+import { embedNewMessages, embedNewChats } from '../../index-embeddings'
+import type { PlatformAdapter } from '../types'
 
 export type PromptFn = (question: string) => Promise<string>
 export interface WizardConfig { sessionString: string }
@@ -167,6 +171,8 @@ export async function runBackfill(
         }
       }
       setLastSyncedAt(chat.id, Math.floor(Date.now() / 1000))
+      if (isIndexed('messages')) await embedNewMessages([chat.id])
+      if (isIndexed('chats')) await embedNewChats([chat.id])
       if (synced > 0) console.log(`\n  [${chat.name}] +${synced} messages`)
     } catch (err) {
       console.log(`\n  [${chat.name}] skipped: ${(err as Error).message}`)
@@ -184,11 +190,122 @@ export function startListener(client: TelegramClient): void {
     const chatId = getPeerChatId(msg.peerId)
     if (chatId === null) return
     const row = msgToRow(msg, chatId)
-    if (row) { insertMessage(row); console.log(`New message in chat ${chatId}`) }
+    if (row) {
+      insertMessage(row)
+      if (isIndexed('messages')) await embedNewMessages([chatId])
+      if (isIndexed('chats')) await embedNewChats([chatId])
+      console.log(`New message in chat ${chatId}`)
+    }
   }, new NewMessage({}))
 }
 
+/** Incremental sync: skip dialogs older than `since`, only fetch new messages. */
+export async function syncIncrementalImpl(
+  client: TelegramClient,
+  since: Date,
+  sleep: (ms: number) => Promise<void> = DEFAULT_SLEEP,
+  pageSize = 100,
+  firstRunLimit = 200,
+): Promise<void> {
+  const sinceTs = Math.floor(since.getTime() / 1000)
+  const dialogs = await client.getDialogs({ limit: 500 }) as Array<{ entity: EntityLike; date?: number }>
+
+  let totalSynced = 0
+  let checked = 0
+  let skipped = 0
+
+  for (let i = 0; i < dialogs.length; i++) {
+    const chat = entityToChat(dialogs[i].entity)
+    if (!chat) continue
+
+    const dialogDate = dialogs[i].date ?? 0
+    if (dialogDate <= sinceTs) {
+      skipped++
+      continue
+    }
+
+    checked++
+    upsertChat(chat)
+    const lastId = getLastSyncedId(chat.id)
+    let synced = 0
+
+    try {
+      if (lastId === null) {
+        const msgs = await withTimeout(
+          client.getMessages(dialogs[i].entity, { limit: firstRunLimit }) as Promise<MsgLike[]>,
+          15000,
+        )
+        for (const msg of msgs) {
+          if (msg.date <= sinceTs) continue
+          const row = msgToRow(msg, chat.id)
+          if (row) { insertMessage(row); synced++ }
+        }
+      } else {
+        let offsetId = parseInt(lastId, 10)
+        while (true) {
+          const msgs = await withTimeout(
+            client.getMessages(dialogs[i].entity, { limit: pageSize, offsetId, reverse: true }) as Promise<MsgLike[]>,
+            15000,
+          )
+          for (const msg of msgs) {
+            if (msg.date <= sinceTs) continue
+            const row = msgToRow(msg, chat.id)
+            if (row) { insertMessage(row); synced++ }
+          }
+          if (msgs.length < pageSize) break
+          offsetId = msgs[msgs.length - 1].id
+        }
+      }
+      setLastSyncedAt(chat.id, Math.floor(Date.now() / 1000))
+      if (isIndexed('messages')) await embedNewMessages([chat.id])
+      if (isIndexed('chats')) await embedNewChats([chat.id])
+    } catch (err) {
+      console.log(`\n  [${chat.name}] skipped: ${(err as Error).message}`)
+    }
+
+    totalSynced += synced
+    if (checked + skipped < dialogs.length) await sleep(300)
+  }
+  console.log(`\nIncremental sync complete. ${totalSynced} new messages. (${checked} checked, ${skipped} skipped)`)
+}
+
+export const telegramAdapter: PlatformAdapter = {
+  platform: 'telegram',
+  async runBackfill(_db: Database.Database): Promise<void> {
+    const session = new StringSession(config.sessionString)
+    const client = new TelegramClient(session, config.apiId, config.apiHash, { connectionRetries: 5 })
+    await client.connect()
+    process.on('unhandledRejection', () => {})
+    try { await runBackfill(client) } finally { await client.disconnect() }
+  },
+  async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
+    const session = new StringSession(config.sessionString)
+    const client = new TelegramClient(session, config.apiId, config.apiHash, { connectionRetries: 5 })
+    await client.connect()
+    process.on('unhandledRejection', () => {})
+    try { await syncIncrementalImpl(client, since) } finally { await client.disconnect() }
+  },
+  startListener(_db: Database.Database): void {},
+}
+
+/** Exported for testing: runs the mode-select + sync logic given a connected client. */
+export async function runSync(
+  client: TelegramClient,
+  opts: { backfillFlag: boolean; since: number | null },
+  syncFn: (client: TelegramClient) => Promise<void> = runBackfill,
+): Promise<void> {
+  const useBackfill = opts.backfillFlag || opts.since === null
+  if (useBackfill) {
+    console.log('[telegram] sync mode: backfill')
+  } else {
+    console.log('[telegram] sync mode: incremental')
+  }
+  await syncFn(client)
+  setPlatformLastSyncedAt('telegram', Math.floor(Date.now() / 1000))
+}
+
 async function main(): Promise<void> {
+  const backfillFlag = process.argv.includes('--backfill')
   const backfillOnly = process.argv.includes('--backfill-only')
   const session = new StringSession(config.sessionString)
   const client = new TelegramClient(session, config.apiId, config.apiHash, { connectionRetries: 5 })
@@ -205,9 +322,17 @@ async function main(): Promise<void> {
   // GramJS fires unhandled rejections from its internal update loop on disconnect — suppress them
   process.on('unhandledRejection', () => {})
 
-  initDb('./telegram.db')
-  await runBackfill(client)
-  if (backfillOnly) { await client.disconnect(); return }
+  initDb('./khipuchat.db')
+  const since = getPlatformLastSyncedAt('telegram')
+
+  try {
+    await runSync(client, { backfillFlag, since })
+  } catch (err) {
+    console.error(err)
+    process.exit(1)
+  }
+
+  if (backfillOnly || backfillFlag) { await client.disconnect(); return }
   startListener(client)
   console.log('Listening for new messages…')
   await new Promise(() => {})

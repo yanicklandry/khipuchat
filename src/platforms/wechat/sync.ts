@@ -5,6 +5,8 @@ import path from 'node:path'
 import { homedir } from 'node:os'
 import Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, getDb, upsertChat, insertMessage, setLastSyncedAt, type Chat, type Message } from '../../db'
+import { isIndexed } from '../../vec-db'
+import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
 import { buildWechatContactMap, type ContactMap } from './contacts'
 
@@ -369,7 +371,13 @@ export async function runBackfillImpl(
   for (const row of rows) syncedAt.set(row.id, row.last_synced_at)
   const hasPriorSync = syncedAt.size > 0
 
-  for (const dbPath of messageDbs) {
+  const dbCount = messageDbs.length
+
+  for (let dbIdx = 0; dbIdx < messageDbs.length; dbIdx++) {
+    const dbPath = messageDbs[dbIdx]
+    const dbName = path.basename(dbPath)
+    process.stdout.write(`[wechat] [${dbIdx + 1}/${dbCount}] Decrypting ${dbName}...\n`)
+
     const hexKey = resolveHexKey(dbPath, keyMap)
     const chatDb = openWechatDb(dbPath, hexKey)
     if (!chatDb) continue
@@ -382,12 +390,18 @@ export async function runBackfillImpl(
       const msgOpts: MessageMapOpts = { selfWxid, senderIdMap }
 
       const tables = listChatTables(chatDb)
-      for (const tableName of tables) {
+      process.stdout.write(`[wechat] [${dbIdx + 1}/${dbCount}] ${tables.length} chats in ${dbName}\n`)
+
+      for (let tIdx = 0; tIdx < tables.length; tIdx++) {
+        const tableName = tables[tIdx]
         const userName = tableNameMap.get(tableName)        // undefined for legacy Chat_ tables
         const displayName = (userName && contactMap.get(userName)) ?? userName ?? contactMap.get(tableName) ?? tableName
         const chatId = tableNameToChatId(tableName)
         upsertChat(mapChat(tableName, displayName, userName))
         totalChats++
+
+        const label = displayName.slice(0, 30).padEnd(30)
+        process.stdout.write(`\r  [${tIdx + 1}/${tables.length}] ${label}`)
 
         try {
           const { selectCols, timeCol } = buildSchemaInfo(chatDb, tableName)
@@ -401,6 +415,71 @@ export async function runBackfillImpl(
             insertMessage(mapMessage(row, chatId, msgOpts))
           }
           setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
+          if (isIndexed('messages')) await embedNewMessages([chatId])
+          if (isIndexed('chats')) await embedNewChats([chatId])
+          totalMessages += msgRows.length
+        } catch (err) {
+          process.stderr.write(
+            `\n[wechat] Error reading ${tableName}: ${(err as Error).message}\n`,
+          )
+        }
+      }
+      process.stdout.write('\n')
+    } finally {
+      chatDb.close()
+    }
+  }
+
+  const mode = hasPriorSync ? 'incremental' : 'first'
+  process.stdout.write(
+    `[wechat] Sync complete (${mode}): ${totalChats} chats, ${totalMessages} new messages imported.\n`,
+  )
+}
+
+// ── Incremental sync core ─────────────────────────────────────────────────────
+
+export async function runIncrementalImpl(
+  messageDbs: ReadonlyArray<string>,
+  contactMap: ContactMap,
+  keyMap: Map<string, string>,
+  since: Date,
+  userDir?: string,
+): Promise<void> {
+  const sinceTs = Math.floor(since.getTime() / 1000)
+  let totalMessages = 0
+  let totalChats = 0
+  const selfWxid = userDir ? extractSelfWxid(userDir) : undefined
+
+  for (const dbPath of messageDbs) {
+    const hexKey = resolveHexKey(dbPath, keyMap)
+    const chatDb = openWechatDb(dbPath, hexKey)
+    if (!chatDb) continue
+
+    try {
+      const tableNameMap = buildTableNameMap(chatDb)
+      const senderIdMap = buildSenderIdMap(chatDb)
+      const msgOpts: MessageMapOpts = { selfWxid, senderIdMap }
+      const tables = listChatTables(chatDb)
+
+      for (const tableName of tables) {
+        const userName = tableNameMap.get(tableName)
+        const displayName = (userName && contactMap.get(userName)) ?? userName ?? contactMap.get(tableName) ?? tableName
+        const chatId = tableNameToChatId(tableName)
+        upsertChat(mapChat(tableName, displayName, userName))
+        totalChats++
+
+        try {
+          const { selectCols, timeCol } = buildSchemaInfo(chatDb, tableName)
+          const msgRows = chatDb.prepare(
+            `SELECT ${selectCols} FROM "${tableName}" WHERE "${timeCol}" > ${sinceTs}`,
+          ).all() as WechatMessageRow[]
+
+          for (const row of msgRows) {
+            insertMessage(mapMessage(row, chatId, msgOpts))
+          }
+          setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
+          if (isIndexed('messages')) await embedNewMessages([chatId])
+          if (isIndexed('chats')) await embedNewChats([chatId])
           totalMessages += msgRows.length
         } catch (err) {
           process.stderr.write(
@@ -413,9 +492,8 @@ export async function runBackfillImpl(
     }
   }
 
-  const mode = hasPriorSync ? 'incremental' : 'first'
   process.stdout.write(
-    `[wechat] Sync complete (${mode}): ${totalChats} chats, ${totalMessages} new messages imported.\n`,
+    `[wechat] Incremental sync complete: ${totalChats} chats, ${totalMessages} new messages imported.\n`,
   )
 }
 
@@ -456,11 +534,23 @@ export const wechatAdapter: PlatformAdapter = {
     const contactMap = buildWechatContactMap(contactDir, keyMap)
     await runBackfillImpl(messageDbs, contactMap, keyMap, userDir)
   },
+  async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
+    const containerPath = process.env['WECHAT_CONTAINER'] ?? DEFAULT_CONTAINER
+    validateContainer(containerPath)
+    const userDir = findUserDir(containerPath)
+    if (!userDir) throw new Error('[wechat] No WeChat user directory found. Log in to WeChat first.')
+    const keyMap = loadWechatKeyMap()
+    const messageDbs = discoverMessageDbs(userDir)
+    if (messageDbs.length === 0) throw new Error('[wechat] No message databases found.')
+    const contactDir = path.join(userDir, 'db_storage', 'contact')
+    const contactMap = buildWechatContactMap(contactDir, keyMap)
+    await runIncrementalImpl(messageDbs, contactMap, keyMap, since, userDir)
+  },
   startListener(_db: Database.Database): void {},
 }
 
 async function main(): Promise<void> {
-  const db = initDb('./telegram.db')
+  const db = initDb('./khipuchat.db')
   try {
     await wechatAdapter.runBackfill(db)
   } catch (err) {

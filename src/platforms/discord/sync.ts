@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, upsertChat, insertMessage, type Chat, type Message } from '../../db'
+import { isIndexed } from '../../vec-db'
+import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
 import { createDiscordClient, type DiscordClient, type DiscordChannel, type DiscordMessage } from './client'
 
@@ -41,6 +43,10 @@ export function mapMessage(msg: DiscordMessage, chatId: number): Message {
 
 const ALLOWED_TYPES = new Set([0, 1, 3])
 
+export function dateToDiscordSnowflake(date: Date): string {
+  return ((BigInt(date.getTime()) - 1420070400000n) << 22n).toString()
+}
+
 export async function runBackfillImpl(client: DiscordClient): Promise<void> {
   const channels: DiscordChannel[] = []
 
@@ -72,8 +78,48 @@ export async function runBackfillImpl(client: DiscordClient): Promise<void> {
       if (messages.length < 100) break
       before = messages[messages.length - 1]!.id
     }
+    if (isIndexed('messages')) await embedNewMessages([chatId])
+    if (isIndexed('chats')) await embedNewChats([chatId])
   }
   console.log(`[discord] Sync complete: ${channels.length} channels, ${totalMessages} messages imported.`)
+}
+
+export async function runIncrementalImpl(client: DiscordClient, since: Date): Promise<void> {
+  const after = dateToDiscordSnowflake(since)
+  const channels: DiscordChannel[] = []
+
+  const dms = await client.getDirectMessageChannels()
+  for (const ch of dms) {
+    if (ALLOWED_TYPES.has(ch.type)) channels.push(ch)
+  }
+
+  const guilds = await client.getGuilds()
+  for (const guild of guilds) {
+    const guildChannels = await client.getGuildChannels(guild.id)
+    for (const ch of guildChannels) {
+      if (ALLOWED_TYPES.has(ch.type)) channels.push(ch)
+    }
+  }
+
+  let totalMessages = 0
+  for (const channel of channels) {
+    upsertChat(mapChat(channel))
+    const chatId = hashStr(channel.id)
+    let afterCursor: string | undefined = after
+    while (true) {
+      const messages = await client.getMessages(channel.id, undefined, afterCursor)
+      if (messages.length === 0) break
+      for (const msg of messages) {
+        insertMessage(mapMessage(msg, chatId))
+      }
+      totalMessages += messages.length
+      if (messages.length < 100) break
+      afterCursor = messages[messages.length - 1]!.id
+    }
+    if (isIndexed('messages')) await embedNewMessages([chatId])
+    if (isIndexed('chats')) await embedNewChats([chatId])
+  }
+  console.log(`[discord] Incremental sync complete: ${channels.length} channels, ${totalMessages} messages imported.`)
 }
 
 export const discordAdapter: PlatformAdapter = {
@@ -86,11 +132,19 @@ export const discordAdapter: PlatformAdapter = {
     }
     await runBackfillImpl(createDiscordClient(token))
   },
+  async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
+    const token = process.env['DISCORD_TOKEN']
+    if (!token) {
+      process.stderr.write('[discord] DISCORD_TOKEN is not set. Export it and re-run.\n')
+      process.exit(1)
+    }
+    await runIncrementalImpl(createDiscordClient(token), since)
+  },
   startListener(_db: Database.Database): void {},
 }
 
 async function main(): Promise<void> {
-  const db = initDb('./telegram.db')
+  const db = initDb('./khipuchat.db')
   try { await discordAdapter.runBackfill(db) } catch { process.exit(1) }
 }
 

@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { initDb, getChats } from '../src/db'
 import {
   hashStr,
   mapChat,
   mapMessage,
   runBackfillImpl,
+  runIncrementalImpl,
 } from '../src/platforms/slack/sync'
 import type { SlackClient, SlackConversation, SlackMessage } from '../src/platforms/slack/client'
 
@@ -138,6 +139,44 @@ describe('runBackfillImpl', () => {
       [makeMsg()],
     )
     await runBackfillImpl(client)
+    expect(getChats()).toHaveLength(0)
+  })
+})
+
+// ── runIncrementalImpl ────────────────────────────────────────────────────────
+
+describe('runIncrementalImpl', () => {
+  beforeEach(() => { initDb(':memory:') })
+
+  it('passes oldest parameter to fetchHistory', async () => {
+    const since = new Date(1700000000 * 1000)
+    const fetchHistorySpy = vi.fn(async function* () { yield makeMsg() })
+    const client: SlackClient = {
+      listConversations: () => asyncOf(makeConv({ id: 'C-inc-1' })),
+      fetchHistory: fetchHistorySpy,
+      getUserName: async () => 'Alice',
+    }
+
+    await runIncrementalImpl(client, since)
+
+    expect(fetchHistorySpy).toHaveBeenCalledWith('C-inc-1', (1700000000).toString())
+  })
+
+  it('imports messages from incremental sync', async () => {
+    const client = makeMockClient(
+      [makeConv({ id: 'C-inc-2' })],
+      [makeMsg({ ts: '1700000001.000001' })],
+    )
+    await runIncrementalImpl(client, new Date(1699000000 * 1000))
+    expect(getChats()).toHaveLength(1)
+  })
+
+  it('skips archived conversations in incremental sync', async () => {
+    const client = makeMockClient(
+      [makeConv({ is_archived: true })],
+      [makeMsg()],
+    )
+    await runIncrementalImpl(client, new Date())
     expect(getChats()).toHaveLength(0)
   })
 })

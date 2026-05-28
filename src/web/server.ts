@@ -15,7 +15,7 @@ export function createApp(): Application {
 }
 
 async function main(): Promise<void> {
-  initDb('./telegram.db')
+  initDb('./khipuchat.db')
   const app = createApp()
   const server = app.listen(3333, '127.0.0.1', () => {
     console.log('KhipuChat web UI running at http://127.0.0.1:3333')

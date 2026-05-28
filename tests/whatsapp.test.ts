@@ -5,6 +5,7 @@ import {
   mapChat,
   mapMessage,
   runBackfillImpl,
+  runIncrementalImpl,
   parseArgs,
 } from '../src/platforms/whatsapp/sync'
 import type { WhatsAppClient, WAChat, WAMessage } from '../src/platforms/whatsapp/client'
@@ -294,5 +295,59 @@ describe('runBackfillImpl', () => {
     const ids = msgs.map(m => m.external_id)
     expect(ids).not.toContain('old@c.us')
     expect(ids).toContain('new@c.us')
+  })
+})
+
+// ── runIncrementalImpl ────────────────────────────────────────────────────────
+
+describe('runIncrementalImpl', () => {
+  beforeEach(() => { initDb(':memory:') })
+
+  it('logs the client-side filter warning', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const client = makeMockClient([], [])
+    await runIncrementalImpl(client, new Date())
+    const output = consoleSpy.mock.calls.map(c => String(c[0])).join('\n')
+    expect(output).toContain('[whatsapp] incremental: client-side filter only')
+    consoleSpy.mockRestore()
+  })
+
+  it('skips messages at or before since timestamp', async () => {
+    const sinceDate = new Date(1700000000 * 1000)
+    const chatId = 'frank@c.us'
+    const oldMsg = makeMsg({ id: { _serialized: 'old-inc@c.us' }, timestamp: 1700000000 })     // equal — should skip
+    const veryOldMsg = makeMsg({ id: { _serialized: 'very-old@c.us' }, timestamp: 1699999999 }) // before — skip
+    const newMsg = makeMsg({ id: { _serialized: 'new-inc@c.us' }, timestamp: 1700000001 })      // after — keep
+
+    const client: WhatsAppClient = {
+      getChats: async () => [makeChat({ id: { _serialized: chatId } })],
+      fetchMessages: async () => [oldMsg, veryOldMsg, newMsg],
+      getContactName: async () => 'Frank',
+      destroy: async () => {},
+    }
+
+    await runIncrementalImpl(client, sinceDate)
+
+    const msgs = getDb().prepare("SELECT external_id FROM messages").all() as { external_id: string }[]
+    const ids = msgs.map(m => m.external_id)
+    expect(ids).not.toContain('old-inc@c.us')
+    expect(ids).not.toContain('very-old@c.us')
+    expect(ids).toContain('new-inc@c.us')
+  })
+
+  it('imports no messages when all are at or before since', async () => {
+    const since = new Date(1700000000 * 1000)
+    const client: WhatsAppClient = {
+      getChats: async () => [makeChat({ id: { _serialized: 'grace@c.us' } })],
+      fetchMessages: async () => [
+        makeMsg({ id: { _serialized: 'old-1@c.us' }, timestamp: 1699999999 }),
+        makeMsg({ id: { _serialized: 'old-2@c.us' }, timestamp: 1700000000 }),
+      ],
+      getContactName: async () => 'Grace',
+      destroy: async () => {},
+    }
+
+    await runIncrementalImpl(client, since)
+    expect(getDb().prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }).toEqual({ n: 0 })
   })
 })

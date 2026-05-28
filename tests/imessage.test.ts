@@ -12,6 +12,7 @@ import {
   mapChat,
   mapMessage,
   runBackfillImpl,
+  runIncrementalImpl,
   type ChatDbRow,
   type HandleRow,
   type MessageDbRow,
@@ -265,5 +266,50 @@ describe('runBackfillImpl integration', () => {
     expect(getChats()).toHaveLength(2)
     const msgCount = khipuDb.prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }
     expect(msgCount.n).toBe(4)
+  })
+})
+
+// ── runIncrementalImpl with cocoaThreshold filtering ─────────────────────────
+
+describe('runIncrementalImpl', () => {
+  const COCOA_OFFSET = 978307200
+
+  function makeChatDbWithDates(): Database.Database {
+    const chatDb = new Database(':memory:')
+    chatDb.exec(`
+      CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, guid TEXT, chat_identifier TEXT, display_name TEXT, room_name TEXT);
+      CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT, service TEXT);
+      CREATE TABLE message (ROWID INTEGER PRIMARY KEY, guid TEXT, text TEXT, date INTEGER, is_from_me INTEGER, handle_id INTEGER, reply_to_guid TEXT);
+      CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);
+      CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
+    `)
+    chatDb.exec(`
+      INSERT INTO handle VALUES (1, '+61400000001', 'iMessage');
+      INSERT INTO chat VALUES (1, 'chat-inc-guid-1', '+61400000001', NULL, NULL);
+      INSERT INTO chat_handle_join VALUES (1, 1);
+    `)
+    // Insert messages with known Cocoa nanosecond dates
+    // Unix: 1700000000s → Cocoa seconds: 1700000000 - 978307200 = 721692800s → nanoseconds: 721692800_000_000_000n
+    const cocoaBase = BigInt(1700000000 - COCOA_OFFSET) * 1_000_000_000n
+    chatDb.prepare('INSERT INTO message VALUES (1, ?, ?, ?, 0, 1, NULL)').run('old-inc-msg', 'Old message', (cocoaBase - 1_000_000_000n).toString())
+    chatDb.prepare('INSERT INTO message VALUES (2, ?, ?, ?, 0, 1, NULL)').run('new-inc-msg', 'New message', (cocoaBase + 1_000_000_000n).toString())
+    chatDb.exec(`
+      INSERT INTO chat_message_join VALUES (1, 1);
+      INSERT INTO chat_message_join VALUES (1, 2);
+    `)
+    return chatDb
+  }
+
+  it('only imports messages after the since date', async () => {
+    const khipuDb = initDb(':memory:')
+    const chatDb = makeChatDbWithDates()
+    const since = new Date(1700000000 * 1000) // exactly the threshold
+
+    await runIncrementalImpl(chatDb, since)
+
+    const rows = khipuDb.prepare("SELECT external_id FROM messages").all() as { external_id: string }[]
+    const ids = rows.map(r => r.external_id)
+    expect(ids).not.toContain('old-inc-msg')
+    expect(ids).toContain('new-inc-msg')
   })
 })

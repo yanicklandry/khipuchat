@@ -3,7 +3,7 @@
 ## Overview
 KhipuChat is a self-hosted multi-platform message archive with an MCP server and web UI. Goal: sync all your conversations locally, query them with Claude, search them in a browser. Your messages never leave your machine.
 
-Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction) are complete. This roadmap tracks the remaining phases: web UI, additional platform integrations, security hardening, and release.
+Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction) are complete. This roadmap tracks the remaining phases: web UI, additional platform integrations, semantic search, security hardening, and release.
 
 ## Approach Decision
 - **Chosen**: Vertical slices — each phase delivers independently useful functionality on top of the shared platform-abstraction foundation
@@ -13,7 +13,7 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
   - Web UI last: users can't browse messages until very late
 
 ## Scope
-- **In**: Web UI, WeChat/Discord/Email/Slack/WhatsApp sync, security hardening, Docker release
+- **In**: Web UI, WeChat/Discord/Email/Slack/WhatsApp sync, semantic search, security hardening, Docker release
 - **Out**: Sending messages on any platform, Instagram/Facebook, mobile app, cloud sync
 
 ## Constraints
@@ -32,6 +32,7 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 - [x] imessage-sync -- Read ~/Library/Messages/chat.db, map to generic schema, add npm run sync:imessage. Dependencies: platform-abstraction
 - [ ] wechat-sync -- Read WeChat Mac local SQLite DB directly (no API, no auth), map to generic schema, add npm run sync:wechat. Dependencies: platform-abstraction
 - [ ] wechat-image-sync -- Extract and map image messages from WeChat database, store file references. Dependencies: wechat-sync
+- [ ] semantic-search -- Local ONNX embeddings (all-MiniLM-L6-v2) + sqlite-vec; new MCP tools semantic_find_contacts and semantic_search_messages; incremental indexing pipeline. Dependencies: platform-abstraction
 - [ ] web-ui -- Express + plain HTML search UI served at localhost:3333, chat list sidebar, message thread view, platform badges. Dependencies: platform-abstraction, imessage-sync
 - [ ] discord-sync -- Discord bot token, sync DMs and non-broadcast channels, npm run sync:discord. Dependencies: platform-abstraction
 - [ ] email-sync -- IMAP via imapflow, sync sent+received threads as messages, npm run sync:email. Dependencies: platform-abstraction
@@ -39,3 +40,13 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 - [ ] whatsapp-sync -- whatsapp-web.js QR-code session, sync DMs, npm run sync:whatsapp. Dependencies: platform-abstraction
 - [ ] security-hardening -- SQLCipher encryption, web UI basic-auth, MCP bearer token, localhost-only binding. Dependencies: web-ui
 - [ ] release -- Dockerfile + docker-compose, GitHub Actions CI/publish, SECURITY.md, demo GIF. Dependencies: web-ui, wechat-sync, discord-sync, email-sync, slack-sync, whatsapp-sync, security-hardening
+- [x] incremental-sync -- Extend PlatformAdapter with lastSyncAt tracking; sync_state table; all sync:* scripts fetch only messages newer than last successful sync. Dependencies: platform-abstraction
+- [x] web-ui-enhancements -- Chat-window scroll layout (oldest top, newest bottom, auto-scroll to newest, load-older on scroll-up) + semantic search input in web UI. Dependencies: web-ui, semantic-search
+- [x] sync-watcher -- Single `npm run watch` daemon that polls all configured platforms continuously; keeps individual sync:platform scripts for manual/debug use. Dependencies: incremental-sync
+
+## Existing Spec Updates
+- [ ] web-ui -- extended by web-ui-enhancements (chat layout + semantic search UI)
+- [ ] platform-abstraction -- extended by incremental-sync (PlatformAdapter interface addition)
+
+## Direct Implementation Candidates
+- [ ] mcp-test-script -- `scripts/test-mcp.sh` bash script with sample queries for every MCP tool + `.claude/skills/mcp-testing/SKILL.md`. Pure tooling, no spec needed.
