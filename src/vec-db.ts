@@ -37,8 +37,9 @@ export interface MessageFilters {
   platform?: Platform
   before_timestamp?: number
   after_timestamp?: number
-  limit?: number       // default 20, max 100
-  scan_limit?: number  // override kNN candidate count (default: auto-scaled by active filters)
+  limit?: number            // default 20, max 100
+  scan_limit?: number       // override kNN candidate count (default: auto-scaled by active filters)
+  min_similarity?: number   // 0–1, drop results below this similarity (1 - distance)
 }
 
 const CONTACT_DISTANCE_THRESHOLD = 0.7
@@ -237,10 +238,13 @@ export function semanticSearchMessages(
     `)
     .all(queryVector, knnLimit) as Array<{ rowid: bigint; distance: number }>
 
+  const minDistance = filters.min_similarity !== undefined ? 1 - filters.min_similarity : undefined
+
   const results: SemanticMessageResult[] = []
 
   for (const { rowid, distance } of knnRows) {
     if (results.length >= limit) break
+    if (minDistance !== undefined && distance > minDistance) break  // kNN is ordered by distance, safe to stop early
 
     const msgId = Number(rowid)
     const row = getDb()

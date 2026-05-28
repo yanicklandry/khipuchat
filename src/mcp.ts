@@ -14,6 +14,33 @@ import {
 } from './vec-db'
 import { embedOne } from './embeddings'
 
+/**
+ * Detect temporal keywords in a query and return timestamp filters.
+ * Used server-side so both CLI and MCP calls benefit from temporal-aware scanning.
+ */
+export function parseTemporalFilters(query: string): Pick<MessageFilters, 'after_timestamp' | 'before_timestamp'> {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+  const rules: Array<{ pattern: RegExp; after: () => Date; before?: () => Date }> = [
+    { pattern: /\b(tonight|today)\b/i,    after: () => new Date(today.getTime() - 7 * 86400_000) },
+    { pattern: /\byesterday\b/i,           after: () => new Date(today.getTime() - 8 * 86400_000), before: () => today },
+    { pattern: /\bthis week\b/i,           after: () => new Date(today.getTime() - 7 * 86400_000) },
+    { pattern: /\bthis month\b/i,          after: () => new Date(today.getFullYear(), today.getMonth(), 1) },
+    { pattern: /\brecently?\b/i,           after: () => new Date(today.getTime() - 30 * 86400_000) },
+  ]
+
+  for (const { pattern, after, before } of rules) {
+    if (pattern.test(query)) {
+      return {
+        after_timestamp: Math.floor(after().getTime() / 1000),
+        ...(before ? { before_timestamp: Math.floor(before().getTime() / 1000) } : {}),
+      }
+    }
+  }
+  return {}
+}
+
 // ── Result types ──────────────────────────────────────────────────────────────
 
 export interface ChatResult {
@@ -166,7 +193,17 @@ export async function handleSemanticSearchMessages(
 ): Promise<SemanticMessageResult[] | { error: string }> {
   if (!isIndexed('messages')) return { error: INDEX_NOT_BUILT_MSG }
   const vector = await embedOne(query)
-  return semanticSearchMessages(vector, filters)
+  // Merge caller-supplied filters with temporal hints inferred from the query.
+  // When a time window is active, default min_similarity to 0.45 to suppress noise —
+  // callers can override by passing min_similarity explicitly.
+  const temporal = parseTemporalFilters(query)
+  const hasTemporalFilter = temporal.after_timestamp !== undefined
+  const mergedFilters: MessageFilters = {
+    ...(hasTemporalFilter ? { min_similarity: 0.45 } : {}),
+    ...temporal,
+    ...filters,
+  }
+  return semanticSearchMessages(vector, mergedFilters)
 }
 
 // ── MCP server ────────────────────────────────────────────────────────────────

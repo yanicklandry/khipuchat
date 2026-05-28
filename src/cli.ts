@@ -15,7 +15,6 @@
 
 import path from 'path'
 import { initDb } from './db'
-import type { MessageFilters } from './vec-db'
 import {
   handleListChats,
   handleFindChatByName,
@@ -24,63 +23,26 @@ import {
   handleGetChatSummary,
   handleSemanticFindContacts,
   handleSemanticSearchMessages,
+  parseTemporalFilters,
 } from './mcp'
 
 initDb(path.join(__dirname, '..', 'khipuchat.db'))
 
 const [, , tool, ...rest] = process.argv
+
+// Parse --min-similarity N from args (e.g. --min-similarity 0.6 or --min-similarity 60)
+let minSimilarityArg: number | undefined
+const minSimIdx = rest.indexOf('--min-similarity')
+if (minSimIdx !== -1) {
+  const raw = parseFloat(rest[minSimIdx + 1] ?? '')
+  if (!isNaN(raw)) minSimilarityArg = raw > 1 ? raw / 100 : raw  // accept both 60 and 0.6
+  rest.splice(minSimIdx, 2)
+}
+
 const query = rest[0] ?? ''
 
 function ts(t: number) {
   return new Date(t * 1000).toLocaleString()
-}
-
-/**
- * Detect temporal keywords in a query and return corresponding timestamp filters.
- * Also returns the query with the temporal phrase stripped so it doesn't confuse the embedder.
- */
-function parseTemporalFilters(query: string): { filters: Pick<MessageFilters, 'after_timestamp' | 'before_timestamp'>; cleanQuery: string } {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const filters: Pick<MessageFilters, 'after_timestamp' | 'before_timestamp'> = {}
-  let cleanQuery = query
-
-  const temporal: Array<{ pattern: RegExp; after: () => Date; before?: () => Date; label?: string }> = [
-    {
-      // "tonight" / "today" — event may have been announced up to 7 days ago
-      pattern: /\b(tonight|today)\b/i,
-      after: () => new Date(today.getTime() - 7 * 86400_000),
-      label: 'last 7 days (event announcements for today)',
-    },
-    {
-      pattern: /\byesterday\b/i,
-      after: () => new Date(today.getTime() - 8 * 86400_000),
-      before: () => today,
-    },
-    {
-      pattern: /\bthis week\b/i,
-      after: () => new Date(today.getTime() - 7 * 86400_000),
-    },
-    {
-      pattern: /\bthis month\b/i,
-      after: () => new Date(today.getFullYear(), today.getMonth(), 1),
-    },
-    {
-      pattern: /\brecently\b|\brecent\b/i,
-      after: () => new Date(today.getTime() - 30 * 86400_000),
-    },
-  ]
-
-  for (const { pattern, after, before } of temporal) {
-    if (pattern.test(query)) {
-      filters.after_timestamp = Math.floor(after().getTime() / 1000)
-      if (before) filters.before_timestamp = Math.floor(before().getTime() / 1000)
-      cleanQuery = query.replace(pattern, '').replace(/\s{2,}/g, ' ').trim()
-      break
-    }
-  }
-
-  return { filters, cleanQuery }
 }
 
 async function main() {
@@ -102,15 +64,23 @@ Tools:
   switch (tool) {
     case 'semantic-search': {
       if (!query) { console.error('Usage: npm run cli semantic-search "your query"'); process.exit(1) }
-      const { filters: temporalFilters, cleanQuery } = parseTemporalFilters(query)
+      const temporalFilters = parseTemporalFilters(query)
       const hasTimeFilter = temporalFilters.after_timestamp !== undefined
       console.log(`\nSemantic search: "${query}"`)
       if (hasTimeFilter) {
         const afterDate = new Date(temporalFilters.after_timestamp! * 1000).toLocaleDateString()
         console.log(`  Searching messages since: ${afterDate}`)
       }
+      if (minSimilarityArg !== undefined) {
+        console.log(`  Min similarity: ${(minSimilarityArg * 100).toFixed(0)}%`)
+      }
       console.log()
-      const result = await handleSemanticSearchMessages(cleanQuery, { limit: 20, ...temporalFilters })
+      // Temporal filters and default min_similarity are merged inside handleSemanticSearchMessages.
+      // Pass explicit min_similarity only when the user provided --min-similarity.
+      const result = await handleSemanticSearchMessages(query, {
+        limit: 20,
+        ...(minSimilarityArg !== undefined ? { min_similarity: minSimilarityArg } : {}),
+      })
       if ('error' in result) { console.error(result.error); process.exit(1) }
       if (result.length === 0) { console.log('No results found.'); break }
       for (const r of result) {
