@@ -38,6 +38,7 @@ export interface MessageFilters {
   before_timestamp?: number
   after_timestamp?: number
   limit?: number       // default 20, max 100
+  scan_limit?: number  // override kNN candidate count (default: auto-scaled by active filters)
 }
 
 const CONTACT_DISTANCE_THRESHOLD = 0.7
@@ -218,7 +219,14 @@ export function semanticSearchMessages(
   filters: MessageFilters,
 ): SemanticMessageResult[] {
   const limit = Math.min(Math.max(filters.limit ?? 20, 1), 100)
-  const knnLimit = Math.min(limit * 10, 500)
+
+  // When timestamp or chat filters are active we must scan many more candidates,
+  // because qualifying messages may rank far down the global kNN list.
+  const hasFilters = filters.after_timestamp !== undefined
+    || filters.before_timestamp !== undefined
+    || filters.chat_id !== undefined
+  const defaultScanMultiplier = hasFilters ? 100 : 10
+  const knnLimit = filters.scan_limit ?? Math.min(limit * defaultScanMultiplier, 5000)
 
   const knnRows = getDb()
     .prepare(`

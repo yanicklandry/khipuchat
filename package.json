@@ -18,6 +18,7 @@
     "test": "vitest run --pool=forks --poolOptions.forks.singleFork",
     "test:watch": "vitest --pool=forks --poolOptions.forks.singleFork",
     "index:embeddings": "tsx src/index-embeddings.ts",
+    "cli": "tsx src/cli.ts",
     "web": "tsx src/web/server.ts",
     "setup:wechat": "bash scripts/setup-wechat.sh"
   },
