@@ -152,13 +152,21 @@ export function mapMessage(row: WechatMessageRow, chatId: number, opts?: Message
     : (row.Message ?? row.strContent ?? null)
   const msgType = isV4 ? (row.local_type ?? 1) : (row.Type ?? row.MsgType ?? 1)
   const timestamp = isV4 ? (row.create_time ?? 0) : (row.CreateTime ?? 0)
+  
+  // Check for image message types
+  const isImageMessage = 
+    msgType === 43 || // Image type in WeChat
+    msgType === 49 || // Media type in WeChat  
+    (isV4 && row.local_type === 4) || // Image type in v4 schema
+    (!isV4 && row.Type === 4); // Image type in legacy schema
+  
   return {
     external_id: externalId,
     chat_id: chatId,
     sender_id: null,
     sender_name: null,
-    text: rawText,
-    type: msgType === 1 && rawText ? 'text' : 'other',
+    text: isImageMessage ? '' : rawText, // For images, we don't extract text
+    type: isImageMessage ? 'image' : (msgType === 1 && rawText ? 'text' : 'other'),
     timestamp,
     is_sender: isSend,
     reply_to_external_id: null,
