@@ -40,7 +40,7 @@
 
 ## Task 3: Shared sync runner — flag parsing and mode routing
 
-- [ ] 3.1 (P) Extract `rebuildEmbeddings(platform?)` from `index-embeddings.ts`
+- [x] 3.1 (P) Extract `rebuildEmbeddings(platform?)` from `index-embeddings.ts`
   - Pull the existing embedding batch loop out of `main()` into a named exported async function `rebuildEmbeddings(platform?: Platform): Promise<void>`
   - With no argument the function behaves exactly as before (whole-database sweep), preserving `npm run index:embeddings`
   - With a platform argument the sweep filters to chats and messages for that platform; use the existing index on `messages(chat_id)` by joining messages to chats on `chats.platform`
@@ -49,7 +49,7 @@
   - _Requirements: 4.4_
   - _Boundary: rebuildEmbeddings (Search Index)_
 
-- [ ] 3.2 (P) Implement `parseSyncArgs` in `src/sync-runner.ts`
+- [x] 3.2 (P) Implement `parseSyncArgs` in `src/sync-runner.ts`
   - Create `src/sync-runner.ts` and export `parseSyncArgs(argv: readonly string[]): { force: boolean }`
   - `--force` sets `force: true` with no stderr output
   - `--backfill` sets `force: true` and writes a one-line deprecation warning to stderr
@@ -58,7 +58,7 @@
   - _Requirements: 4.3, 4.5_
   - _Boundary: parseSyncArgs (SyncRunner)_
 
-- [ ] 3.3 Implement `runPlatformSync` in `src/sync-runner.ts`
+- [x] 3.3 Implement `runPlatformSync` in `src/sync-runner.ts`
   - Snapshot `runStartedAt` (Unix seconds, `Math.floor(Date.now() / 1000)`) immediately on entry, before any fetch or state read
   - Call `parseSyncArgs(argv)` to determine the `force` flag
   - Mode selection: if `force`, route to `adapter.runBackfill(db)` and print `backfill`; else call `getPlatformLastSyncedAt(adapter.platform)` to get `since`; if `since !== null` AND `typeof adapter.syncIncremental === 'function'`, route to `adapter.syncIncremental(db, new Date(since * 1000))` and print `incremental`; otherwise route to `adapter.runBackfill(db)` and print `backfill`
@@ -103,7 +103,7 @@
 
 ## Task 5: Refactor platform entry points to delegate to runPlatformSync
 
-- [ ] 5.1 (P) Delegate six simple adapter entry points to the shared runner
+- [x] 5.1 (P) Delegate six simple adapter entry points to the shared runner
   - Refactor `main()` in `src/platforms/discord/sync.ts`, `slack/sync.ts`, `email/sync.ts`, `whatsapp/sync.ts`, `wechat/sync.ts`, and `imessage/sync.ts`
   - Each `main()` calls `initDb()`, then `await runPlatformSync(adapter, db, process.argv)`, exits 0 on success; catches, logs, and exits 1 on error
   - WhatsApp retains any client/QR initialization before the `runPlatformSync` call; other adapters need no preamble
@@ -113,7 +113,7 @@
   - _Boundary: discord, slack, email, whatsapp, wechat, imessage entry points_
   - _Depends: 3.3_
 
-- [ ] 5.2 Refactor telegram entry point to use the shared runner
+- [x] 5.2 Refactor telegram entry point to use the shared runner
   - Replace the broken `runSync` function (which always called `runBackfill`) in `src/platforms/telegram/sync.ts` with a `runPlatformSync` call
   - Retain the auth wizard flow and Telegram client connection lifecycle before the runner call
   - Retain `--backfill-only` gating: when the flag is present, the runner completes and `process.exit(0)`; otherwise `startListener` is invoked after the runner returns
@@ -124,7 +124,7 @@
 
 ## Task 6: Aggregate orchestrator and package.json
 
-- [ ] 6.1 Create `src/sync-all.ts` serial orchestrator
+- [x] 6.1 Create `src/sync-all.ts` serial orchestrator
   - Implement a script that spawns `tsx src/platforms/<p>/sync.ts` for each of the 7 platforms in a fixed serial order using Node built-in `child_process`
   - Forward `--force` and `--backfill` flags from own argv to every child subprocess
   - Append `--backfill-only` to the telegram child's args so it exits after sync instead of blocking on the listener
@@ -134,7 +134,7 @@
   - _Requirements: 4.6_
   - _Boundary: AggregateOrchestrator_
 
-- [ ] 6.2 Update `package.json` `sync` script
+- [x] 6.2 Update `package.json` `sync` script
   - Change the `sync` script entry to `tsx src/sync-all.ts`
   - Verify all `sync:<platform>` scripts remain unchanged (delegation now happens inside each `main()`)
   - Observable: `npm run sync` triggers all 7 platform syncs; `npm run sync -- --force` passes `--force` through sync-all to each child; `npm run sync:discord` still works as before
@@ -144,7 +144,7 @@
 
 ## Task 7: Tests
 
-- [ ] 7.1 (P) Unit tests for `parseSyncArgs`
+- [x] 7.1 (P) Unit tests for `parseSyncArgs`
   - `['--force']` returns `{ force: true }` with no stderr
   - `['--backfill']` returns `{ force: true }` and emits the deprecation warning to stderr
   - `[]` returns `{ force: false }` with no stderr
@@ -153,7 +153,7 @@
   - _Requirements: 4.3, 4.5_
   - _Boundary: parseSyncArgs_
 
-- [ ] 7.2 (P) Integration tests for `runPlatformSync` mode selection and atomicity
+- [x] 7.2 (P) Integration tests for `runPlatformSync` mode selection and atomicity
   - Mode selection (four cases with fake adapter): (a) `since=null` selects backfill; (b) `since` set + `syncIncremental` present + no force selects incremental; (c) `since` set + adapter lacks `syncIncremental` selects backfill; (d) `force` + `since` set selects backfill
   - Stdout assertion: exactly one of `"incremental"` / `"backfill"` is printed before the adapter call in each case
   - Atomic write: fake adapter resolves => `setPlatformLastSyncedAt` called with `runStartedAt`; fake adapter throws => not called and error propagates
@@ -164,7 +164,7 @@
   - _Boundary: SyncRunner_
   - _Depends: 3.3_
 
-- [ ] 7.3 E2E tests for sync-all orchestration and first-run behavior
+- [x] 7.3 E2E tests for sync-all orchestration and first-run behavior
   - sync-all: verify all 7 platform subprocesses are spawned serially; `--force` is forwarded to each child; `--backfill-only` is appended for telegram; a failing child does not abort remaining platforms; aggregate exit code is non-zero when any child failed
   - First-run flow against a temporary in-memory DB: empty `sync_state` causes `backfill` to be printed and the marker to be written; a second run prints `incremental`
   - Observable: E2E test suite passes, confirming serial execution order, flag forwarding, fault tolerance, and correct first-run / subsequent-run mode selection

@@ -3,7 +3,8 @@ import { StringSession } from 'telegram/sessions'
 import { NewMessage } from 'telegram/events'
 import Database from 'better-sqlite3-multiple-ciphers'
 import { config, saveSessionString, type Config } from '../../config'
-import { initDb, getDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, getPlatformLastSyncedAt, setPlatformLastSyncedAt, type Chat, type Message, type MessageType } from '../../db'
+import { initDb, getDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, setPlatformLastSyncedAt, type Chat, type Message, type MessageType } from '../../db'
+import { runPlatformSync } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { PlatformAdapter } from '../types'
@@ -305,7 +306,6 @@ export async function runSync(
 }
 
 async function main(): Promise<void> {
-  const backfillFlag = process.argv.includes('--backfill')
   const backfillOnly = process.argv.includes('--backfill-only')
   const session = new StringSession(config.sessionString)
   const client = new TelegramClient(session, config.apiId, config.apiHash, { connectionRetries: 5 })
@@ -322,17 +322,16 @@ async function main(): Promise<void> {
   // GramJS fires unhandled rejections from its internal update loop on disconnect — suppress them
   process.on('unhandledRejection', () => {})
 
-  initDb('./khipuchat.db')
-  const since = getPlatformLastSyncedAt('telegram')
+  const db = initDb('./khipuchat.db')
 
   try {
-    await runSync(client, { backfillFlag, since })
+    await runPlatformSync(telegramAdapter, db, process.argv)
   } catch (err) {
     console.error(err)
     process.exit(1)
   }
 
-  if (backfillOnly || backfillFlag) { await client.disconnect(); return }
+  if (backfillOnly) { await client.disconnect(); process.exit(0) }
   startListener(client)
   console.log('Listening for new messages…')
   await new Promise(() => {})

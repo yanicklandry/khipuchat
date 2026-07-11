@@ -2,6 +2,7 @@ import Database from 'better-sqlite3-multiple-ciphers'
 import { join } from 'path'
 import { homedir } from 'os'
 import { initDb, getDb, upsertChat, insertMessage, setLastSyncedAt, type Chat, type Message } from '../../db'
+import { runPlatformSync } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
@@ -213,9 +214,12 @@ export const iMessageAdapter: PlatformAdapter = {
 
 async function main(): Promise<void> {
   const db = initDb('./khipuchat.db')
-  try { await iMessageAdapter.runBackfill(db) } catch { process.exit(1) }
+  await runPlatformSync(iMessageAdapter, db, process.argv)
 }
 
 if (require.main === module) {
-  main().catch((err: unknown) => { console.error(err); process.exit(1) })
+  main().then(() => process.exit(0)).catch((err: unknown) => {
+    console.error(err)
+    process.exit(1)
+  })
 }

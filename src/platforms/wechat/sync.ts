@@ -5,6 +5,7 @@ import path from 'node:path'
 import { homedir } from 'node:os'
 import Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, getDb, upsertChat, insertMessage, setLastSyncedAt, type Chat, type Message } from '../../db'
+import { runPlatformSync } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
@@ -551,17 +552,12 @@ export const wechatAdapter: PlatformAdapter = {
 
 async function main(): Promise<void> {
   const db = initDb('./khipuchat.db')
-  try {
-    await wechatAdapter.runBackfill(db)
-  } catch (err) {
-    process.stderr.write(`[wechat] Fatal: ${(err as Error).message}\n`)
-    process.exit(1)
-  }
+  await runPlatformSync(wechatAdapter, db, process.argv)
 }
 
 if (require.main === module) {
-  main().catch((err: unknown) => {
-    process.stderr.write(`[wechat] ${(err as Error).message}\n`)
+  main().then(() => process.exit(0)).catch((err: unknown) => {
+    console.error(err)
     process.exit(1)
   })
 }

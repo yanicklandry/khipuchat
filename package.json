@@ -4,7 +4,7 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "sync": "tsx src/platforms/telegram/sync.ts --backfill-only && tsx src/platforms/imessage/sync.ts",
+    "sync": "tsx src/sync-all.ts",
     "sync:telegram": "tsx src/platforms/telegram/sync.ts",
     "sync:imessage": "tsx src/platforms/imessage/sync.ts",
     "sync:wechat": "tsx src/platforms/wechat/sync.ts",

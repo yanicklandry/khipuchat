@@ -2,14 +2,13 @@ import path from 'path'
 import { initDb, getDb } from './db'
 import { embed, embedOne } from './embeddings'
 import {
-  getUnindexedMessages,
-  getUnindexedChats,
   getChatSnippets,
   upsertMessageVector,
   upsertChatVector,
   upsertEmbeddingMeta,
   isIndexed,
 } from './vec-db'
+import type { Platform } from './platforms/types'
 
 const BATCH_SIZE = 100
 
@@ -103,18 +102,50 @@ export async function embedNewChats(chatIds: number[]): Promise<void> {
   }
 }
 
-// ── CLI entry point ────────────────────────────────────────────────────────────
+// ── Platform-scoped helpers ────────────────────────────────────────────────────
 
-async function main(): Promise<void> {
-  const dbArgIdx = process.argv.indexOf('--db')
-  const dbPath = dbArgIdx !== -1
-    ? process.argv[dbArgIdx + 1]
-    : path.join(__dirname, '..', 'khipuchat.db')
-  if (!dbPath) throw new Error('--db requires a path argument')
-  initDb(dbPath)
+function getUnindexedMessagesByPlatform(limit: number, platform: Platform): Array<{ id: number; text: string }> {
+  return getDb()
+    .prepare(`
+      SELECT m.id, m.text
+      FROM messages m
+      JOIN chats c ON c.id = m.chat_id
+      WHERE c.platform = ?
+        AND m.text IS NOT NULL AND m.text != ''
+        AND m.id NOT IN (SELECT rowid FROM vec_messages)
+      LIMIT ?
+    `)
+    .all(platform, limit) as Array<{ id: number; text: string }>
+}
 
-  // ── Index messages ────────────────────────────────────────────────────────
-  const msgCount = countUnindexed()
+function getUnindexedChatsByPlatform(platform: Platform): Array<{ id: number; name: string }> {
+  return getDb()
+    .prepare(`
+      SELECT id, name FROM chats
+      WHERE platform = ?
+        AND id NOT IN (SELECT rowid FROM vec_chats)
+    `)
+    .all(platform) as Array<{ id: number; name: string }>
+}
+
+// ── Core rebuild function ──────────────────────────────────────────────────────
+
+/**
+ * Embed all unindexed messages and chats.
+ * With no argument: whole-database sweep (preserves `npm run index:embeddings` behaviour).
+ * With a platform: restrict the sweep to that platform's chats and messages only.
+ */
+export async function rebuildEmbeddings(platform?: Platform): Promise<void> {
+  // ── Index messages ──────────────────────────────────────────────────────────
+  const msgCount = platform
+    ? (getDb()
+        .prepare(`SELECT COUNT(*) FROM messages m JOIN chats c ON c.id = m.chat_id
+          WHERE c.platform = ? AND m.text IS NOT NULL AND m.text != ''
+            AND m.id NOT IN (SELECT rowid FROM vec_messages)`)
+        .pluck()
+        .get(platform) as number)
+    : countUnindexed()
+
   if (msgCount === 0) {
     console.log('Messages: already up-to-date.')
   } else {
@@ -129,7 +160,17 @@ async function main(): Promise<void> {
   const msgStart = Date.now()
 
   do {
-    msgBatch = getUnindexedMessages(BATCH_SIZE)
+    msgBatch = platform
+      ? getUnindexedMessagesByPlatform(BATCH_SIZE, platform)
+      : getDb()
+          .prepare(`
+            SELECT m.id, m.text
+            FROM messages m
+            WHERE m.text IS NOT NULL AND m.text != ''
+              AND m.id NOT IN (SELECT rowid FROM vec_messages)
+            LIMIT ?
+          `)
+          .all(BATCH_SIZE) as Array<{ id: number; text: string }>
     for (const row of msgBatch) {
       try {
         const [vec] = await embed([row.text])
@@ -147,8 +188,12 @@ async function main(): Promise<void> {
   if (msgCount > 0) process.stdout.write('\n')
   upsertEmbeddingMeta('messages', Date.now())
 
-  // ── Index chats ───────────────────────────────────────────────────────────
-  const unindexedChats = getUnindexedChats()
+  // ── Index chats ─────────────────────────────────────────────────────────────
+  const unindexedChats = platform
+    ? getUnindexedChatsByPlatform(platform)
+    : getDb()
+        .prepare(`SELECT id, name FROM chats WHERE id NOT IN (SELECT rowid FROM vec_chats)`)
+        .all() as Array<{ id: number; name: string }>
   const chatCount = unindexedChats.length
   let chatTotal = 0
   const chatStart = Date.now()
@@ -182,6 +227,19 @@ async function main(): Promise<void> {
   upsertEmbeddingMeta('chats', Date.now())
 
   console.log(`Done. Indexed ${msgTotal.toLocaleString()} messages, ${chatTotal.toLocaleString()} chats.`)
+}
+
+// ── CLI entry point ────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  const dbArgIdx = process.argv.indexOf('--db')
+  const dbPath = dbArgIdx !== -1
+    ? process.argv[dbArgIdx + 1]
+    : path.join(__dirname, '..', 'khipuchat.db')
+  if (!dbPath) throw new Error('--db requires a path argument')
+  initDb(dbPath)
+
+  await rebuildEmbeddings()
 }
 
 if (require.main === module) {
