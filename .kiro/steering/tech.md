@@ -43,9 +43,13 @@ Vitest. Tests use `:memory:` SQLite database (real DB, not mocked). Test files l
 # Run MCP server
 npm run mcp
 
-# Sync a platform
+# Sync all platforms (serial)
+npm run sync               # incremental by default; pass --force for full re-read + reindex
+
+# Sync a single platform
 npm run sync:telegram
 npm run sync:imessage
+# (same pattern for discord, slack, email, wechat, whatsapp)
 
 # Rebuild embeddings index
 npm run index:embeddings
@@ -55,6 +59,11 @@ npm run web
 
 # CLI
 npm run cli -- <args>
+
+# Setup
+npm run setup-claude       # configure Claude Desktop MCP entry
+npm run setup-sync         # install macOS LaunchAgent for automatic background sync
+npm run setup:wechat       # WeChat-specific setup script
 
 # Tests
 npm test
@@ -67,3 +76,4 @@ npm test
 - **Local embeddings**: No external API calls for semantic search; model downloaded once at runtime
 - **stdio MCP**: Claude Desktop spawns the MCP process; no HTTP server needed for LLM access
 - **Encryption optional**: `DB_KEY` env var enables SQLCipher; omitting it leaves plain SQLite
+- **Incremental sync**: `sync_state` table tracks last successful sync per platform; `runPlatformSync` in `sync-runner.ts` chooses incremental vs full mode; `--force` triggers full re-read + FTS + embeddings rebuild. All adapters delegate to this shared runner.

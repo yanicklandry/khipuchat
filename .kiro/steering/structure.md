@@ -20,13 +20,24 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 - `src/mcp.ts` — MCP server and tool definitions
 - `src/cli.ts` — CLI entry point
 - `src/embeddings.ts` — embedding generation helpers
+- `src/index-embeddings.ts` — runnable script to build/rebuild the embeddings index; exports `rebuildEmbeddings(platform?)` for programmatic use
 - `src/vec-db.ts` — sqlite-vec schema and vector search queries
 - `src/config.ts` — environment and configuration loading
+
+### Sync Infrastructure
+**Location**: `src/`
+**Purpose**: Shared sync orchestration used by all platform adapters
+
+- `src/sync-runner.ts` — exports `runPlatformSync(adapter, db, argv)` and `parseSyncArgs(argv)`; handles `sync_state` tracking, incremental vs full-backfill mode selection, FTS + embedding rebuild after sync
+- `src/sync-all.ts` — serial orchestrator that spawns every platform's `sync.ts` in order; forwards `--force`/`--backfill` flags; entry point for `npm run sync`
+- `src/setup-sync.ts` — installs/uninstalls a macOS LaunchAgent (`com.khipuchat.sync`) that runs `sync-all` on a schedule; entry point for `npm run setup-sync`
+
+**Pattern**: Every platform adapter calls `runPlatformSync` from `sync-runner.ts` rather than implementing sync state logic directly. Incremental mode reads `sync_state` (keyed by platform) to fetch only messages newer than last sync. `--force` flag triggers a full re-read + FTS + embeddings rebuild.
 
 ### Web UI
 **Location**: `src/web/`
 **Purpose**: Express server + server-side HTML rendering
-**Pattern**: `server.ts` registers routes from `routes.ts`. UI is plain HTML strings assembled in `ui.ts` / `ui-scroll.ts`. No client-side framework.
+**Pattern**: `server.ts` registers routes from `routes.ts`. UI is plain HTML strings assembled in `ui.ts` / `ui-scroll.ts`. `icons.ts` provides SVG icon helpers (simple-icons). No client-side framework.
 
 ### Tests
 **Location**: `tests/`
