@@ -76,4 +76,5 @@ npm test
 - **Local embeddings**: No external API calls for semantic search; model downloaded once at runtime
 - **stdio MCP**: Claude Desktop spawns the MCP process; no HTTP server needed for LLM access
 - **Encryption optional**: `DB_KEY` env var enables SQLCipher; omitting it leaves plain SQLite
-- **Incremental sync**: `sync_state` table tracks last successful sync per platform; `runPlatformSync` in `sync-runner.ts` chooses incremental vs full mode; `--force` triggers full re-read + FTS + embeddings rebuild. All adapters delegate to this shared runner.
+- **Incremental sync**: `sync_state` table tracks last successful sync per (platform, account); `runPlatformSync` in `sync-runner.ts` chooses incremental vs full mode; `--force` triggers full re-read + FTS + embeddings rebuild. All adapters delegate to this shared runner.
+- **Multi-account**: `khipu.config.json` is the canonical account registry (optional). When absent, the system falls back to legacy single-account env-var resolution. WeChat is limited to one account. The `account` column on messages/chats distinguishes accounts within a platform.

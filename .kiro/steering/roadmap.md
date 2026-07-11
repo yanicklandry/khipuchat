@@ -50,7 +50,7 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 - [x] incremental-sync -- Extend PlatformAdapter with lastSyncAt tracking; sync_state table; all sync scripts fetch only messages newer than last successful sync. `--force` full re-read + reindex; per-account sync_state. Dependencies: platform-abstraction.
 - [x] web-ui-enhancements -- Chat-window scroll layout (oldest top, newest bottom, auto-scroll to newest, load-older on scroll-up) + semantic search input in web UI. Dependencies: web-ui, semantic-search
 - [ ] sync-watcher -- Daemon that polls all configured platforms continuously; sync => index => wait; `khipu sync all` entry point; `--once` single-pass. Dependencies: incremental-sync. (Re-queued 2026-07-11 for corrections.)
-- [ ] multi-account -- khipu.config.json account registry; add `account` dimension to schema; per-account sync_state; adapters iterate configured accounts (WeChat excluded). Dependencies: platform-abstraction, incremental-sync
+- [x] multi-account -- khipu.config.json account registry; add `account` dimension to schema; per-account sync_state; adapters iterate configured accounts (WeChat excluded). Dependencies: platform-abstraction, incremental-sync
 - [ ] khipu-cli -- Global `khipu` command (bin + npm link) replacing `npm run sync:*`; `khipu sync` (list), `khipu sync all` (daemon: sync=>index=>wait, `--once` for cron), `khipu sync <platform>[@account]` (one-shot debug), `--force` (re-read all + reindex). Dependencies: sync-watcher, incremental-sync, semantic-search, multi-account
 
 ## Existing Spec Updates

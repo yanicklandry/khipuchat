@@ -9,14 +9,18 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 ### Platform Adapters
 **Location**: `src/platforms/<name>/`
 **Purpose**: All code specific to one messaging platform
-**Pattern**: Each adapter has at minimum a `sync.ts` (the runnable sync script). Complex platforms add `client.ts` (API wrapper) and `contacts.ts` (contact resolution). The adapter exports an object implementing `PlatformAdapter` from `src/platforms/types.ts`.
-**Example**: `src/platforms/telegram/sync.ts`, `src/platforms/imessage/sync.ts`
+**Pattern**: Each adapter has at minimum a `sync.ts` (the runnable sync script). Complex platforms add `client.ts` (API wrapper) and `contacts.ts` (contact resolution). The adapter exports an object implementing `PlatformAdapter` from `src/platforms/types.ts`. Adapters use `AccountRegistry` to iterate over configured accounts and call `runPlatformSync` per account.
+**Implemented**: telegram, imessage, wechat, discord, slack, email, whatsapp
+**Example**: `src/platforms/telegram/sync.ts`, `src/platforms/discord/sync.ts`
 
 ### Shared Infrastructure
 **Location**: `src/`
 **Purpose**: Core modules consumed by adapters and surfaces
 **Key files**:
-- `src/db.ts` — schema, migrations, all exported DB functions (the only entry point adapters may call)
+- `src/db.ts` — schema, all exported DB functions (the only entry point adapters may call)
+- `src/db-migrations.ts` — migration helpers and `columnExists` utilities extracted from `db.ts`
+- `src/account-registry.ts` — loads `khipu.config.json`; exposes `AccountRegistry` with `listAccounts(platform)` and `credentialsFor(platform, account)`; falls back to legacy env-var resolution when no config file is present
+- `src/query-handlers.ts` — shared query/search logic (temporal filter parsing, semantic search orchestration) shared by MCP and CLI surfaces
 - `src/mcp.ts` — MCP server and tool definitions
 - `src/cli.ts` — CLI entry point
 - `src/embeddings.ts` — embedding generation helpers
