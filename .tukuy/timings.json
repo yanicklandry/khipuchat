@@ -1,0 +1,85 @@
+[
+  {
+    "runAt": "2026-07-11T18:42:16.810Z",
+    "phases": [
+      {
+        "phase": "steering",
+        "startMs": 1783792134959,
+        "endMs": 1783792210941,
+        "durationMs": 75982,
+        "skipped": false
+      },
+      {
+        "phase": "discovery",
+        "startMs": 1783792219986,
+        "endMs": 1783792265287,
+        "durationMs": 45301,
+        "skipped": false
+      },
+      {
+        "phase": "init",
+        "startMs": 1783792265312,
+        "endMs": 1783792290277,
+        "durationMs": 24965,
+        "skipped": false
+      },
+      {
+        "phase": "requirements",
+        "startMs": 1783792301632,
+        "endMs": 1783792444042,
+        "durationMs": 142410,
+        "skipped": false
+      },
+      {
+        "phase": "validate-gap",
+        "startMs": 1783792456823,
+        "endMs": 1783792682585,
+        "durationMs": 225762,
+        "skipped": false
+      },
+      {
+        "phase": "design",
+        "startMs": 1783792682649,
+        "endMs": 1783793121060,
+        "durationMs": 438411,
+        "skipped": false
+      },
+      {
+        "phase": "validate-design",
+        "startMs": 1783793132447,
+        "endMs": 1783793244239,
+        "durationMs": 111792,
+        "skipped": false
+      },
+      {
+        "phase": "tasks",
+        "startMs": 1783793244277,
+        "endMs": 1783793523850,
+        "durationMs": 279573,
+        "skipped": false
+      },
+      {
+        "phase": "impl",
+        "startMs": 1783793535788,
+        "endMs": 1783795249737,
+        "durationMs": 1713949,
+        "skipped": false
+      },
+      {
+        "phase": "validate-impl",
+        "startMs": 1783795249783,
+        "endMs": 1783795336771,
+        "durationMs": 86988,
+        "skipped": false
+      },
+      {
+        "phase": "readme",
+        "startMs": 1783795336809,
+        "endMs": 1783795336809,
+        "durationMs": 0,
+        "skipped": false
+      }
+    ],
+    "totalDurationMs": 3145133
+  }
+]
