@@ -1,471 +1,361 @@
-# Design Document: incremental-sync
+# Technical Design: incremental-sync
 
 ## Overview
 
-This feature adds a platform-level incremental sync mechanism to KhipuChat. Instead of re-reading all messages from the source on every `sync:*` invocation, each adapter fetches only messages newer than the last clean run. A new `sync_state` table records the completion timestamp per platform; adapters expose an optional `syncIncremental(db, since)` method; all `sync:*` entry points default to incremental mode and accept a `--backfill` flag for forced full scans.
+**Purpose**: This feature makes day-to-day syncs fast by wiring the CLI entry points to the already-implemented per-platform incremental logic. It introduces a single shared sync runner that reads the platform-level `sync_state` marker, routes each run to either `syncIncremental` or `runBackfill`, and writes the marker only on clean completion.
 
-**Purpose**: Eliminate redundant full-history reads that make `sync:wechat` (and others) slow after the first run.
+**Users**: KhipuChat operators running `npm run sync` and `npm run sync:<platform>`. After this change a bare `sync:*` invocation catches up only on new messages; `--force` performs a full re-scan and rebuilds the semantic search index.
 
-**Users**: KhipuChat operators running `npm run sync:*` manually or via the `sync-watcher` daemon.
-
-**Impact**: The `sync_state` table is added to the DB schema; `PlatformAdapter` gains one optional method; each adapter's `runBackfillImpl` is supplemented (not replaced) by a new `syncIncrementalImpl`; CLI entry points gain `--backfill` flag handling.
+**Impact**: The adapter layer (all 7 platforms), the `sync_state` schema, and the `PlatformAdapter.syncIncremental` contract already exist and are complete (see `research.md` Gap Analysis). This design changes only the **wiring layer**: seven `main()` entry points, one new shared runner, one new aggregate orchestrator, one extracted embeddings function, and the `package.json` scripts. No adapter logic and no `runBackfill` signature changes.
 
 ### Goals
 
-- Platform-level "last clean run" timestamp stored and used by all adapters.
-- All adapters implement `syncIncremental` using the most efficient server-side filter available.
-- `--backfill` flag gives operators an escape hatch for full resync.
-- `last_synced_at` never advances on a failed or partial run.
+- A single source of truth (`runPlatformSync`) that implements mode selection, atomic `sync_state` write, and the `--force` index rebuild for every platform.
+- Default incremental behavior with correct first-run fallback to backfill.
+- `--force` (with deprecated `--backfill` alias) forces full backfill plus semantic search index rebuild.
+- `npm run sync` covers all 7 platforms and forwards `--force`.
 
 ### Non-Goals
 
-- Replacing or removing `runBackfill`.
-- Real-time push / webhook sync.
-- Adding new sync platforms.
-- The `sync-watcher` polling daemon (downstream spec).
-- Changing how messages are stored or deduplicated.
-
----
+- Real-time push / webhook triggering (out of scope).
+- Changing or removing the `runBackfill` signature (frozen).
+- Adding new platforms or the `sync-watcher` daemon.
+- Implementing per-account `sync_state` keying: designed for forward-compatibility only; implementation is owned by the `multi-account` spec (Req 6).
+- Changing how messages are stored once fetched.
 
 ## Boundary Commitments
 
 ### This Spec Owns
 
-- `sync_state` table DDL and helper functions (`getPlatformLastSyncedAt`, `setPlatformLastSyncedAt`) in `src/db.ts`.
-- `syncIncremental(db, since: Date): Promise<void>` optional method on `PlatformAdapter` in `src/platforms/types.ts`.
-- `syncIncrementalImpl` implementations in each adapter (`telegram`, `imessage`, `wechat`, `discord`, `slack`, `email`, `whatsapp`).
-- `--backfill` flag handling and mode-selection logic in each adapter's `main()` function.
-- Platform-level `last_synced_at` write-on-success in each adapter's `main()` (or shared runner).
+- The **sync runner** (`src/sync-runner.ts`): flag parsing, mode routing (`syncIncremental` vs `runBackfill`), atomic platform-level `sync_state` write on clean completion, and `--force` post-sync index rebuild.
+- The **aggregate orchestrator** (`src/sync-all.ts`): serial execution of all 7 platform syncs with flag forwarding.
+- The **seven `main()` entry points**: reduced to a delegation call into the runner (telegram retains its listener/auth lifecycle).
+- The **extracted `rebuildEmbeddings(platform?)`** function surfaced from `index-embeddings.ts`.
+- The `package.json` `sync*` script definitions.
 
 ### Out of Boundary
 
-- Per-chat `chats.last_synced_at` tracking — already exists, not changed.
-- The `runBackfill` method signature and behaviour — unchanged.
-- Message storage, deduplication, FTS, or vector indexing logic.
-- The `sync-watcher` daemon that will consume `syncIncremental`.
-- Adding new platforms.
+- The `PlatformAdapter` interface shape: owned by the `platform-abstraction` spec. This spec only consumes the existing optional `syncIncremental` method; it does not modify the interface.
+- Per-adapter incremental fetch logic (Req 3.1–3.8): already implemented; this spec calls it, it does not rewrite it.
+- The `sync_state` DDL and the `getPlatformLastSyncedAt` / `setPlatformLastSyncedAt` / `rebuildFtsIndex` helpers: already present in `db.ts`; consumed, not redefined.
+- Per-account (platform, account) keying and migration (Req 6): deferred to the `multi-account` spec.
+- The telegram listener loop and `--backfill-only` daemon flag semantics.
 
 ### Allowed Dependencies
 
-- `better-sqlite3-multiple-ciphers` — synchronous DB operations (existing constraint: all DB ops stay synchronous).
-- Existing `db.ts` exports (`insertMessage`, `upsertChat`, `setLastSyncedAt` per-chat, `getDb`).
-- Each platform's existing client library (gramjs, imapflow, whatsapp-web.js, etc.).
-- `src/index-embeddings.ts` — embedding calls after each chat sync (unchanged pattern).
+- `src/db.ts`: `getPlatformLastSyncedAt`, `setPlatformLastSyncedAt`, `rebuildFtsIndex`, `initDb`, `getDb`.
+- `src/index-embeddings.ts`: the newly extracted `rebuildEmbeddings(platform?)`.
+- `src/platforms/types.ts`: the `PlatformAdapter` type and its optional `syncIncremental`.
+- Node built-in `child_process` (aggregate orchestrator only).
+- Dependency direction: `types.ts => db.ts => index-embeddings.ts => adapters => sync-runner => entry points / sync-all`. Each layer imports only leftward. `sync-runner.ts` must not import any concrete adapter; it operates on the `PlatformAdapter` type.
 
 ### Revalidation Triggers
 
-- If `sync_state` table schema changes (column names, types), `sync-watcher` must revalidate.
-- If `PlatformAdapter.syncIncremental` signature changes, all adapters and `sync-watcher` must revalidate.
-- If `setPlatformLastSyncedAt` / `getPlatformLastSyncedAt` semantics change, downstream consumers must revalidate.
-
----
+- If the `PlatformAdapter.syncIncremental` signature changes (e.g., `since: Date` becomes an integer), the runner's dispatch must be re-checked.
+- If `sync_state` moves to composite (platform, account) keying (multi-account spec), `runPlatformSync` and the helper call sites must be revalidated.
+- If `runBackfill` ever gains parameters, the runner's fallback call must be revalidated.
+- Any change to the `incremental` / `backfill` stdout contract (Req 4.7) breaks the `sync-watcher` downstream consumer.
 
 ## Architecture
 
 ### Existing Architecture Analysis
 
-All adapters already perform partial incremental logic via `chats.last_synced_at`:
-- Telegram and iMessage: read per-chat `last_synced_at` from `chats` table and skip/filter accordingly.
-- WeChat: applies `WHERE create_time > chatLastSync` per table.
-- Discord, Slack, Email, WhatsApp: no incremental filtering yet.
-
-The `chats.last_synced_at` column tracks per-chat currency. The new `sync_state.last_synced_at` tracks platform-level clean-run completion — a different semantic.
+- **Pattern preserved**: adapter-per-platform. Each `src/platforms/<p>/sync.ts` exports a `PlatformAdapter` object (`runBackfill`, `startListener`, `syncIncremental`) and has a thin `main()` runnable via `tsx`.
+- **Already complete**: `sync_state(platform TEXT PRIMARY KEY, last_synced_at INTEGER NOT NULL)`; `getPlatformLastSyncedAt`/`setPlatformLastSyncedAt`; all 7 `syncIncremental` implementations; `rebuildFtsIndex()`.
+- **Technical debt worked around**: telegram's `runSync` (`src/platforms/telegram/sync.ts:292`) logs a sync mode but always calls `runBackfill`: the incremental path is never reached. This design replaces that ad-hoc logic with the shared runner while keeping telegram's listener/auth flow intact.
+- **Constraint**: adapters ignore the `db` argument passed to `syncIncremental`/`runBackfill` (they use the module-level DB singleton via `initDb`). The runner still calls `initDb` and passes the handle to honor the interface.
 
 ### Architecture Pattern & Boundary Map
 
 ```mermaid
-flowchart TD
-    CLI[sync:* CLI main()] -->|reads argv| ModeSelect{--backfill?}
-    ModeSelect -->|yes| Backfill[runBackfill]
-    ModeSelect -->|no| CheckState[getPlatformLastSyncedAt(platform)]
-    CheckState -->|null → first run| Backfill
-    CheckState -->|number → has prior sync| Incremental["syncIncremental(db, new Date(since * 1000))"]
-    Incremental -->|not implemented| Backfill
-    Backfill --> Success{success?}
-    Incremental --> Success
-    Success -->|yes| WriteState[setPlatformLastSyncedAt(platform, now)]
-    Success -->|no| Skip[do not write timestamp]
-
-    subgraph DB Layer [src/db.ts]
-        WriteState
-        CheckState
+graph LR
+    subgraph EntryPoints
+        MainP[platform main]
+        SyncAll[sync-all orchestrator]
     end
-
-    subgraph Interface [src/platforms/types.ts]
-        Incremental
-        Backfill
+    subgraph Runner
+        RPS[runPlatformSync]
+        Parse[parseSyncArgs]
     end
+    subgraph Existing
+        DB[db sync_state helpers]
+        Emb[rebuildEmbeddings]
+        Fts[rebuildFtsIndex]
+        Adapter[PlatformAdapter syncIncremental or runBackfill]
+    end
+    MainP --> RPS
+    SyncAll --> MainP
+    RPS --> Parse
+    RPS --> DB
+    RPS --> Adapter
+    RPS --> Emb
+    RPS --> Fts
 ```
 
 **Architecture Integration**:
-- Selected pattern: Optional method extension on existing adapter interface.
-- Existing `runBackfill` pattern preserved; `syncIncremental` is additive.
-- CLI entry points (each adapter `main()`) own the mode-selection logic.
-- DB layer owns `sync_state` persistence; adapters do not touch `sync_state` directly.
+- **Selected pattern**: shared runner (Strategy-style dispatch over the optional method). Rationale: collapses 7-way duplication into one testable unit; every requirement rule lives in one place.
+- **Boundaries**: runner owns orchestration/state; adapters own fetching; `db.ts` owns persistence. No shared ownership.
+- **Existing patterns preserved**: adapter object shape, `tsx`-runnable entry points, module-level DB singleton, telegram `--backfill-only` listener control.
+- **New components rationale**: `sync-runner.ts` (dedup + single source of truth for Req 2/4/5); `sync-all.ts` (Req 4.6 flag-forwarding aggregate); `rebuildEmbeddings` extraction (Req 4.4 needs a callable full-index rebuild).
+- **Steering compliance**: all data stays local (SQLite); no new external services; CLI/MCP parity unaffected (sync surfaces are CLI-only today).
 
 ### Technology Stack
 
 | Layer | Choice / Version | Role in Feature | Notes |
 |-------|------------------|-----------------|-------|
-| DB / Storage | better-sqlite3-multiple-ciphers ^11 | `sync_state` table | Synchronous ops required |
-| Runtime | Node.js / tsx | CLI entry points | Existing |
-| Per-platform API | gramjs, imapflow, whatsapp-web.js, Discord REST, Slack REST | Incremental fetch | Adapter-specific filter params |
+| CLI / Runtime | Node + `tsx` ^4 | Entry points and orchestrator | No change |
+| Orchestration | Node `child_process` (built-in) | Serial subprocess spawning in `sync-all.ts` | New usage, no new dependency |
+| Data / Storage | `better-sqlite3-multiple-ciphers` ^11 | `sync_state` read/write (synchronous) | Existing helpers only |
+| Search Index | `@huggingface/transformers` ^3 + `sqlite-vec` ^0.1 + FTS5 | `--force` semantic + FTS rebuild | Reuses existing embed/FTS code |
 
----
+No new runtime dependencies are introduced.
 
 ## File Structure Plan
 
-### Directory Structure
-
+### New Files
 ```
 src/
-├── db.ts                            # + sync_state DDL, getPlatformLastSyncedAt(platform), setPlatformLastSyncedAt(platform, ts)
-├── platforms/
-│   ├── types.ts                     # + syncIncremental optional method on PlatformAdapter
-│   ├── telegram/
-│   │   └── sync.ts                  # + syncIncrementalImpl(); main() --backfill flag
-│   ├── imessage/
-│   │   └── sync.ts                  # + syncIncrementalImpl(); main() --backfill flag
-│   ├── wechat/
-│   │   └── sync.ts                  # + syncIncrementalImpl(); main() --backfill flag
-│   ├── discord/
-│   │   └── sync.ts                  # + syncIncrementalImpl(); main() --backfill flag
-│   ├── slack/
-│   │   └── sync.ts                  # + syncIncrementalImpl(); main() --backfill flag
-│   ├── email/
-│   │   └── sync.ts                  # + syncIncrementalImpl(); main() --backfill flag
-│   └── whatsapp/
-│       └── sync.ts                  # + syncIncrementalImpl() (client-side filter); main() --backfill flag
+├── sync-runner.ts     # runPlatformSync + parseSyncArgs: mode routing, atomic sync_state write, --force rebuild
+└── sync-all.ts        # Serial subprocess orchestrator for all 7 platforms; forwards --force/--backfill
 ```
 
 ### Modified Files
+- `src/index-embeddings.ts` — Extract `rebuildEmbeddings(platform?: Platform): Promise<void>` from `main()`; `main()` calls it with no argument. Runner calls it scoped to a platform on `--force`.
+- `src/platforms/discord/sync.ts` — `main()` delegates to `runPlatformSync(discordAdapter, db, process.argv)`.
+- `src/platforms/slack/sync.ts` — same pattern as discord.
+- `src/platforms/email/sync.ts` — same pattern as discord.
+- `src/platforms/whatsapp/sync.ts` — same pattern as discord (client/QR setup retained before the runner call).
+- `src/platforms/wechat/sync.ts` — same pattern as discord.
+- `src/platforms/imessage/sync.ts` — same pattern as discord.
+- `src/platforms/telegram/sync.ts` — replace the broken `runSync` with a `runPlatformSync` call; keep auth wizard, `--backfill-only` listener gating, and `startListener`.
+- `package.json` — `sync` becomes `tsx src/sync-all.ts`; each `sync:<platform>` unchanged (delegation happens inside `main()`).
 
-- `src/db.ts` — Add `sync_state` table to `createSchema`, add `getPlatformLastSyncedAt(platform: Platform): number | null`, add `setPlatformLastSyncedAt(platform: Platform, timestamp: number): void` (note: existing `setLastSyncedAt(chatId, timestamp)` is for per-chat; the new platform-level functions use the `Platform` prefix to avoid collision).
-- `src/platforms/types.ts` — Add `syncIncremental?(db: Database.Database, since: Date): Promise<void>` to `PlatformAdapter`.
-- `src/platforms/telegram/sync.ts` — Add `syncIncrementalImpl`; extend adapter object; add `--backfill` to `main()`.
-- `src/platforms/imessage/sync.ts` — Add `syncIncrementalImpl`; extend adapter object; add `--backfill` to `main()`.
-- `src/platforms/wechat/sync.ts` — Add `syncIncrementalImpl`; extend adapter object; add `--backfill` to `main()`.
-- `src/platforms/discord/sync.ts` — Add `syncIncrementalImpl`; extend adapter object; add `--backfill` to `main()`.
-- `src/platforms/slack/sync.ts` — Add `syncIncrementalImpl`; extend adapter object; add `--backfill` to `main()`.
-- `src/platforms/email/sync.ts` — Add `syncIncrementalImpl`; extend adapter object; add `--backfill` to `main()`.
-- `src/platforms/whatsapp/sync.ts` — Add `syncIncrementalImpl`; extend adapter object; add `--backfill` to `main()`.
-
----
+Every component named in this design maps to exactly one file above. `sync-runner.ts` must not import concrete adapters (dependency-direction constraint).
 
 ## System Flows
 
-### Sync mode selection flow
+### Per-platform sync decision (runPlatformSync)
+
+```mermaid
+flowchart TD
+    Start[runPlatformSync adapter db argv] --> Snap[runStartedAt equals now]
+    Snap --> ParseFlags[parseSyncArgs argv]
+    ParseFlags --> ForceCheck{force set}
+    ForceCheck -- yes --> Backfill
+    ForceCheck -- no --> ReadState[getPlatformLastSyncedAt]
+    ReadState --> HasSince{since not null and syncIncremental exists}
+    HasSince -- yes --> Incremental[print incremental]
+    HasSince -- no --> Backfill[print backfill]
+    Incremental --> CallInc[adapter syncIncremental db since]
+    Backfill --> CallBf[adapter runBackfill db]
+    CallInc --> Success
+    CallBf --> Success
+    Success{completed without throw} -- no --> NoWrite[propagate error, no sync_state write]
+    Success -- yes --> Write[setPlatformLastSyncedAt runStartedAt]
+    Write --> ForceRebuild{force set}
+    ForceRebuild -- yes --> Rebuild[rebuildFtsIndex then rebuildEmbeddings platform]
+    ForceRebuild -- no --> Done[return]
+    Rebuild --> Done
+```
+
+Key decisions: `since` is `null` on first run so the runner backfills (Req 4.2). `--force` skips the state read entirely (Req 4.3). The `sync_state` value written is the **run-start** timestamp, not completion time, to prevent skipping messages that arrive mid-run (see `research.md`). The timestamp write is inside the success path only (Req 5.1/5.2).
+
+### Aggregate orchestration (sync-all)
 
 ```mermaid
 sequenceDiagram
-    participant CLI as sync:* main()
-    participant DB as db.ts (sync_state)
-    participant Adapter as PlatformAdapter
-
-    CLI->>DB: getPlatformLastSyncedAt(platform)
-    DB-->>CLI: null | number (Unix seconds)
-
-    alt --backfill flag OR no prior timestamp
-        CLI->>Adapter: runBackfill(db)
-    else has prior timestamp AND syncIncremental defined
-        CLI->>Adapter: syncIncremental(db, new Date(timestamp * 1000))
-    else has prior timestamp BUT syncIncremental not defined
-        CLI->>Adapter: runBackfill(db) [fallback]
-    end
-
-    alt success (no throw)
-        CLI->>DB: setPlatformLastSyncedAt(platform, now)
-        CLI->>Console: "[platform] sync complete (incremental|backfill)"
-    else error thrown
-        CLI->>Console: error logged
-        note over DB: last_synced_at NOT updated
+    participant SA as sync-all
+    participant CP as child process
+    loop each of 7 platforms serially
+        SA->>CP: spawn tsx sync.ts forwarding force flag plus backfill-only for telegram
+        CP-->>SA: exit code
+        Note over SA: non-zero exit logged, continue to next platform
     end
 ```
 
----
+Serial execution avoids WeChat decryption resource contention. Telegram receives `--backfill-only` so it syncs and exits instead of blocking on its listener.
 
 ## Requirements Traceability
 
-| Requirement | Summary | Components | Interfaces | Flows |
-|-------------|---------|------------|------------|-------|
-| 1.1 | sync_state table with platform + last_synced_at | DB Layer (sync_state DDL) | — | Schema creation |
-| 1.2 | Write last_synced_at on clean completion | CLI mode-select, DB Layer | setPlatformLastSyncedAt(platform) | Sync complete flow |
-| 1.3 | Do NOT write on failure | CLI mode-select | — | Error branch |
-| 1.4 | Create table in initDb | DB Layer | initDb | Schema creation |
-| 1.5 | getPlatformLastSyncedAt(platform) function | DB Layer | getPlatformLastSyncedAt | Mode selection |
-| 1.6 | setPlatformLastSyncedAt(platform, ts) function | DB Layer | setPlatformLastSyncedAt(platform) | Write-on-success |
-| 2.1 | Optional syncIncremental on PlatformAdapter | PlatformAdapter interface | syncIncremental? | Interface contract |
-| 2.2 | Call syncIncremental when available and no --backfill | CLI mode-select | — | Mode selection flow |
-| 2.3 | Fall back to runBackfill if syncIncremental absent | CLI mode-select | — | Fallback branch |
-| 2.4 | runBackfill signature unchanged | All adapters | runBackfill | — |
-| 3.1 | Telegram: fetch only messages after since | TelegramAdapter.syncIncremental | syncIncremental | Incremental sync |
-| 3.2 | iMessage: WHERE date > cocoaThreshold | iMessageAdapter.syncIncremental | syncIncremental | Incremental sync |
-| 3.3 | WeChat: WHERE create_time > since | WechatAdapter.syncIncremental | syncIncremental | Incremental sync |
-| 3.4 | Discord: after snowflake from since | DiscordAdapter.syncIncremental | syncIncremental | Incremental sync |
-| 3.5 | Slack: oldest = since in seconds | SlackAdapter.syncIncremental | syncIncremental | Incremental sync |
-| 3.6 | Email: IMAP SINCE criterion | EmailAdapter.syncIncremental | syncIncremental | Incremental sync |
-| 3.7 | WhatsApp: client-side filter after since | WhatsAppAdapter.syncIncremental | syncIncremental | Incremental sync |
-| 3.8 | Graceful fallback when no server filter | CLI mode-select + adapter | — | Fallback branch |
-| 4.1 | Default incremental when last_synced_at exists | CLI mode-select | — | Mode selection |
-| 4.2 | Fall back to runBackfill on first run | CLI mode-select | — | First-run flow |
-| 4.3 | --backfill forces full scan | CLI mode-select | — | Backfill branch |
-| 4.4 | Aggregate sync script supports --backfill | package.json / sync runner | — | CLI |
-| 4.5 | Log mode to stdout | CLI mode-select | — | Console output |
-| 5.1 | Write last_synced_at only on success | CLI mode-select | setPlatformLastSyncedAt(platform) | Write-on-success |
-| 5.2 | Do not write on unhandled error | CLI mode-select | — | Error branch |
-| 5.3 | Platform-level timestamp (not per-chat) | DB Layer | sync_state table | Semantic boundary |
-| 5.4 | Per-chat chats.last_synced_at still updated | All adapters | setLastSyncedAt(chatId) | Existing behaviour |
-
----
+| Requirement | Summary | Components | Interfaces / Contracts | Flows |
+|-------------|---------|------------|------------------------|-------|
+| 1.1 | `sync_state` table shape | (existing `db.ts` schema) | DDL `sync_state(platform PK, last_synced_at)` | — |
+| 1.2 | Update marker on clean completion | SyncRunner | `setPlatformLastSyncedAt` | Per-platform flow |
+| 1.3 | No update on failure/interrupt | SyncRunner | success-gated write | Per-platform flow |
+| 1.4 | Create table on DB init | (existing `initDb`) | `CREATE TABLE IF NOT EXISTS` | — |
+| 1.5 | `getLastSyncedAt` accessor | (existing) `getPlatformLastSyncedAt` | `Platform => number \| null` | — |
+| 1.6 | `setLastSyncedAt` atomic write | (existing) `setPlatformLastSyncedAt` | `INSERT OR REPLACE` | — |
+| 2.1 | Optional `syncIncremental` on interface | (existing `types.ts`) | `syncIncremental?(db, since: Date)` | — |
+| 2.2 | Call `syncIncremental` when since available and not forced | SyncRunner | mode dispatch | Per-platform flow |
+| 2.3 | Fall back to `runBackfill` when method absent | SyncRunner | mode dispatch | Per-platform flow |
+| 2.4 | `runBackfill` signature unchanged | SyncRunner (consumer) | frozen contract | — |
+| 3.1–3.8 | Per-platform incremental fetch | (existing 7 adapters) | each `syncIncremental` | — (out of boundary) |
+| 4.1 | Default incremental when since exists | SyncRunner | mode dispatch | Per-platform flow |
+| 4.2 | First-run fallback to backfill | SyncRunner | `since === null` branch | Per-platform flow |
+| 4.3 | `--force` forces full backfill | SyncRunner / parseSyncArgs | force branch | Per-platform flow |
+| 4.4 | `--force` rebuilds search index | SyncRunner + `rebuildEmbeddings` | `rebuildFtsIndex` + `rebuildEmbeddings(platform)` | Per-platform flow |
+| 4.5 | `--backfill` deprecated alias | parseSyncArgs | flag parse + warning | — |
+| 4.6 | Aggregate forwards `--force` | AggregateOrchestrator | subprocess flag forwarding | Aggregate flow |
+| 4.7 | Print `incremental`/`backfill` before sync | SyncRunner | stdout contract | Per-platform flow |
+| 5.1 | Write marker after clean insertions | SyncRunner | success-gated write | Per-platform flow |
+| 5.2 | No marker write on thrown error | SyncRunner | error propagation | Per-platform flow |
+| 5.3 | Platform-level timestamp for the run | SyncRunner | run-start snapshot | Per-platform flow |
+| 5.4 | Per-chat timestamps still updated | (existing adapters/`setLastSyncedAt(chatId)`) | unchanged | — |
+| 6.1–6.4 | Per-(platform, account) keying | Forward-compat design note | deferred to `multi-account` | — |
 
 ## Components and Interfaces
 
-### Summary
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
+|-----------|--------------|--------|--------------|--------------------------|-----------|
+| SyncRunner | Orchestration | Route a single platform sync, gate the state write, run `--force` rebuild | 1.2, 1.3, 2.2, 2.3, 2.4, 4.1, 4.2, 4.3, 4.4, 4.7, 5.1, 5.2, 5.3 | db helpers (P0), rebuildEmbeddings (P0), PlatformAdapter type (P0) | Service, Batch |
+| parseSyncArgs | Orchestration | Parse `--force`/`--backfill` from argv | 4.3, 4.5 | none | Service |
+| AggregateOrchestrator | CLI | Serially run all 7 platform syncs, forward flags | 4.6 | child_process (P0) | Batch |
+| rebuildEmbeddings | Search Index | Re-embed messages/chats, optionally scoped to a platform | 4.4 | index-embeddings internals (P0) | Batch |
 
-| Component | Layer | Intent | Req Coverage | Key Dependencies |
-|-----------|-------|--------|--------------|-----------------|
-| sync_state DB helpers | DB | Persist platform-level sync timestamps | 1.1–1.6, 5.1–5.3 | better-sqlite3 |
-| PlatformAdapter interface | Interface | Declare optional syncIncremental | 2.1–2.4 | — |
-| CLI mode-select | CLI (each adapter main()) | Route to incremental or backfill | 4.1–4.5, 5.1–5.2 | sync_state helpers |
-| TelegramAdapter.syncIncremental | Telegram | Fetch dialogs after since | 3.1 | gramjs |
-| iMessageAdapter.syncIncremental | iMessage | Query chat.db with cocoa threshold | 3.2 | better-sqlite3 (readonly) |
-| WechatAdapter.syncIncremental | WeChat | Apply time filter per table | 3.3 | better-sqlite3 (readonly) |
-| DiscordAdapter.syncIncremental | Discord | Pass after-snowflake to API | 3.4 | discord client |
-| SlackAdapter.syncIncremental | Slack | Pass oldest param to API | 3.5 | slack client |
-| EmailAdapter.syncIncremental | Email | IMAP SINCE search | 3.6 | imapflow |
-| WhatsAppAdapter.syncIncremental | WhatsApp | Client-side filter | 3.7 | whatsapp-web.js |
+### Orchestration
 
----
-
-### DB Layer
-
-#### sync_state helpers
+#### SyncRunner
 
 | Field | Detail |
 |-------|--------|
-| Intent | Persist and retrieve platform-level last-clean-run timestamp |
-| Requirements | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 5.1, 5.2, 5.3 |
+| Intent | Execute one platform's sync with correct mode, atomicity, and `--force` rebuild |
+| Requirements | 1.2, 1.3, 2.2, 2.3, 2.4, 4.1, 4.2, 4.3, 4.4, 4.7, 5.1, 5.2, 5.3 |
 
 **Responsibilities & Constraints**
-- Own the `sync_state` table DDL inside `createSchema`.
-- Provide `getPlatformLastSyncedAt(platform: Platform): number | null` (returns Unix seconds or null).
-- Provide `setPlatformLastSyncedAt(platform: Platform, timestamp: number): void` (upserts the row).
-- Must NOT rename the existing per-chat `setLastSyncedAt(chatId, timestamp)` — add new platform-level functions with distinct names to avoid collision.
-- All operations are synchronous (better-sqlite3 constraint).
+- Snapshot `runStartedAt` before any fetching; write that value on success (gap-safe resume boundary).
+- Select mode: `force` implies backfill; else `since = getPlatformLastSyncedAt(platform)`; incremental iff `since !== null` **and** `typeof adapter.syncIncremental === 'function'`; otherwise backfill.
+- Print exactly one of `incremental` or `backfill` before invoking the adapter (Req 4.7).
+- Write `setPlatformLastSyncedAt(platform, runStartedAt)` only if the adapter method resolves without throwing; on throw, propagate and write nothing.
+- On `--force`, after a successful sync, call `rebuildFtsIndex()` then `await rebuildEmbeddings(adapter.platform)`.
+- Must not import concrete adapters; operates solely on the `PlatformAdapter` type.
 
-**Contracts**: State [ ✓ ]
+**Dependencies**
+- Inbound: platform `main()` functions, AggregateOrchestrator (via subprocess) invoke the runner (P0).
+- Outbound: `getPlatformLastSyncedAt`, `setPlatformLastSyncedAt`, `rebuildFtsIndex` (P0); `rebuildEmbeddings` (P0).
+- External: none.
 
-##### Service Interface
-
-```typescript
-// New additions to src/db.ts
-
-/** Returns the Unix-second timestamp of the last clean platform sync, or null. */
-export function getPlatformLastSyncedAt(platform: Platform): number | null
-
-/** Upserts sync_state for the given platform. Call only after a clean run. */
-export function setPlatformLastSyncedAt(platform: Platform, timestamp: number): void
-```
-
-##### State Management
-- State model: `sync_state(platform TEXT PRIMARY KEY, last_synced_at INTEGER NOT NULL)`
-- Persistence: synchronous SQLite upsert via `INSERT OR REPLACE`.
-- Concurrency: single-process, no concurrent writers (better-sqlite3 WAL mode, existing constraint).
-
-**Implementation Notes**
-- Add `sync_state` DDL to `createSchema` in `db.ts`.
-- The existing `setLastSyncedAt(chatId, ts)` updates `chats.last_synced_at` — keep it unchanged.
-- `getPlatformLastSyncedAt` maps to a simple `SELECT last_synced_at FROM sync_state WHERE platform = ?`.
-
----
-
-### Interface Layer
-
-#### PlatformAdapter interface extension
-
-| Field | Detail |
-|-------|--------|
-| Intent | Declare optional incremental sync capability on the shared adapter interface |
-| Requirements | 2.1, 2.2, 2.3, 2.4 |
-
-**Contracts**: Service [ ✓ ]
+**Contracts**: Service [x] / Batch [x]
 
 ##### Service Interface
-
 ```typescript
-// src/platforms/types.ts (updated)
-export interface PlatformAdapter {
-  readonly platform: Platform
-  runBackfill(db: Database.Database): Promise<void>
-  startListener(db: Database.Database): void
-  /** Optional. If present, called instead of runBackfill when since is available and --backfill is not set. */
-  syncIncremental?(db: Database.Database, since: Date): Promise<void>
+import type Database from 'better-sqlite3-multiple-ciphers'
+import type { PlatformAdapter } from './platforms/types'
+
+interface SyncRunOptions {
+  force: boolean
 }
+
+function parseSyncArgs(argv: readonly string[]): SyncRunOptions
+
+async function runPlatformSync(
+  adapter: PlatformAdapter,
+  db: Database.Database,
+  argv: readonly string[],
+): Promise<void>
 ```
+- Preconditions: `initDb` has been called; `adapter.platform` is a valid `Platform`.
+- Postconditions: on success, `sync_state[platform] = runStartedAt`; on `--force` success, search index rebuilt; on error, thrown to caller and `sync_state` unchanged.
+- Invariants: exactly one of `incremental`/`backfill` printed per call; the marker is never written on a thrown run.
 
 **Implementation Notes**
-- `syncIncremental` is optional (`?`). Adapters that cannot meaningfully filter by time omit it and fall back to `runBackfill` automatically via CLI mode-select logic.
+- Integration: telegram passes its connected client via its existing adapter method; the runner is client-agnostic (adapters own client lifecycle).
+- Validation: `parseSyncArgs` treats `--backfill` as `force: true` and emits a one-line deprecation warning to stderr (Req 4.5).
+- Risks: adapters that internally catch per-chat errors do not surface them as throws: this is intended (idempotent recovery next run); only a full-run throw blocks the marker write (Req 5 error granularity, see `research.md`).
 
----
-
-### CLI Mode-Select (per adapter main())
+#### AggregateOrchestrator
 
 | Field | Detail |
 |-------|--------|
-| Intent | Route each sync run to incremental or backfill based on stored state and CLI flags |
-| Requirements | 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2 |
+| Intent | Run all 7 platform syncs serially and forward the force flag |
+| Requirements | 4.6 |
 
 **Responsibilities & Constraints**
-- Each adapter's `main()` function owns the mode-selection and platform-level timestamp write.
-- Pattern is identical across all adapters:
-  1. Parse `--backfill` from `process.argv`.
-  2. Call `getPlatformLastSyncedAt(platform)`.
-  3. Decide mode; log mode to stdout.
-  4. Wrap sync call in try/catch; write `setPlatformLastSyncedAt` only in the success path.
+- Iterate platforms in a fixed order; spawn `tsx src/platforms/<p>/sync.ts` per platform via `child_process`.
+- Forward `--force`/`--backfill` from its own argv to every child; additionally pass `--backfill-only` to telegram so it exits after sync.
+- Run strictly serially (WeChat contention). A non-zero child exit is logged; orchestration continues to the next platform and exits non-zero overall if any child failed.
+
+**Contracts**: Batch [x]
+- Trigger: `npm run sync [-- --force]`.
+- Input: process argv.
+- Output: per-platform stdout streamed through; aggregate exit code.
+- Idempotency & recovery: each child is independently idempotent; re-running is safe.
+
+### Search Index
+
+#### rebuildEmbeddings
+
+| Field | Detail |
+|-------|--------|
+| Intent | Extracted callable that (re)embeds unindexed messages and chats, optionally scoped to one platform |
+| Requirements | 4.4 |
+
+**Responsibilities & Constraints**
+- Extract the existing batch loop from `index-embeddings.ts::main()` into `rebuildEmbeddings(platform?: Platform)`.
+- With no argument: current whole-database behavior (preserves `npm run index:embeddings`).
+- With a platform: restrict the embedding sweep to that platform's chats/messages (Req 4.4 "affected messages").
+- `main()` becomes `await rebuildEmbeddings()`.
+
+**Contracts**: Batch [x]
+- Trigger: `index:embeddings` script (no arg) or `runPlatformSync` on `--force` (platform arg).
+- Idempotency: embeds only rows absent from `vec_messages`/`vec_chats`; safe to re-run.
 
 **Implementation Notes**
-
-```typescript
-// Pattern repeated in each adapter's main():
-async function main(): Promise<void> {
-  const backfill = process.argv.includes('--backfill')
-  const db = initDb('./khipuchat.db')
-  const since = backfill ? null : getPlatformLastSyncedAt('discord')
-  const mode = (since !== null && adapter.syncIncremental) ? 'incremental' : 'backfill'
-  console.log(`[discord] sync mode: ${mode}`)
-  if (mode === 'incremental') {
-    await adapter.syncIncremental!(db, new Date(since! * 1000))
-  } else {
-    await adapter.runBackfill(db)
-  }
-  setPlatformLastSyncedAt('discord', Math.floor(Date.now() / 1000))
-}
-```
-- Wrap the sync call in try/catch: `setPlatformLastSyncedAt` is called only if no exception is thrown.
-- For the aggregate `npm run sync` script: update `package.json` to pass `-- --backfill` through, or introduce a thin `src/sync.ts` runner that reads `--backfill` once and calls each adapter.
-
----
-
-### Per-Platform Incremental Implementations
-
-Each adapter adds `syncIncrementalImpl(client, since: Date)` and wires it to the adapter object.
-
-#### Telegram
-
-- Convert `since` to Unix seconds: `sinceTs = Math.floor(since.getTime() / 1000)`.
-- Reuse existing dialog iteration; filter: skip dialogs where `dialogDate <= sinceTs` (already done in backfill, but explicitly driven by `since` parameter here).
-- Paginate forward from `lastId` per chat as already implemented in `runBackfill`.
-- `syncIncrementalImpl` is essentially the existing incremental path extracted as a standalone function.
-
-#### iMessage
-
-- Convert `since` to Cocoa nanoseconds: `cocoaThreshold = BigInt(since.getTime() / 1000 - 978307200) * 1_000_000_000n`.
-- Query: `WHERE date > ?` with `cocoaThreshold` (existing pattern in `runBackfillImpl`).
-- `syncIncrementalImpl` wraps `runBackfillImpl` with `since` injected (or extracts the filtering logic).
-
-#### WeChat
-
-- Use `since.getTime() / 1000` as Unix seconds threshold for `WHERE create_time > ?` (V4) or `WHERE CreateTime > ?` (legacy).
-- Existing `runBackfillImpl` already does per-chat `chatLastSync` filtering — `syncIncrementalImpl` drives it with the platform-level `since`.
-
-#### Discord
-
-- Snowflake from Date: `const snowflake = ((BigInt(since.getTime()) - 1420070400000n) << 22n).toString()`.
-- Pass `after: snowflake` to `client.getMessages(channelId, { after: snowflake })` in the Discord client wrapper.
-
-#### Slack
-
-- Pass `oldest: (since.getTime() / 1000).toString()` to `conversations.history`.
-- Pagination cursor unchanged.
-
-#### Email
-
-- Pass `{ since }` to `imapflow` `client.search(mailbox, { since }, { uid: true })`.
-- Fetch and process only the UIDs returned.
-
-#### WhatsApp
-
-- Fetch messages per chat (existing `fetchMessages` call).
-- Filter client-side: `messages.filter(m => m.timestamp > since.getTime() / 1000)`.
-- Log warning: `[whatsapp] incremental: client-side filter only (WhatsApp Web API has no server-side time filter)`.
-
----
+- Integration: pairs with `rebuildFtsIndex()` (global, cheap) called by the runner; together they constitute the "semantic search index rebuild."
+- Risks: platform-scoped filtering must join messages to chats on `chats.platform`; verify the query uses the existing index on `messages(chat_id)`.
 
 ## Data Models
 
-### Physical Data Model
-
-**New table** added to `createSchema` in `src/db.ts`:
+No schema changes. The `sync_state` table already exists (`db.ts:107`):
 
 ```sql
 CREATE TABLE IF NOT EXISTS sync_state (
-  platform      TEXT    NOT NULL PRIMARY KEY,
-  last_synced_at INTEGER NOT NULL
+  platform       TEXT    NOT NULL PRIMARY KEY,
+  last_synced_at INTEGER NOT NULL   -- Unix seconds, run-start timestamp of last clean sweep
 );
 ```
 
-- `platform`: matches `Platform` type values (`telegram`, `imessage`, `wechat`, `discord`, `slack`, `email`, `whatsapp`).
-- `last_synced_at`: Unix seconds (integer), set to `Math.floor(Date.now() / 1000)` on clean completion.
-- No foreign key to `chats` — independent table.
+- **Semantics**: platform-level "last clean sweep completed" marker, distinct from `chats.last_synced_at` (per-chat currency, Req 5.4). Written only via `setPlatformLastSyncedAt` on runner success.
+- **Consistency**: single-row upsert (`INSERT OR REPLACE`), synchronous under `better-sqlite3`. No multi-row transaction needed.
 
-No existing tables are modified.
+### Forward-compatibility for per-account keying (Req 6)
 
----
+Implementation is deferred to the `multi-account` spec; this design commits only to compatibility:
+- **6.4 (default)**: today the table is keyed by `platform` alone: single-account backward compatibility is the current, unchanged behavior.
+- **6.1/6.2 (extension)**: the `multi-account` spec will add an `account` column, migrate the PRIMARY KEY to `(platform, account)`, and extend the helper signatures to `getPlatformLastSyncedAt(platform, account)` / `setPlatformLastSyncedAt(platform, account, ts)`.
+- **6.3 (migration)**: existing rows migrate to `account = 'default'` with no data loss.
+- **This spec's constraint**: `runPlatformSync` calls the helpers by platform only and must not encode any assumption that blocks adding an `account` parameter later. This is the sole Req 6 obligation on this spec.
 
 ## Error Handling
 
 ### Error Strategy
 
-The critical invariant is: `sync_state.last_synced_at` must never advance on a failed run.
-
-### Error Categories and Responses
-
-**Sync error (adapter throws)**:
-- `main()` catches the error, logs it to stderr.
-- `setPlatformLastSyncedAt` is NOT called.
-- Exit code 1.
-
-**Partial chat failure (existing pattern)**:
-- Individual chat errors are caught inside `runBackfillImpl` / `syncIncrementalImpl` and logged per-chat.
-- The outer run continues to the next chat.
-- If the outer run completes without throwing, `setPlatformLastSyncedAt` IS written (some chats may have failed — this is the existing behaviour, unchanged).
-
-**WhatsApp client-side filter**:
-- Log warning once per run: `[whatsapp] incremental: client-side filter only`.
-- Not an error; messages are still correctly inserted.
+- **Adapter throw**: propagates out of `runPlatformSync`; caller (`main()`) logs and `process.exit(1)`. `sync_state` is left untouched (Req 5.2). Next run re-attempts from the same `since`.
+- **Per-chat failure inside an adapter**: already caught/skipped by the adapter and logged; not surfaced as a throw. Recovered on the next run via idempotent inserts (documented tradeoff, Req 5 granularity).
+- **Unsupported time filter (Req 3.8)**: adapters that cannot filter (e.g., WhatsApp) fall back internally and log a warning to stdout; the runner is unaffected.
+- **Aggregate child failure**: logged; sequence continues; aggregate exits non-zero if any child failed.
 
 ### Monitoring
 
-- Console output: `[platform] sync mode: incremental|backfill` at run start.
-- Console output: existing per-adapter completion messages (`+N messages`) unchanged.
-- Exit code 1 on fatal error (existing behaviour preserved).
-
----
+- Mode line (`incremental`/`backfill`) on stdout per run is the primary observability signal and a stable contract for `sync-watcher` (Req 4.7).
+- `--backfill` deprecation warning to stderr.
+- No new metrics infrastructure (local-only tool).
 
 ## Testing Strategy
 
 ### Unit Tests
-
-- `getPlatformLastSyncedAt`: returns null for unknown platform; returns stored value for known platform.
-- `setPlatformLastSyncedAt`: upserts correctly; subsequent call overwrites.
-- `syncIncrementalImpl` (iMessage): with `cocoaThreshold` injected, only messages after threshold are returned from in-memory SQLite fixture.
-- `syncIncrementalImpl` (WeChat): with `since` injected, applies correct `WHERE` clause for both V4 and legacy schema.
-- Discord snowflake helper: `dateToSnowflake(new Date('2023-01-01'))` produces expected value.
+- `parseSyncArgs`: `--force` gives `force:true`; `--backfill` gives `force:true` plus deprecation warning; neither gives `force:false`; both present gives `force:true`.
+- `runPlatformSync` mode selection with a fake adapter: (a) `since=null` selects backfill; (b) `since` set + `syncIncremental` present + no force selects incremental; (c) `since` set + adapter lacks `syncIncremental` selects backfill (Req 2.3); (d) `force` + `since` set selects backfill (Req 4.3).
+- Stdout assertion: exactly one of `incremental`/`backfill` printed before the adapter call (Req 4.7).
 
 ### Integration Tests
+- Atomic write: fake adapter resolves so `setPlatformLastSyncedAt` is called with the run-start timestamp (Req 1.2, 5.1); fake adapter throws so `setPlatformLastSyncedAt` is **not** called and the error propagates (Req 1.3, 5.2).
+- `--force` path: on success, `rebuildFtsIndex` and `rebuildEmbeddings(platform)` are both invoked (Req 4.4); without `--force`, neither is invoked.
+- Incremental dispatch passes `new Date(since * 1000)` to `adapter.syncIncremental` (Req 2.2).
 
-- DB schema: `initDb(':memory:')` creates `sync_state` table; `getPlatformLastSyncedAt('telegram')` returns null; after `setPlatformLastSyncedAt('telegram', 123)`, returns 123.
-- Mode-selection: adapter with `syncIncremental` → `syncIncremental` called when `since` available; without `syncIncremental` → `runBackfill` called.
-- Error path: if `syncIncremental` throws, `setPlatformLastSyncedAt` is not called (spy/mock verification).
-- `--backfill` flag: even with prior `last_synced_at`, passing `--backfill` routes to `runBackfill`.
-
-### E2E / CLI Tests
-
-- `npm run sync:imessage -- --backfill` against test DB: runs backfill, writes `sync_state`.
-- Subsequent `npm run sync:imessage` (no flag): runs incremental, logs `sync mode: incremental`.
-
----
+### E2E Tests
+- Aggregate `sync-all`: spawns all 7 platform subprocesses serially, forwards `--force` to each and `--backfill-only` to telegram (Req 4.6); a failing child does not abort remaining platforms and yields a non-zero aggregate exit.
+- First-run flow against a temp DB: empty `sync_state` gives backfill printed then marker written; second run gives incremental printed (Req 4.1, 4.2).
 
 ## Migration Strategy
 
-`sync_state` is a new table created by `createSchema` — no migration needed for fresh databases. For existing databases with data, `createSchema` uses `CREATE TABLE IF NOT EXISTS`, so existing installs pick up the table on first `initDb` call after upgrade with no data loss.
+No data migration in this spec. The `sync_state` schema is unchanged; the only behavioral migration is that a `sync:*` invocation now defaults to incremental once a marker exists. The first run after upgrade has an empty marker and correctly falls back to full backfill (Req 4.2), so upgrade is seamless with no operator action. Per-account migration (Req 6.3) is owned by the `multi-account` spec.

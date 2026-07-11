@@ -277,3 +277,33 @@ Implementation is approximately 60% complete. The hardest parts (adapter increme
 - Extract `rebuildAllEmbeddings()` from `index-embeddings.ts`
 
 **Risk**: Low. No adapter logic needs changing. `runBackfill` signature is untouched. All changes are in entry points and wiring.
+
+---
+
+# Design Synthesis & Decision Resolutions (2026-07-11)
+
+## Synthesis (generalization / build-vs-adopt / simplification)
+
+- **Generalization**: All 7 entry points share the identical decision sequence (parse flag → read sync_state → route mode → write on success → optional rebuild). This is one capability, not seven. Extract a single `runPlatformSync` runner; the per-platform `main()` collapses to a 3-line call. Req 2's optional-method dispatch and Req 4/5's mode+atomicity rules all live in this one place.
+- **Build vs. adopt**: No new libraries. Everything needed already exists in the repo (`getPlatformLastSyncedAt`, `setPlatformLastSyncedAt`, `rebuildFtsIndex`, per-adapter `syncIncremental`). The only "build" is glue + extracting `rebuildEmbeddings` from an existing `main()`.
+- **Simplification**: No new `IncrementalAdapter` interface (optional method on `PlatformAdapter` already exists and suffices). No per-platform config. The aggregate is a thin serial orchestrator, not a scheduler.
+
+## Resolutions to Open Questions (Section 5)
+
+1. **Embeddings rebuild scope (Req 4.4)**: Per-platform. Extract `rebuildEmbeddings(platform?: Platform)` from `index-embeddings.ts::main()`; on `--force`, runner calls `rebuildEmbeddings(adapter.platform)` + `rebuildFtsIndex()`. "Affected messages" = the synced platform's messages.
+2. **Aggregate serial vs parallel**: Serial. Preserves current behavior and avoids WeChat decryption resource contention. `src/sync-all.ts` spawns each platform sync as a child process in sequence.
+3. **Telegram `--backfill-only`**: Kept orthogonal. It controls the listener loop, not the sync mode. The aggregate passes `--backfill-only` to telegram so it syncs-and-exits instead of blocking on the listener; `--force`/`--backfill` control sync mode independently.
+4. **Function naming**: Keep `getPlatformLastSyncedAt` / `setPlatformLastSyncedAt`. The unprefixed `setLastSyncedAt(chatId)` already exists for per-chat currency (Req 5.4). Renaming would collide. The `Platform` prefix disambiguates platform-level (Req 1.5/1.6) from per-chat state. Documented deviation from requirement wording; intent fully satisfied.
+5. **Error granularity (Req 5)**: The runner writes `sync_state` iff the adapter method returns without throwing. Adapters already catch and skip individual failed chats internally (idempotent re-inserts recover them next run). A thrown error aborts the run and prevents the timestamp write.
+
+## Additional Decision: last_synced_at value is captured at run START
+
+- **Context**: Req 5.3 says "timestamp of when the run completed." Writing completion time risks a gap: a message arriving mid-run (after its chat was synced, before completion) has a timestamp earlier than completion time and would be permanently skipped on the next run.
+- **Selected Approach**: Snapshot `runStartedAt = floor(Date.now()/1000)` before the sync begins; write that value on clean completion.
+- **Rationale**: Guarantees the next run's `since` never skips a message that arrived during the current run. Overlap is safe because inserts are idempotent. Satisfies Req 5.1/5.2/5.3 intent (platform-level marker, written only on clean completion); refines 5.3's literal wording for correctness.
+
+## Additional Decision: aggregate via `src/sync-all.ts` subprocess orchestrator
+
+- **Context**: `npm run sync -- --force` in an `&&` chain forwards the flag only to the last command. Each platform's `main()` also owns its own client/auth lifecycle (telegram auth wizard, whatsapp QR).
+- **Selected Approach**: `src/sync-all.ts` spawns `tsx src/platforms/<p>/sync.ts` serially, forwarding `--force`/`--backfill` to every child and adding `--backfill-only` for telegram.
+- **Rationale**: Preserves each platform's independent runtime setup; forwards flags uniformly (Req 4.6). Lower risk than importing all adapters into one process.
