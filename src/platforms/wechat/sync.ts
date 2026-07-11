@@ -52,7 +52,8 @@ export function tableNameToChatId(tableName: string): number {
 export function mapChat(tableName: string, displayName: string, userName?: string): Chat {
   const typeHint = userName ?? displayName
   return {
-    id: tableNameToChatId(tableName),
+    external_id: tableName,
+    account: 'default',
     name: displayName,
     type: typeHint.includes('@chatroom') ? 'group' : 'private',
     username: userName ?? null,
@@ -365,11 +366,11 @@ export async function runBackfillImpl(
   const selfWxid = userDir ? extractSelfWxid(userDir) : undefined
 
   // Load per-chat last_synced_at for incremental mode
-  const syncedAt = new Map<number, number>()
+  const syncedAt = new Map<string, number>()
   const rows = getDb().prepare(
-    "SELECT id, last_synced_at FROM chats WHERE platform = 'wechat' AND last_synced_at IS NOT NULL",
-  ).all() as { id: number; last_synced_at: number }[]
-  for (const row of rows) syncedAt.set(row.id, row.last_synced_at)
+    "SELECT external_id, last_synced_at FROM chats WHERE platform = 'wechat' AND last_synced_at IS NOT NULL",
+  ).all() as { external_id: string; last_synced_at: number }[]
+  for (const row of rows) syncedAt.set(row.external_id, row.last_synced_at)
   const hasPriorSync = syncedAt.size > 0
 
   const dbCount = messageDbs.length
@@ -397,8 +398,7 @@ export async function runBackfillImpl(
         const tableName = tables[tIdx]
         const userName = tableNameMap.get(tableName)        // undefined for legacy Chat_ tables
         const displayName = (userName && contactMap.get(userName)) ?? userName ?? contactMap.get(tableName) ?? tableName
-        const chatId = tableNameToChatId(tableName)
-        upsertChat(mapChat(tableName, displayName, userName))
+        const chatId = upsertChat(mapChat(tableName, displayName, userName))
         totalChats++
 
         const label = displayName.slice(0, 30).padEnd(30)
@@ -406,7 +406,7 @@ export async function runBackfillImpl(
 
         try {
           const { selectCols, timeCol } = buildSchemaInfo(chatDb, tableName)
-          const chatLastSync = hasPriorSync ? syncedAt.get(chatId) : undefined
+          const chatLastSync = hasPriorSync ? syncedAt.get(tableName) : undefined
           const whereClause = chatLastSync !== undefined ? `WHERE "${timeCol}" > ${chatLastSync}` : ''
           const msgRows = chatDb.prepare(
             `SELECT ${selectCols} FROM "${tableName}" ${whereClause}`,
@@ -465,8 +465,7 @@ export async function runIncrementalImpl(
       for (const tableName of tables) {
         const userName = tableNameMap.get(tableName)
         const displayName = (userName && contactMap.get(userName)) ?? userName ?? contactMap.get(tableName) ?? tableName
-        const chatId = tableNameToChatId(tableName)
-        upsertChat(mapChat(tableName, displayName, userName))
+        const chatId = upsertChat(mapChat(tableName, displayName, userName))
         totalChats++
 
         try {
@@ -504,6 +503,7 @@ const DEFAULT_CONTAINER = resolveXwechatRoot()
 
 export const wechatAdapter: PlatformAdapter = {
   platform: 'wechat',
+  account: 'default',
   async runBackfill(_db: Database.Database): Promise<void> {
     const containerPath = process.env['WECHAT_CONTAINER'] ?? DEFAULT_CONTAINER
     validateContainer(containerPath)

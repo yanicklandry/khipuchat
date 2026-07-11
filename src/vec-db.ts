@@ -9,6 +9,7 @@ export interface SemanticContactResult {
   chat_id: number
   name: string
   platform: Platform
+  account: string
   last_message_date: number | null
   message_count: number
   snippet: string | null
@@ -22,6 +23,7 @@ export interface SemanticMessageResult {
   text: string | null
   timestamp: number
   platform: Platform
+  account: string
   distance: number
 }
 
@@ -29,12 +31,14 @@ export interface ContactFilters {
   before?: number      // unix timestamp — restrict to chats whose last message is before this
   after?: number       // unix timestamp — restrict to chats whose last message is after this
   platform?: Platform
+  account?: string
   limit?: number       // default 10, max 50
 }
 
 export interface MessageFilters {
   chat_id?: number
   platform?: Platform
+  account?: string
   before_timestamp?: number
   after_timestamp?: number
   limit?: number            // default 20, max 100
@@ -176,7 +180,7 @@ export function semanticFindContacts(
     const chatId = Number(rowid)
     const chat = getDb()
       .prepare(`
-        SELECT c.name, c.platform,
+        SELECT c.name, c.platform, c.account,
                COUNT(m.id) AS message_count,
                MAX(m.timestamp) AS last_message_date
         FROM chats c
@@ -187,6 +191,7 @@ export function semanticFindContacts(
       .get(chatId) as {
         name: string
         platform: Platform
+        account: string
         message_count: number
         last_message_date: number | null
       } | undefined
@@ -197,6 +202,7 @@ export function semanticFindContacts(
     if (filters.before !== undefined && last !== null && last >= filters.before) continue
     if (filters.after !== undefined && last !== null && last <= filters.after) continue
     if (filters.platform !== undefined && chat.platform !== filters.platform) continue
+    if (filters.account !== undefined && chat.account !== filters.account) continue
 
     const snippets = getChatSnippets(chatId, 1)
 
@@ -204,6 +210,7 @@ export function semanticFindContacts(
       chat_id: chatId,
       name: chat.name,
       platform: chat.platform,
+      account: chat.account,
       last_message_date: last,
       message_count: chat.message_count,
       snippet: snippets[0] ?? null,
@@ -250,7 +257,7 @@ export function semanticSearchMessages(
     const row = getDb()
       .prepare(`
         SELECT m.chat_id, c.name AS chat_name, m.sender_name,
-               m.text, m.timestamp, m.platform
+               m.text, m.timestamp, m.platform, c.account
         FROM messages m
         JOIN chats c ON c.id = m.chat_id
         WHERE m.id = ?
@@ -262,12 +269,14 @@ export function semanticSearchMessages(
         text: string | null
         timestamp: number
         platform: Platform
+        account: string
       } | undefined
 
     if (!row) continue
 
     if (filters.chat_id !== undefined && row.chat_id !== filters.chat_id) continue
     if (filters.platform !== undefined && row.platform !== filters.platform) continue
+    if (filters.account !== undefined && row.account !== filters.account) continue
     if (filters.before_timestamp !== undefined && row.timestamp >= filters.before_timestamp) continue
     if (filters.after_timestamp !== undefined && row.timestamp <= filters.after_timestamp) continue
 

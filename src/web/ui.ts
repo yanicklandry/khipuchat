@@ -3,7 +3,56 @@ import { SCROLL_JS } from './ui-scroll'
 
 const PLATFORM_ICONS_JSON = JSON.stringify(buildPlatformIconMap())
 
-export const HTML_PAGE = `<!DOCTYPE html>
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function buildAccountFilterHtml(
+  accounts: { platform: string; account: string }[],
+  selectedAccount: string | undefined,
+): string {
+  // Determine which platforms have more than one account
+  const platformCounts = new Map<string, number>()
+  for (const { platform } of accounts) {
+    platformCounts.set(platform, (platformCounts.get(platform) ?? 0) + 1)
+  }
+  const isMultiAccount = [...platformCounts.values()].some(c => c > 1)
+  if (!isMultiAccount) return ''
+
+  // Collect distinct account names
+  const accountNames = [...new Set(accounts.map(a => a.account))]
+
+  const options = [
+    `<option value=""${!selectedAccount ? ' selected' : ''}>All Accounts</option>`,
+    ...accountNames.map(name =>
+      `<option value="${escHtml(name)}"${selectedAccount === name ? ' selected' : ''}>${escHtml(name)}</option>`,
+    ),
+  ].join('\n        ')
+
+  return `<div id="account-filter" style="padding:6px 8px;border-bottom:1px solid #ddd;">
+      <select id="account-select" style="padding:4px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;cursor:pointer;" onchange="location.href='/?account='+encodeURIComponent(this.value)">
+        ${options}
+      </select>
+    </div>`
+}
+
+export function buildHtmlPage(
+  accounts: { platform: string; account: string }[],
+  selectedAccount?: string,
+): string {
+  // Determine which platforms have more than one account
+  const platformCounts = new Map<string, number>()
+  for (const { platform } of accounts) {
+    platformCounts.set(platform, (platformCounts.get(platform) ?? 0) + 1)
+  }
+  const multiAccountPlatforms = [...platformCounts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([platform]) => platform)
+  const multiAccountPlatformsJSON = JSON.stringify(multiAccountPlatforms)
+
+  const accountFilterHtml = buildAccountFilterHtml(accounts, selectedAccount)
+
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -55,6 +104,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         <button data-type="direct">Direct</button>
         <button data-type="group">Groups</button>
       </div>
+      ${accountFilterHtml}
       <div id="platform-filter"></div>
       <div id="chat-list"></div>
     </div>
@@ -63,6 +113,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
   <script>
     ${SCROLL_JS}
     const PLATFORM_ICONS = ${PLATFORM_ICONS_JSON};
+    const MULTI_ACCOUNT_PLATFORMS = new Set(${multiAccountPlatformsJSON});
     const chatList = document.getElementById('chat-list');
     const panel = document.getElementById('panel');
     const qInput = document.getElementById('q');
@@ -117,8 +168,10 @@ export const HTML_PAGE = `<!DOCTYPE html>
         el.className = 'chat-item'; el.dataset.chatId = c.chat_id;
         const isGroup = c.type === 'group';
         const typeClass = isGroup ? 'group' : isDirectChat(c) ? 'private' : '';
+        const showAccount = MULTI_ACCOUNT_PLATFORMS.has(c.platform) && c.account;
+        const accountLabel = showAccount ? \` (\${esc(c.account)})\` : '';
         el.innerHTML = \`<div class="chat-name">\${esc(c.name)}</div>
-          <div class="chat-meta"><span class="badge \${typeClass}">\${platformLabel(c.platform)}\${isGroup ? ' Group' : ''}</span>
+          <div class="chat-meta"><span class="badge \${typeClass}">\${platformLabel(c.platform)}\${isGroup ? ' Group' : ''}\${accountLabel}</span>
           <span>\${c.message_count} msgs</span></div>\`;
         el.addEventListener('click', () => {
           document.querySelectorAll('.chat-item').forEach(x => x.classList.remove('active'));
@@ -197,3 +250,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
   </script>
 </body>
 </html>`
+}
+
+// Keep backward-compatible export for existing tests that import HTML_PAGE
+export const HTML_PAGE = buildHtmlPage([])

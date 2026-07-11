@@ -150,9 +150,9 @@ describe('mapChat', () => {
     expect(mapChat(makeChat({ name: 'Team Chat' })).name).toBe('Team Chat')
   })
 
-  it('uses hashStr of id._serialized', () => {
+  it('uses id._serialized as external_id', () => {
     const chat = makeChat()
-    expect(mapChat(chat).id).toBe(hashStr(chat.id._serialized))
+    expect(mapChat(chat).external_id).toBe(chat.id._serialized)
   })
 })
 
@@ -265,8 +265,8 @@ describe('runBackfillImpl', () => {
 
     // Seed a prior sync record
     getDb().prepare(
-      "INSERT INTO chats (id, name, type, username, platform, last_synced_at, message_count) VALUES (?, 'Dave', 'private', NULL, 'whatsapp', ?, 0)",
-    ).run(hashStr(chatId), syncTime)
+      "INSERT INTO chats (name, type, username, platform, account, external_id, last_synced_at, message_count) VALUES ('Dave', 'private', NULL, 'whatsapp', 'default', ?, ?, 0)",
+    ).run(chatId, syncTime)
 
     await runBackfillImpl(client)
     expect(fetchSpy).toHaveBeenCalledTimes(1)
@@ -285,13 +285,13 @@ describe('runBackfillImpl', () => {
     }
 
     // Seed prior sync at syncTime
-    getDb().prepare(
-      "INSERT INTO chats (id, name, type, username, platform, last_synced_at, message_count) VALUES (?, 'Eve', 'private', NULL, 'whatsapp', ?, 0)",
-    ).run(hashStr(chatId), syncTime)
+    const seededChatId = getDb().prepare(
+      "INSERT INTO chats (name, type, username, platform, account, external_id, last_synced_at, message_count) VALUES ('Eve', 'private', NULL, 'whatsapp', 'default', ?, ?, 0) RETURNING id",
+    ).get(chatId, syncTime) as { id: number }
 
     await runBackfillImpl(client)
 
-    const msgs = getDb().prepare("SELECT external_id FROM messages WHERE chat_id = ?").all(hashStr(chatId)) as { external_id: string }[]
+    const msgs = getDb().prepare("SELECT external_id FROM messages WHERE chat_id = ?").all(seededChatId.id) as { external_id: string }[]
     const ids = msgs.map(m => m.external_id)
     expect(ids).not.toContain('old@c.us')
     expect(ids).toContain('new@c.us')

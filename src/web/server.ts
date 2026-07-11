@@ -1,15 +1,19 @@
 import express from 'express'
-import type { Application } from 'express'
+import type { Application, Request, Response } from 'express'
 import { initDb } from '../db'
+import { listArchiveAccounts } from '../query-handlers'
 import router from './routes'
-import { HTML_PAGE } from './ui'
+import { buildHtmlPage } from './ui'
 
 export function createApp(): Application {
   const app = express()
   app.use(router)
-  app.get('/', (_req, res) => {
+  app.get('/', (req: Request, res: Response) => {
+    const accounts = listArchiveAccounts()
+    const accountParam = req.query['account']
+    const selectedAccount = typeof accountParam === 'string' && accountParam ? accountParam : undefined
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.send(HTML_PAGE)
+    res.send(buildHtmlPage(accounts, selectedAccount))
   })
   return app
 }

@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { initDb, getChats } from '../src/db'
 import {
-  hashStr,
-  resolveThreadChatId,
+  resolveThreadExternalId,
   mapMessage,
   runBackfillImpl,
 } from '../src/platforms/email/sync'
@@ -54,33 +53,33 @@ function makeSpyClient(
   return { client, fetchFolderSpy }
 }
 
-// ── resolveThreadChatId ───────────────────────────────────────────────────────
+// ── resolveThreadExternalId ───────────────────────────────────────────────────
 
-describe('resolveThreadChatId', () => {
-  it('creates new chatId for root message', () => {
-    const map = new Map<string, number>()
-    const chatId = resolveThreadChatId('root@ex.com', null, map)
-    expect(chatId).toBe(hashStr('root@ex.com'))
+describe('resolveThreadExternalId', () => {
+  it('creates new externalId for root message (uses messageId itself)', () => {
+    const map = new Map<string, string>()
+    const externalId = resolveThreadExternalId('root@ex.com', null, map)
+    expect(externalId).toBe('root@ex.com')
   })
 
-  it('reply inherits parent chatId', () => {
-    const map = new Map<string, number>()
-    const rootId = resolveThreadChatId('root@ex.com', null, map)
-    const replyId = resolveThreadChatId('reply@ex.com', 'root@ex.com', map)
+  it('reply inherits parent externalId', () => {
+    const map = new Map<string, string>()
+    const rootId = resolveThreadExternalId('root@ex.com', null, map)
+    const replyId = resolveThreadExternalId('reply@ex.com', 'root@ex.com', map)
     expect(replyId).toBe(rootId)
   })
 
   it('stores the reply messageId in the map', () => {
-    const map = new Map<string, number>()
-    resolveThreadChatId('root@ex.com', null, map)
-    resolveThreadChatId('reply@ex.com', 'root@ex.com', map)
+    const map = new Map<string, string>()
+    resolveThreadExternalId('root@ex.com', null, map)
+    resolveThreadExternalId('reply@ex.com', 'root@ex.com', map)
     expect(map.has('reply@ex.com')).toBe(true)
   })
 
-  it('unknown inReplyTo creates a new root', () => {
-    const map = new Map<string, number>()
-    const id = resolveThreadChatId('orphan@ex.com', 'unknown@ex.com', map)
-    expect(id).toBe(hashStr('orphan@ex.com'))
+  it('unknown inReplyTo creates a new root using the messageId', () => {
+    const map = new Map<string, string>()
+    const id = resolveThreadExternalId('orphan@ex.com', 'unknown@ex.com', map)
+    expect(id).toBe('orphan@ex.com')
   })
 })
 

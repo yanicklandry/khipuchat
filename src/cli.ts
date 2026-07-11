@@ -25,19 +25,56 @@ import {
   handleSemanticSearchMessages,
   parseTemporalFilters,
 } from './mcp'
+import { listArchiveAccounts } from './query-handlers'
+
+// ── Pure helpers (exported for testing) ───────────────────────────────────────
+
+/**
+ * Parse --account <name> from an args array.
+ * Returns the account name and a new array with the flag and its value removed.
+ * Mirrors the index-based pattern used by --min-similarity.
+ */
+export function parseAccountArg(args: readonly string[]): { account: string | undefined; rest: string[] } {
+  const rest = [...args]
+  const idx = rest.indexOf('--account')
+  if (idx === -1) return { account: undefined, rest }
+  const value = rest[idx + 1]
+  // Remove the flag (and its value if present and not another flag)
+  if (value !== undefined && !value.startsWith('--')) {
+    rest.splice(idx, 2)
+    return { account: value, rest }
+  }
+  // --account at end with no value: remove the flag only
+  rest.splice(idx, 1)
+  return { account: undefined, rest }
+}
+
+/**
+ * Format the platform label for a row.
+ * When the archive contains more than one distinct account (isMultiAccount),
+ * append the account name to the platform so results are unambiguous.
+ */
+export function formatPlatformLabel(platform: string, account: string, isMultiAccount: boolean): string {
+  return isMultiAccount ? `${platform}/${account}` : platform
+}
+
+// ── Script entry ──────────────────────────────────────────────────────────────
 
 initDb(path.join(__dirname, '..', 'khipuchat.db'))
 
-const [, , tool, ...rest] = process.argv
+const [, , tool, ...rawRest] = process.argv
 
 // Parse --min-similarity N from args (e.g. --min-similarity 0.6 or --min-similarity 60)
 let minSimilarityArg: number | undefined
-const minSimIdx = rest.indexOf('--min-similarity')
+const minSimIdx = rawRest.indexOf('--min-similarity')
 if (minSimIdx !== -1) {
-  const raw = parseFloat(rest[minSimIdx + 1] ?? '')
+  const raw = parseFloat(rawRest[minSimIdx + 1] ?? '')
   if (!isNaN(raw)) minSimilarityArg = raw > 1 ? raw / 100 : raw  // accept both 60 and 0.6
-  rest.splice(minSimIdx, 2)
+  rawRest.splice(minSimIdx, 2)
 }
+
+// Parse --account <name> from args
+const { account: accountArg, rest } = parseAccountArg(rawRest)
 
 const query = rest[0] ?? ''
 
@@ -61,6 +98,11 @@ Tools:
     process.exit(0)
   }
 
+  // Determine whether the archive has more than one distinct account.
+  // Used to decide whether to show the account label beside the platform.
+  const archiveAccounts = listArchiveAccounts()
+  const isMultiAccount = new Set(archiveAccounts.map(a => a.account)).size > 1
+
   switch (tool) {
     case 'semantic-search': {
       if (!query) { console.error('Usage: npm run cli semantic-search "your query"'); process.exit(1) }
@@ -80,11 +122,13 @@ Tools:
       const result = await handleSemanticSearchMessages(query, {
         limit: 20,
         ...(minSimilarityArg !== undefined ? { min_similarity: minSimilarityArg } : {}),
+        ...(accountArg !== undefined ? { account: accountArg } : {}),
       })
       if ('error' in result) { console.error(result.error); process.exit(1) }
       if (result.length === 0) { console.log('No results found.'); break }
       for (const r of result) {
-        console.log(`[${ts(r.timestamp)}] ${r.chat_name} (${r.platform})`)
+        const platformLabel = formatPlatformLabel(r.platform, r.account ?? 'default', isMultiAccount)
+        console.log(`[${ts(r.timestamp)}] ${r.chat_name} (${platformLabel})`)
         if (r.sender_name) console.log(`  ${r.sender_name}: ${r.text ?? ''}`)
         else console.log(`  ${r.text ?? ''}`)
         console.log(`  similarity: ${((1 - r.distance) * 100).toFixed(0)}%\n`)
@@ -95,11 +139,15 @@ Tools:
     case 'semantic-contacts': {
       if (!query) { console.error('Usage: npm run cli semantic-contacts "your query"'); process.exit(1) }
       console.log(`\nSemantic contact search: "${query}"\n`)
-      const result = await handleSemanticFindContacts(query, { limit: 10 })
+      const result = await handleSemanticFindContacts(query, {
+        limit: 10,
+        ...(accountArg !== undefined ? { account: accountArg } : {}),
+      })
       if ('error' in result) { console.error(result.error); process.exit(1) }
       if (result.length === 0) { console.log('No contacts found.'); break }
       for (const r of result) {
-        console.log(`${r.name} (${r.platform}) — ${r.message_count} messages`)
+        const platformLabel = formatPlatformLabel(r.platform, r.account ?? 'default', isMultiAccount)
+        console.log(`${r.name} (${platformLabel}) — ${r.message_count} messages`)
         if (r.snippet) console.log(`  "${r.snippet.slice(0, 80)}"`)
         console.log()
       }
@@ -109,10 +157,11 @@ Tools:
     case 'search': {
       if (!query) { console.error('Usage: npm run cli search "your query"'); process.exit(1) }
       console.log(`\nKeyword search: "${query}"\n`)
-      const results = handleSearchMessages(query)
+      const results = handleSearchMessages(query, undefined, undefined, accountArg)
       if (results.length === 0) { console.log('No results found.'); break }
       for (const r of results) {
-        console.log(`[${ts(r.timestamp)}] Chat #${r.chat_id} (${r.platform})`)
+        const platformLabel = formatPlatformLabel(r.platform, r.account, isMultiAccount)
+        console.log(`[${ts(r.timestamp)}] Chat #${r.chat_id} (${platformLabel})`)
         if (r.sender_name) console.log(`  ${r.sender_name}: ${r.text}`)
         else console.log(`  ${r.text}`)
         console.log()
@@ -121,9 +170,10 @@ Tools:
     }
 
     case 'list-chats': {
-      const chats = handleListChats()
+      const chats = handleListChats(undefined, accountArg)
       for (const c of chats.slice(0, 30)) {
-        console.log(`[${c.chat_id}] ${c.name} (${c.platform}, ${c.type}, ${c.message_count} msgs)`)
+        const platformLabel = formatPlatformLabel(c.platform, c.account, isMultiAccount)
+        console.log(`[${c.chat_id}] ${c.name} (${platformLabel}, ${c.type}, ${c.message_count} msgs)`)
       }
       if (chats.length > 30) console.log(`  … and ${chats.length - 30} more`)
       break
@@ -131,10 +181,11 @@ Tools:
 
     case 'find-chat': {
       if (!query) { console.error('Usage: npm run cli find-chat "name"'); process.exit(1) }
-      const chats = handleFindChatByName(query)
+      const chats = handleFindChatByName(query, undefined, accountArg)
       if (chats.length === 0) { console.log('No chats found.'); break }
       for (const c of chats) {
-        console.log(`[${c.chat_id}] ${c.name} (${c.platform}, ${c.type}, ${c.message_count} msgs)`)
+        const platformLabel = formatPlatformLabel(c.platform, c.account, isMultiAccount)
+        console.log(`[${c.chat_id}] ${c.name} (${platformLabel}, ${c.type}, ${c.message_count} msgs)`)
       }
       break
     }

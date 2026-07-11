@@ -4,6 +4,7 @@ import { runPlatformSync } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
+import type { AccountCredentials } from '../../account-registry'
 import { createWhatsAppClient, type WhatsAppClient, type WAChat, type WAMessage } from './client'
 
 export function hashStr(s: string): number {
@@ -17,7 +18,8 @@ export function hashStr(s: string): number {
 
 export function mapChat(chat: WAChat): Chat {
   return {
-    id: hashStr(chat.id._serialized),
+    external_id: chat.id._serialized,
+    account: 'default',
     name: chat.name,
     type: chat.isGroup ? 'group' : 'private',
     username: null,
@@ -44,11 +46,11 @@ export async function runBackfillImpl(client: WhatsAppClient): Promise<void> {
   const chats = await client.getChats()
 
   // Load per-chat last_synced_at for incremental mode (mirrors Telegram sync pattern)
-  const syncedAt = new Map<number, number>()
+  const syncedAt = new Map<string, number>()
   const rows = getDb().prepare(
-    "SELECT id, last_synced_at FROM chats WHERE platform = 'whatsapp' AND last_synced_at IS NOT NULL",
-  ).all() as { id: number; last_synced_at: number }[]
-  for (const row of rows) syncedAt.set(row.id, row.last_synced_at)
+    "SELECT external_id, last_synced_at FROM chats WHERE platform = 'whatsapp' AND last_synced_at IS NOT NULL",
+  ).all() as { external_id: string; last_synced_at: number }[]
+  for (const row of rows) syncedAt.set(row.external_id, row.last_synced_at)
   const hasPriorSync = syncedAt.size > 0
 
   let totalMessages = 0
@@ -56,8 +58,7 @@ export async function runBackfillImpl(client: WhatsAppClient): Promise<void> {
   let skipped = 0
 
   for (const chat of chats) {
-    const chatId = hashStr(chat.id._serialized)
-    const chatLastSync = syncedAt.get(chatId)
+    const chatLastSync = syncedAt.get(chat.id._serialized)
     const chatTimestamp = chat.timestamp
 
     // Skip chats with no new activity since last sync
@@ -67,7 +68,7 @@ export async function runBackfillImpl(client: WhatsAppClient): Promise<void> {
     }
 
     checked++
-    upsertChat(mapChat(chat))
+    const chatId = upsertChat(mapChat(chat))
     const messages = await client.fetchMessages(chat.id._serialized)
 
     let newCount = 0
@@ -99,8 +100,7 @@ export async function runIncrementalImpl(client: WhatsAppClient, since: Date): P
   let totalMessages = 0
 
   for (const chat of chats) {
-    const chatId = hashStr(chat.id._serialized)
-    upsertChat(mapChat(chat))
+    const chatId = upsertChat(mapChat(chat))
     const messages = await client.fetchMessages(chat.id._serialized)
 
     let newCount = 0
@@ -125,46 +125,54 @@ export function parseArgs(argv: string[]): { debug: boolean } {
   return { debug: argv.includes('--debug') }
 }
 
-export const whatsappAdapter: PlatformAdapter = {
-  platform: 'whatsapp',
-  async runBackfill(_db: Database.Database): Promise<void> {
-    const { debug } = parseArgs(process.argv)
-    const sessionPath = process.env['WHATSAPP_SESSION']
-    let client: WhatsAppClient | null = null
-    try {
-      client = await createWhatsAppClient({ sessionDataPath: sessionPath, debug })
-      await runBackfillImpl(client)
-    } catch (err) {
-      const e = err as Error
-      process.stderr.write(
-        `[whatsapp] Error: ${e.message}\n` +
-        '[whatsapp] Note: whatsapp-web.js uses an unofficial API and may break on WhatsApp updates.\n',
-      )
-      process.exit(1)
-    } finally {
-      await client?.destroy()
-    }
-  },
-  async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
-    const { debug } = parseArgs(process.argv)
-    const sessionPath = process.env['WHATSAPP_SESSION']
-    let client: WhatsAppClient | null = null
-    try {
-      client = await createWhatsAppClient({ sessionDataPath: sessionPath, debug })
-      await runIncrementalImpl(client, since)
-    } catch (err) {
-      const e = err as Error
-      process.stderr.write(
-        `[whatsapp] Error: ${e.message}\n` +
-        '[whatsapp] Note: whatsapp-web.js uses an unofficial API and may break on WhatsApp updates.\n',
-      )
-      process.exit(1)
-    } finally {
-      await client?.destroy()
-    }
-  },
-  startListener(_db: Database.Database): void {},
+export function createWhatsAppAdapter(account: string, credentials: AccountCredentials): PlatformAdapter {
+  return {
+    platform: 'whatsapp' as Platform,
+    account,
+    async runBackfill(_db: Database.Database): Promise<void> {
+      const { debug } = parseArgs(process.argv)
+      const sessionPath = credentials.fields['WHATSAPP_SESSION']
+      let client: WhatsAppClient | null = null
+      try {
+        client = await createWhatsAppClient({ sessionDataPath: sessionPath, debug })
+        await runBackfillImpl(client)
+      } catch (err) {
+        const e = err as Error
+        process.stderr.write(
+          `[whatsapp] Error: ${e.message}\n` +
+          '[whatsapp] Note: whatsapp-web.js uses an unofficial API and may break on WhatsApp updates.\n',
+        )
+        process.exit(1)
+      } finally {
+        await client?.destroy()
+      }
+    },
+    async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
+      const { debug } = parseArgs(process.argv)
+      const sessionPath = credentials.fields['WHATSAPP_SESSION']
+      let client: WhatsAppClient | null = null
+      try {
+        client = await createWhatsAppClient({ sessionDataPath: sessionPath, debug })
+        await runIncrementalImpl(client, since)
+      } catch (err) {
+        const e = err as Error
+        process.stderr.write(
+          `[whatsapp] Error: ${e.message}\n` +
+          '[whatsapp] Note: whatsapp-web.js uses an unofficial API and may break on WhatsApp updates.\n',
+        )
+        process.exit(1)
+      } finally {
+        await client?.destroy()
+      }
+    },
+    startListener(_db: Database.Database): void {},
+  }
 }
+
+export const whatsappAdapter: PlatformAdapter = createWhatsAppAdapter('default', {
+  name: 'default',
+  fields: { WHATSAPP_SESSION: process.env['WHATSAPP_SESSION'] ?? '' },
+})
 
 async function main(): Promise<void> {
   const db = initDb('./khipuchat.db')

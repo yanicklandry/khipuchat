@@ -31,9 +31,9 @@ function makeApp() {
 
 function seedChat() {
   initDb(':memory:')
-  upsertChat({ id: 1, name: 'Alice', type: 'private', username: null, platform: 'imessage' })
+  const chatId = upsertChat({ external_id: 'alice-1', account: 'default', name: 'Alice', type: 'private', username: null, platform: 'imessage' })
   insertMessage({
-    external_id: 'msg-1', chat_id: 1, sender_id: null, sender_name: 'Alice',
+    external_id: 'msg-1', chat_id: chatId, sender_id: null, sender_name: 'Alice',
     text: 'Hello', type: 'text', timestamp: 1700000000, is_sender: 0, reply_to_external_id: null,
     platform: 'imessage',
   })
@@ -210,18 +210,18 @@ describe('GET /api/messages/:chatId', () => {
 
   it('without before returns most recent messages (not oldest), sorted ascending', async () => {
     initDb(':memory:')
-    upsertChat({ id: 2, name: 'Bob', type: 'private', username: null, platform: 'imessage' })
+    const bobId = upsertChat({ external_id: 'bob-1', account: 'default', name: 'Bob', type: 'private', username: null, platform: 'imessage' })
     // Insert 5 messages with distinct timestamps
     for (let i = 1; i <= 5; i++) {
       insertMessage({
-        external_id: `msg-ts-${i}`, chat_id: 2, sender_id: null, sender_name: 'Bob',
+        external_id: `msg-ts-${i}`, chat_id: bobId, sender_id: null, sender_name: 'Bob',
         text: `Message ${i}`, type: 'text', timestamp: 1700000000 + i * 100,
         is_sender: 0, reply_to_external_id: null, platform: 'imessage',
       })
     }
     const app = createApp()
     // With limit=3, should return messages 3, 4, 5 (most recent), not 1, 2, 3 (oldest)
-    const res = await request(app).get('/api/messages/2?limit=3')
+    const res = await request(app).get(`/api/messages/${bobId}?limit=3`)
     expect(res.status).toBe(200)
     const msgs = res.body.messages as { text: string; timestamp: number }[]
     expect(msgs).toHaveLength(3)
@@ -233,6 +233,152 @@ describe('GET /api/messages/:chatId', () => {
     expect(msgs[2].text).toBe('Message 5')
     // has_more should be true since there are 2 more older messages
     expect(res.body.has_more).toBe(true)
+  })
+})
+
+// ── GET /api/chats?account= ───────────────────────────────────────────────────
+
+function seedMultiAccountChats() {
+  initDb(':memory:')
+  upsertChat({ external_id: 'alice-work', account: 'work', name: 'Alice Work', type: 'private', username: null, platform: 'imessage' })
+  upsertChat({ external_id: 'alice-personal', account: 'personal', name: 'Alice Personal', type: 'private', username: null, platform: 'imessage' })
+  return createApp()
+}
+
+describe('GET /api/chats with ?account= filter', () => {
+  it('returns only chats for the given account when ?account=work is passed', async () => {
+    const app = seedMultiAccountChats()
+    const res = await request(app).get('/api/chats?account=work')
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body)).toBe(true)
+    const names = (res.body as { name: string }[]).map(c => c.name)
+    expect(names).toContain('Alice Work')
+    expect(names).not.toContain('Alice Personal')
+  })
+
+  it('returns all chats with account field when no ?account= is passed', async () => {
+    const app = seedMultiAccountChats()
+    const res = await request(app).get('/api/chats')
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body)).toBe(true)
+    const chats = res.body as { name: string; account: string }[]
+    expect(chats.length).toBe(2)
+    expect(chats.every(c => typeof c.account === 'string')).toBe(true)
+  })
+
+  it('returns empty array (not an error) for an unknown account name', async () => {
+    const app = seedMultiAccountChats()
+    const res = await request(app).get('/api/chats?account=nonexistent')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual([])
+  })
+})
+
+// ── GET /api/search?account= ──────────────────────────────────────────────────
+
+function seedMultiAccountMessages() {
+  initDb(':memory:')
+  const workId = upsertChat({ external_id: 'chat-work', account: 'work', name: 'Work Chat', type: 'private', username: null, platform: 'imessage' })
+  const personalId = upsertChat({ external_id: 'chat-personal', account: 'personal', name: 'Personal Chat', type: 'private', username: null, platform: 'imessage' })
+  insertMessage({
+    external_id: 'msg-work-1', chat_id: workId, sender_id: null, sender_name: 'Bob',
+    text: 'hello from work', type: 'text', timestamp: 1700000001, is_sender: 0, reply_to_external_id: null, platform: 'imessage',
+  })
+  insertMessage({
+    external_id: 'msg-personal-1', chat_id: personalId, sender_id: null, sender_name: 'Carol',
+    text: 'hello from personal', type: 'text', timestamp: 1700000002, is_sender: 0, reply_to_external_id: null, platform: 'imessage',
+  })
+  return createApp()
+}
+
+describe('GET /api/search with ?account= filter', () => {
+  it('returns only results for the given account when ?account=work is passed', async () => {
+    const app = seedMultiAccountMessages()
+    const res = await request(app).get('/api/search?q=hello&account=work')
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body)).toBe(true)
+    const results = res.body as { chat_name: string; account: string }[]
+    expect(results.length).toBeGreaterThan(0)
+    expect(results.every(r => r.account === 'work')).toBe(true)
+    const names = results.map(r => r.chat_name)
+    expect(names).toContain('Work Chat')
+    expect(names).not.toContain('Personal Chat')
+  })
+
+  it('returns empty array (not an error) for an unknown account name', async () => {
+    const app = seedMultiAccountMessages()
+    const res = await request(app).get('/api/search?q=hello&account=nonexistent')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual([])
+  })
+
+  it('returns results from all accounts when no ?account= filter is passed', async () => {
+    const app = seedMultiAccountMessages()
+    const res = await request(app).get('/api/search?q=hello')
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body)).toBe(true)
+    const accounts = (res.body as { account: string }[]).map(r => r.account)
+    expect(accounts).toContain('work')
+    expect(accounts).toContain('personal')
+  })
+})
+
+// ── GET / with multi-account context ─────────────────────────────────────────
+
+function seedMultiAccountForUI() {
+  initDb(':memory:')
+  upsertChat({ external_id: 'chat-work', account: 'work', name: 'Work Chat', type: 'private', username: null, platform: 'imessage' })
+  upsertChat({ external_id: 'chat-personal', account: 'personal', name: 'Personal Chat', type: 'private', username: null, platform: 'imessage' })
+  return createApp()
+}
+
+describe('GET / account filter UI (multi-account)', () => {
+  it('renders a <select> dropdown with account options when platform has multiple accounts', async () => {
+    const app = seedMultiAccountForUI()
+    const res = await request(app).get('/')
+    expect(res.status).toBe(200)
+    expect(res.text).toContain('<select')
+    expect(res.text).toContain('All Accounts')
+    expect(res.text).toContain('work')
+    expect(res.text).toContain('personal')
+  })
+
+  it('renders no <select> dropdown on single-account install', async () => {
+    const app = seedChat()
+    const res = await request(app).get('/')
+    expect(res.status).toBe(200)
+    expect(res.text).not.toContain('<select')
+  })
+
+  it('marks the selected account in the dropdown when ?account= param is given', async () => {
+    const app = seedMultiAccountForUI()
+    const res = await request(app).get('/?account=work')
+    expect(res.status).toBe(200)
+    expect(res.text).toContain('selected')
+    expect(res.text).toContain('work')
+  })
+
+  it('passes multi-account flag to client JS so account label is shown in chat rows', async () => {
+    const app = seedMultiAccountForUI()
+    const res = await request(app).get('/')
+    expect(res.status).toBe(200)
+    // The page must expose per-platform multi-account info to the client JS
+    // so it can show account labels in chat rows
+    expect(res.text).toMatch(/MULTI_ACCOUNT_PLATFORMS|multiAccountPlatforms/)
+  })
+
+  it('does not expose multi-account info when single account per platform', async () => {
+    const app = seedChat()
+    const res = await request(app).get('/')
+    expect(res.status).toBe(200)
+    // On single account install there should be no account label rendering data
+    // (either MULTI_ACCOUNT_PLATFORMS is empty/absent or resolves to no platforms)
+    // Accept either the absence of the key or an empty set
+    const hasMultiAccountInfo = res.text.includes('MULTI_ACCOUNT_PLATFORMS') || res.text.includes('multiAccountPlatforms')
+    if (hasMultiAccountInfo) {
+      // If present, it must indicate no platforms need account labels
+      expect(res.text).toMatch(/MULTI_ACCOUNT_PLATFORMS\s*=\s*\[\]|MULTI_ACCOUNT_PLATFORMS\s*=\s*new Set\(\[\]\)/)
+    }
   })
 })
 

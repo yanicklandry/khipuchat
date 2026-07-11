@@ -6,6 +6,7 @@ import { runPlatformSync } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
+import type { AccountCredentials } from '../../account-registry'
 import { buildContactMap } from './contacts'
 
 // ── Row interfaces (iMessage chat.db) ─────────────────────────────────────────
@@ -66,7 +67,8 @@ export function mapChat(
     ?? primaryHandle
     ?? row.chat_identifier
   return {
-    id: hashGuid(row.guid),
+    external_id: row.guid,
+    account: 'default',
     name,
     type: handleIds.length > 1 ? 'group' : 'private',
     username: null,
@@ -107,11 +109,11 @@ export async function runBackfillImpl(chatDb: Database.Database): Promise<void> 
     .all() as ChatDbRow[]
 
   // Load per-chat last_synced_at for incremental mode
-  const syncedAt = new Map<number, number>()
+  const syncedAt = new Map<string, number>()
   const rows = getDb().prepare(
-    "SELECT id, last_synced_at FROM chats WHERE platform = 'imessage' AND last_synced_at IS NOT NULL",
-  ).all() as { id: number; last_synced_at: number }[]
-  for (const row of rows) syncedAt.set(row.id, row.last_synced_at)
+    "SELECT external_id, last_synced_at FROM chats WHERE platform = 'imessage' AND last_synced_at IS NOT NULL",
+  ).all() as { external_id: string; last_synced_at: number }[]
+  for (const row of rows) syncedAt.set(row.external_id, row.last_synced_at)
   const hasPriorSync = syncedAt.size > 0
 
   // iMessage chat.db dates: Cocoa epoch (seconds since 2001-01-01). May be nanoseconds on newer macOS.
@@ -124,10 +126,9 @@ export async function runBackfillImpl(chatDb: Database.Database): Promise<void> 
       'SELECT h.id FROM handle h JOIN chat_handle_join chj ON chj.handle_id = h.ROWID WHERE chj.chat_id = ?',
     ).all(chatRow.ROWID) as { id: string }[]).map(r => r.id)
 
-    const chatId = hashGuid(chatRow.guid)
-    upsertChat(mapChat(chatRow, chatHandles, contactMap))
+    const chatId = upsertChat(mapChat(chatRow, chatHandles, contactMap))
 
-    const chatLastSync = hasPriorSync ? syncedAt.get(chatId) : undefined
+    const chatLastSync = hasPriorSync ? syncedAt.get(chatRow.guid) : undefined
     // Convert Unix seconds threshold to Cocoa nanoseconds (what chat.db stores on modern macOS)
     const cocoaThreshold = chatLastSync !== undefined
       ? BigInt(chatLastSync - COCOA_OFFSET) * 1_000_000_000n
@@ -174,8 +175,7 @@ export async function runIncrementalImpl(chatDb: Database.Database, since: Date)
       'SELECT h.id FROM handle h JOIN chat_handle_join chj ON chj.handle_id = h.ROWID WHERE chj.chat_id = ?',
     ).all(chatRow.ROWID) as { id: string }[]).map(r => r.id)
 
-    const chatId = hashGuid(chatRow.guid)
-    upsertChat(mapChat(chatRow, chatHandles, contactMap))
+    const chatId = upsertChat(mapChat(chatRow, chatHandles, contactMap))
 
     const msgRows = chatDb.prepare(`
       SELECT m.ROWID, m.guid, m.text, m.date, m.is_from_me, m.handle_id, m.reply_to_guid
@@ -197,20 +197,28 @@ export async function runIncrementalImpl(chatDb: Database.Database, since: Date)
   console.log(`iMessage incremental sync complete: ${chats.length} chats, ${totalMessages} new messages imported.`)
 }
 
-export const iMessageAdapter: PlatformAdapter = {
-  platform: 'imessage',
-  async runBackfill(_db: Database.Database): Promise<void> {
-    const chatDbPath = join(homedir(), 'Library', 'Messages', 'chat.db')
-    const chatDb = openChatDb(chatDbPath)
-    try { await runBackfillImpl(chatDb) } finally { chatDb.close() }
-  },
-  async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
-    const chatDbPath = join(homedir(), 'Library', 'Messages', 'chat.db')
-    const chatDb = openChatDb(chatDbPath)
-    try { await runIncrementalImpl(chatDb, since) } finally { chatDb.close() }
-  },
-  startListener(_db: Database.Database): void {},
+export function createIMessageAdapter(account: string, _credentials: AccountCredentials): PlatformAdapter {
+  return {
+    platform: 'imessage' as Platform,
+    account,
+    async runBackfill(_db: Database.Database): Promise<void> {
+      const chatDbPath = join(homedir(), 'Library', 'Messages', 'chat.db')
+      const chatDb = openChatDb(chatDbPath)
+      try { await runBackfillImpl(chatDb) } finally { chatDb.close() }
+    },
+    async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
+      const chatDbPath = join(homedir(), 'Library', 'Messages', 'chat.db')
+      const chatDb = openChatDb(chatDbPath)
+      try { await runIncrementalImpl(chatDb, since) } finally { chatDb.close() }
+    },
+    startListener(_db: Database.Database): void {},
+  }
 }
+
+export const iMessageAdapter: PlatformAdapter = createIMessageAdapter('default', {
+  name: 'default',
+  fields: {},
+})
 
 async function main(): Promise<void> {
   const db = initDb('./khipuchat.db')

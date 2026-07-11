@@ -121,9 +121,9 @@ describe('mapChat', () => {
     expect(mapChat('Chat_room1', 'room1@chatroom').type).toBe('group')
   })
 
-  it('uses tableNameToChatId for id', () => {
+  it('uses tableName as external_id', () => {
     const tableName = 'Chat_test123'
-    expect(mapChat(tableName, 'Test').id).toBe(tableNameToChatId(tableName))
+    expect(mapChat(tableName, 'Test').external_id).toBe(tableName)
   })
 
   it('sets username to null', () => {
@@ -551,14 +551,13 @@ describe('runBackfillImpl integration', () => {
     db.close()
 
     // Seed last_synced_at so incremental mode activates
-    const chatId = tableNameToChatId('Msg_wxid_frank')
-    getDb().prepare(
-      "INSERT INTO chats (id, name, type, username, platform, last_synced_at, message_count) VALUES (?, 'Frank', 'private', NULL, 'wechat', ?, 0)",
-    ).run(chatId, syncTime)
+    const seededChat = getDb().prepare(
+      "INSERT INTO chats (name, type, username, platform, account, external_id, last_synced_at, message_count) VALUES ('Frank', 'private', NULL, 'wechat', 'default', 'Msg_wxid_frank', ?, 0) RETURNING id",
+    ).get(syncTime) as { id: number }
 
     await runBackfillImpl([dbPath], new Map(), new Map())
 
-    const msgs = getDb().prepare('SELECT external_id FROM messages WHERE chat_id = ?').all(chatId) as { external_id: string }[]
+    const msgs = getDb().prepare('SELECT external_id FROM messages WHERE chat_id = ?').all(seededChat.id) as { external_id: string }[]
     const ids = msgs.map(m => m.external_id)
     expect(ids).not.toContain('4001')
     expect(ids).toContain('4002')
@@ -587,8 +586,8 @@ describe('runIncrementalImpl', () => {
     const since = new Date(sinceUnix * 1000)
     await runIncrementalImpl([dbPath], new Map(), new Map(), since)
 
-    const chatId = tableNameToChatId('Msg_wxid_henry')
-    const imported = getDb().prepare('SELECT external_id FROM messages WHERE chat_id = ?').all(chatId) as { external_id: string }[]
+    const henryChat = getDb().prepare("SELECT id FROM chats WHERE external_id = 'Msg_wxid_henry'").get() as { id: number } | undefined
+    const imported = getDb().prepare('SELECT external_id FROM messages WHERE chat_id = ?').all(henryChat!.id) as { external_id: string }[]
     const ids = imported.map(m => m.external_id)
     expect(ids).not.toContain('5001')
     expect(ids).toContain('5002')

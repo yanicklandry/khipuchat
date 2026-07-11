@@ -1,13 +1,16 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import type { Platform } from './platforms/types'
 import { loadVecExtension, createVecSchema } from './vec-db'
+import { runMigrations } from './db-migrations'
 
 export type { Platform }
 export type ChatType = 'user' | 'group' | 'channel' | 'private'
 export type MessageType = 'text' | 'voice' | 'video' | 'image' | 'sticker' | 'reaction' | 'notice' | 'other'
 
 export interface Chat {
-  id: number
+  id?: number
+  external_id: string
+  account: string
   name: string
   type: ChatType
   username: string | null
@@ -38,6 +41,7 @@ export interface SearchResult {
   text: string | null
   timestamp: number
   platform: Platform
+  account: string
 }
 
 let _db: Database.Database | null = null
@@ -65,10 +69,6 @@ export function initDb(path: string): Database.Database {
   createVecSchema(_db)
   _db.exec("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')")
   return _db
-}
-
-function columnExists(d: Database.Database, table: string, col: string): boolean {
-  return (d.pragma(`table_info(${table})`) as { name: string }[]).some(r => r.name === col)
 }
 
 function createSchema(database: Database.Database): void {
@@ -125,33 +125,25 @@ function createSchema(database: Database.Database): void {
   `)
 }
 
-function runMigrations(database: Database.Database): void {
-  if (columnExists(database, 'messages', 'telegram_id'))
-    database.exec('ALTER TABLE messages RENAME COLUMN telegram_id TO external_id')
-  if (columnExists(database, 'messages', 'reply_to_telegram_id'))
-    database.exec('ALTER TABLE messages RENAME COLUMN reply_to_telegram_id TO reply_to_external_id')
-  if (!columnExists(database, 'chats', 'platform'))
-    database.exec("ALTER TABLE chats ADD COLUMN platform TEXT NOT NULL DEFAULT 'telegram'")
-  if (!columnExists(database, 'messages', 'platform'))
-    database.exec("ALTER TABLE messages ADD COLUMN platform TEXT NOT NULL DEFAULT 'telegram'")
-}
-
-export function upsertChat(chat: Chat): void {
-  db().prepare(`
-    INSERT INTO chats (id, name, type, username, platform, last_synced_at, message_count)
-    VALUES (@id, @name, @type, @username, @platform, @last_synced_at, @message_count)
-    ON CONFLICT(id) DO UPDATE SET
+export function upsertChat(chat: Chat): number {
+  const row = db().prepare(`
+    INSERT INTO chats (name, type, username, platform, account, external_id, last_synced_at, message_count)
+    VALUES (@name, @type, @username, @platform, @account, @external_id, @last_synced_at, @message_count)
+    ON CONFLICT(platform, account, external_id) DO UPDATE SET
       name           = excluded.name,
       type           = excluded.type,
       username       = excluded.username,
-      platform       = excluded.platform,
       last_synced_at = COALESCE(excluded.last_synced_at, last_synced_at),
       message_count  = COALESCE(excluded.message_count, message_count)
-  `).run({
-    id: chat.id, name: chat.name, type: chat.type, username: chat.username ?? null,
-    platform: chat.platform, last_synced_at: chat.last_synced_at ?? null,
+    RETURNING id
+  `).get({
+    name: chat.name, type: chat.type, username: chat.username ?? null,
+    platform: chat.platform, account: chat.account,
+    external_id: chat.external_id,
+    last_synced_at: chat.last_synced_at ?? null,
     message_count: chat.message_count ?? 0,
-  })
+  }) as { id: number }
+  return row.id
 }
 
 export function insertMessage(msg: Message): void {
@@ -183,13 +175,14 @@ export function getMessages(chatId: number, limit: number, beforeTimestamp?: num
   `).all(chatId, limit) as MessageRow[]
 }
 
-export function searchMessages(query: string, chatId?: number, platform?: Platform): SearchResult[] {
+export function searchMessages(query: string, chatId?: number, platform?: Platform, account?: string): SearchResult[] {
   const args: unknown[] = [query]
   let extra = ''
   if (chatId !== undefined) { extra += ' AND m.chat_id = ?'; args.push(chatId) }
   if (platform !== undefined) { extra += ' AND m.platform = ?'; args.push(platform) }
+  if (account !== undefined) { extra += ' AND c.account = ?'; args.push(account) }
   return db().prepare(`
-    SELECT m.chat_id, c.name AS chat_name, m.sender_name, m.text, m.timestamp, m.platform
+    SELECT m.chat_id, c.name AS chat_name, m.sender_name, m.text, m.timestamp, m.platform, c.account
     FROM messages_fts f
     JOIN messages m ON m.id = f.rowid
     JOIN chats c ON c.id = m.chat_id
@@ -215,15 +208,15 @@ export function getLastSyncedId(chatId: number): string | null {
   return row?.external_id ?? null
 }
 
-export function getPlatformLastSyncedAt(platform: Platform): number | null {
+export function getPlatformLastSyncedAt(platform: Platform, account: string): number | null {
   const row = db().prepare(
-    'SELECT last_synced_at FROM sync_state WHERE platform = ?'
-  ).get(platform) as { last_synced_at: number } | undefined
+    'SELECT last_synced_at FROM sync_state WHERE platform = ? AND account = ?'
+  ).get(platform, account) as { last_synced_at: number } | undefined
   return row?.last_synced_at ?? null
 }
 
-export function setPlatformLastSyncedAt(platform: Platform, timestamp: number): void {
+export function setPlatformLastSyncedAt(platform: Platform, account: string, ts: number): void {
   db().prepare(
-    'INSERT OR REPLACE INTO sync_state (platform, last_synced_at) VALUES (?, ?)'
-  ).run(platform, timestamp)
+    'INSERT OR REPLACE INTO sync_state (platform, account, last_synced_at) VALUES (?, ?, ?)'
+  ).run(platform, account, ts)
 }

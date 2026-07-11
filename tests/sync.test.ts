@@ -241,7 +241,7 @@ describe('runBackfill', () => {
   it('paginates until a page is smaller than pageSize (incremental)', async () => {
     const entity = makeUserEntity(1, 'Tony Lin')
     // Pre-seed so incremental path is used
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
+    upsertChat({ external_id: '1', account: 'default', name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
     const { insertMessage } = await import('../src/db')
     insertMessage({ external_id: '0', chat_id: 1, sender_id: null, sender_name: 'T', text: 'seed', type: 'text', timestamp: T, is_sender: 0, reply_to_external_id: null, platform: 'telegram' })
 
@@ -265,7 +265,7 @@ describe('runBackfill', () => {
   it('resumes from getLastSyncedId — passes correct offsetId on first fetch', async () => {
     const entity = makeUserEntity(1, 'Tony Lin')
     // pre-seed 3 messages so getLastSyncedId(1) returns '3'
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
+    upsertChat({ external_id: '1', account: 'default', name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
     for (let i = 1; i <= 3; i++) {
       const { insertMessage } = await import('../src/db')
       insertMessage({
@@ -328,7 +328,7 @@ describe('runBackfill', () => {
 describe('startListener', () => {
   beforeEach(() => {
     initDb(':memory:')
-    upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
+    upsertChat({ external_id: '1', account: 'default', name: 'Tony Lin', type: 'user', username: null, platform: 'telegram' })
   })
 
   it('registers exactly one event handler on the client', () => {
@@ -410,7 +410,7 @@ describe('runSync', () => {
 
     await runSync(client as unknown as TelegramClient, { backfillFlag: false, since: null }, syncFn)
 
-    const ts = getPlatformLastSyncedAt('telegram')
+    const ts = getPlatformLastSyncedAt('telegram', 'default')
     expect(ts).not.toBeNull()
     expect(ts).toBeGreaterThan(0)
     vi.restoreAllMocks()
@@ -425,7 +425,7 @@ describe('runSync', () => {
       runSync(client as unknown as TelegramClient, { backfillFlag: false, since: null }, syncFn)
     ).rejects.toThrow('network failure')
 
-    expect(getPlatformLastSyncedAt('telegram')).toBeNull()
+    expect(getPlatformLastSyncedAt('telegram', 'default')).toBeNull()
     vi.restoreAllMocks()
   })
 })

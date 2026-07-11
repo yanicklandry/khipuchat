@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { parseSyncArgs, runPlatformSync } from '../src/sync-runner'
-import type { PlatformAdapter } from '../src/platforms/types'
+import { parseSyncArgs, runPlatformSync, runAllAccountsSync } from '../src/sync-runner'
+import type { PlatformAdapter, AdapterFactory } from '../src/platforms/types'
+import type { AccountRegistry, AccountCredentials } from '../src/account-registry'
 import Database from 'better-sqlite3-multiple-ciphers'
 
 // ── parseSyncArgs ─────────────────────────────────────────────────────────────
@@ -100,7 +101,7 @@ describe('runPlatformSync', () => {
     vi.mocked(getPlatformLastSyncedAt).mockReturnValue(null)
 
     const runBackfill = vi.fn().mockResolvedValue(undefined)
-    const adapter: PlatformAdapter = { platform: 'telegram', runBackfill, startListener: vi.fn() }
+    const adapter: PlatformAdapter = { platform: 'telegram', account: 'default', runBackfill, startListener: vi.fn() }
 
     const before = Math.floor(Date.now() / 1000)
     await runPlatformSync(adapter, db, [])
@@ -108,7 +109,7 @@ describe('runPlatformSync', () => {
 
     expect(runBackfill).toHaveBeenCalledOnce()
     expect(setPlatformLastSyncedAt).toHaveBeenCalledOnce()
-    const [platform, ts] = vi.mocked(setPlatformLastSyncedAt).mock.calls[0]
+    const [platform, , ts] = vi.mocked(setPlatformLastSyncedAt).mock.calls[0]
     expect(platform).toBe('telegram')
     expect(ts).toBeGreaterThanOrEqual(before)
     expect(ts).toBeLessThanOrEqual(after)
@@ -123,6 +124,7 @@ describe('runPlatformSync', () => {
     const runBackfill = vi.fn().mockResolvedValue(undefined)
     const adapter: PlatformAdapter = {
       platform: 'telegram',
+      account: 'default',
       runBackfill,
       startListener: vi.fn(),
       syncIncremental,
@@ -144,7 +146,7 @@ describe('runPlatformSync', () => {
     vi.mocked(getPlatformLastSyncedAt).mockReturnValue(Math.floor(Date.now() / 1000) - 3600)
 
     const runBackfill = vi.fn().mockResolvedValue(undefined)
-    const adapter: PlatformAdapter = { platform: 'telegram', runBackfill, startListener: vi.fn() }
+    const adapter: PlatformAdapter = { platform: 'telegram', account: 'default', runBackfill, startListener: vi.fn() }
 
     await runPlatformSync(adapter, db, [])
 
@@ -159,6 +161,7 @@ describe('runPlatformSync', () => {
     const runBackfill = vi.fn().mockResolvedValue(undefined)
     const adapter: PlatformAdapter = {
       platform: 'telegram',
+      account: 'default',
       runBackfill,
       startListener: vi.fn(),
       syncIncremental,
@@ -176,7 +179,7 @@ describe('runPlatformSync', () => {
     vi.mocked(getPlatformLastSyncedAt).mockReturnValue(null)
 
     const runBackfill = vi.fn().mockResolvedValue(undefined)
-    const adapter: PlatformAdapter = { platform: 'telegram', runBackfill, startListener: vi.fn() }
+    const adapter: PlatformAdapter = { platform: 'telegram', account: 'default', runBackfill, startListener: vi.fn() }
 
     await runPlatformSync(adapter, db, ['--force'])
 
@@ -191,7 +194,7 @@ describe('runPlatformSync', () => {
     vi.mocked(getPlatformLastSyncedAt).mockReturnValue(null)
 
     const runBackfill = vi.fn().mockResolvedValue(undefined)
-    const adapter: PlatformAdapter = { platform: 'telegram', runBackfill, startListener: vi.fn() }
+    const adapter: PlatformAdapter = { platform: 'telegram', account: 'default', runBackfill, startListener: vi.fn() }
 
     await runPlatformSync(adapter, db, [])
 
@@ -210,7 +213,7 @@ describe('runPlatformSync', () => {
     const runBackfill = vi.fn().mockImplementation(async () => {
       printedBeforeCall = calls.includes('backfill\n')
     })
-    const adapter: PlatformAdapter = { platform: 'telegram', runBackfill, startListener: vi.fn() }
+    const adapter: PlatformAdapter = { platform: 'telegram', account: 'default', runBackfill, startListener: vi.fn() }
 
     await runPlatformSync(adapter, db, [])
 
@@ -232,6 +235,7 @@ describe('runPlatformSync', () => {
     })
     const adapter: PlatformAdapter = {
       platform: 'telegram',
+      account: 'default',
       runBackfill: vi.fn(),
       startListener: vi.fn(),
       syncIncremental,
@@ -249,7 +253,7 @@ describe('runPlatformSync', () => {
     vi.mocked(getPlatformLastSyncedAt).mockReturnValue(null)
 
     const runBackfill = vi.fn().mockRejectedValue(new Error('adapter boom'))
-    const adapter: PlatformAdapter = { platform: 'telegram', runBackfill, startListener: vi.fn() }
+    const adapter: PlatformAdapter = { platform: 'telegram', account: 'default', runBackfill, startListener: vi.fn() }
 
     await expect(runPlatformSync(adapter, db, [])).rejects.toThrow('adapter boom')
     expect(setPlatformLastSyncedAt).not.toHaveBeenCalled()
@@ -264,11 +268,149 @@ describe('runPlatformSync', () => {
     const runBackfill = vi.fn().mockImplementation(async () => {
       adapterCallTime = Math.floor(Date.now() / 1000)
     })
-    const adapter: PlatformAdapter = { platform: 'telegram', runBackfill, startListener: vi.fn() }
+    const adapter: PlatformAdapter = { platform: 'telegram', account: 'default', runBackfill, startListener: vi.fn() }
 
     await runPlatformSync(adapter, db, [])
 
-    const [, ts] = vi.mocked(setPlatformLastSyncedAt).mock.calls[0]
+    const [, , ts] = vi.mocked(setPlatformLastSyncedAt).mock.calls[0]
     expect(ts).toBeLessThanOrEqual(adapterCallTime)
+  })
+})
+
+// ── runAllAccountsSync ────────────────────────────────────────────────────────
+
+function makeRegistry(
+  accounts: string[],
+  credFields: Record<string, string> = {},
+): AccountRegistry {
+  return {
+    listAccounts: () => accounts,
+    credentialsFor: (_platform, account): AccountCredentials => ({
+      name: account,
+      fields: credFields,
+    }),
+  }
+}
+
+describe('runAllAccountsSync', () => {
+  let db: Database.Database
+  let stdoutSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    db = makeInMemoryDb()
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    vi.mock('../src/db', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../src/db')>()
+      return {
+        ...actual,
+        getPlatformLastSyncedAt: vi.fn().mockReturnValue(null),
+        setPlatformLastSyncedAt: vi.fn(),
+        rebuildFtsIndex: vi.fn(),
+      }
+    })
+
+    vi.mock('../src/index-embeddings', () => ({
+      rebuildEmbeddings: vi.fn().mockResolvedValue(undefined),
+    }))
+  })
+
+  afterEach(() => {
+    stdoutSpy.mockRestore()
+    vi.restoreAllMocks()
+    vi.resetModules()
+  })
+
+  it('syncs two accounts in sequence and returns both outcomes as ok:true', async () => {
+    const registry = makeRegistry(['work', 'personal'])
+
+    const workBackfill = vi.fn().mockResolvedValue(undefined)
+    const personalBackfill = vi.fn().mockResolvedValue(undefined)
+
+    const factory: AdapterFactory = (account) => ({
+      platform: 'slack',
+      account,
+      runBackfill: account === 'work' ? workBackfill : personalBackfill,
+      startListener: vi.fn(),
+    })
+
+    const outcomes = await runAllAccountsSync('slack', factory, db, [], registry)
+
+    expect(outcomes).toHaveLength(2)
+    expect(outcomes[0]).toEqual({ account: 'work', ok: true })
+    expect(outcomes[1]).toEqual({ account: 'personal', ok: true })
+    expect(workBackfill).toHaveBeenCalledOnce()
+    expect(personalBackfill).toHaveBeenCalledOnce()
+  })
+
+  it('isolates per-account errors: account 1 throws, account 2 still completes', async () => {
+    const registry = makeRegistry(['failing', 'succeeding'])
+
+    const failingBackfill = vi.fn().mockRejectedValue(new Error('network error'))
+    const succeedingBackfill = vi.fn().mockResolvedValue(undefined)
+
+    const factory: AdapterFactory = (account) => ({
+      platform: 'slack',
+      account,
+      runBackfill: account === 'failing' ? failingBackfill : succeedingBackfill,
+      startListener: vi.fn(),
+    })
+
+    const outcomes = await runAllAccountsSync('slack', factory, db, [], registry)
+
+    expect(outcomes).toHaveLength(2)
+    expect(outcomes[0]).toMatchObject({ account: 'failing', ok: false })
+    expect(outcomes[0].error).toContain('network error')
+    expect(outcomes[1]).toEqual({ account: 'succeeding', ok: true })
+    expect(succeedingBackfill).toHaveBeenCalledOnce()
+  })
+
+  it('runAllAccountsSync itself never throws even when all accounts fail', async () => {
+    const registry = makeRegistry(['a', 'b'])
+    const factory: AdapterFactory = (account) => ({
+      platform: 'slack',
+      account,
+      runBackfill: vi.fn().mockRejectedValue(new Error('boom')),
+      startListener: vi.fn(),
+    })
+
+    await expect(runAllAccountsSync('slack', factory, db, [], registry)).resolves.toHaveLength(2)
+  })
+
+  it('uses per-account getPlatformLastSyncedAt: null triggers backfill, value triggers incremental', async () => {
+    const { getPlatformLastSyncedAt, setPlatformLastSyncedAt } = await import('../src/db')
+    const since = Math.floor(Date.now() / 1000) - 3600
+
+    // first account: no prior sync => backfill; second account: has prior sync => incremental
+    vi.mocked(getPlatformLastSyncedAt)
+      .mockReturnValueOnce(null)     // for 'first'
+      .mockReturnValueOnce(since)    // for 'second'
+
+    const registry = makeRegistry(['first', 'second'])
+    const firstBackfill = vi.fn().mockResolvedValue(undefined)
+    const secondBackfill = vi.fn().mockResolvedValue(undefined)
+    const secondIncremental = vi.fn().mockResolvedValue(undefined)
+
+    const factory: AdapterFactory = (account) => ({
+      platform: 'slack',
+      account,
+      runBackfill: account === 'first' ? firstBackfill : secondBackfill,
+      startListener: vi.fn(),
+      ...(account === 'second' ? { syncIncremental: secondIncremental } : {}),
+    })
+
+    await runAllAccountsSync('slack', factory, db, [], registry)
+
+    expect(firstBackfill).toHaveBeenCalledOnce()
+    expect(secondIncremental).toHaveBeenCalledOnce()
+    expect(secondBackfill).not.toHaveBeenCalled()
+
+    // setPlatformLastSyncedAt called with per-account keys
+    expect(vi.mocked(setPlatformLastSyncedAt)).toHaveBeenCalledTimes(2)
+    const calls = vi.mocked(setPlatformLastSyncedAt).mock.calls
+    expect(calls[0][0]).toBe('slack')
+    expect(calls[0][1]).toBe('first')
+    expect(calls[1][0]).toBe('slack')
+    expect(calls[1][1]).toBe('second')
   })
 })

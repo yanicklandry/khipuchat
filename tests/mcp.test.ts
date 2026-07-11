@@ -8,6 +8,7 @@ import {
   handleGetChatSummary,
   handleSemanticFindContacts,
   handleSemanticSearchMessages,
+  createMcpServer,
 } from '../src/mcp'
 import {
   upsertChatVector,
@@ -47,25 +48,28 @@ function msg(
 
 // ── Seed helper ───────────────────────────────────────────────────────────────
 
+let seedIds: { tony: number; work: number; imsg: number }
+
 function seed() {
-  upsertChat({ id: 1, name: 'Tony Lin', type: 'user', username: 'tonylin1115', platform: 'telegram' })
-  upsertChat({ id: 2, name: 'Work Group', type: 'group', username: null, platform: 'telegram' })
-  upsertChat({ id: 3, name: 'iMsg Friend', type: 'user', username: null, platform: 'imessage' })
+  const tony = upsertChat({ external_id: '1', account: 'default', name: 'Tony Lin', type: 'user', username: 'tonylin1115', platform: 'telegram' })
+  const work = upsertChat({ external_id: '2', account: 'default', name: 'Work Group', type: 'group', username: null, platform: 'telegram' })
+  const imsg = upsertChat({ external_id: '3', account: 'default', name: 'iMsg Friend', type: 'user', username: null, platform: 'imessage' })
+  seedIds = { tony, work, imsg }
 
   // Tony Lin — mixed message types (platform: telegram)
-  insertMessage(msg('1', 1, 'hello there', 'text', 1))
-  insertMessage(msg('2', 1, null, 'voice', 2))
-  insertMessage(msg('3', 1, '', 'text', 3))
-  insertMessage(msg('4', 1, 'how are you', 'text', 4))
-  insertMessage(msg('5', 1, null, 'image', 5))
-  insertMessage(msg('6', 1, 'doing well', 'text', 6, 1, 'Me'))
+  insertMessage(msg('1', tony, 'hello there', 'text', 1))
+  insertMessage(msg('2', tony, null, 'voice', 2))
+  insertMessage(msg('3', tony, '', 'text', 3))
+  insertMessage(msg('4', tony, 'how are you', 'text', 4))
+  insertMessage(msg('5', tony, null, 'image', 5))
+  insertMessage(msg('6', tony, 'doing well', 'text', 6, 1, 'Me'))
 
   // Work Group — a few messages (platform: telegram)
-  insertMessage(msg('10', 2, 'meeting at 3', 'text', 10))
-  insertMessage(msg('11', 2, 'sounds good', 'text', 11))
+  insertMessage(msg('10', work, 'meeting at 3', 'text', 10))
+  insertMessage(msg('11', work, 'sounds good', 'text', 11))
 
   // iMessage chat — one message for platform filter tests
-  insertMessage(msg('20', 3, 'hey from imessage', 'text', 20, 0, 'Friend', 'imessage'))
+  insertMessage(msg('20', imsg, 'hey from imessage', 'text', 20, 0, 'Friend', 'imessage'))
 }
 
 beforeEach(() => {
@@ -90,14 +94,14 @@ describe('handleListChats', () => {
   })
 
   it('respects limit parameter', () => {
-    expect(handleListChats(undefined, 2)).toHaveLength(2)
+    expect(handleListChats(undefined, undefined, 2)).toHaveLength(2)
   })
 
   it('result shape includes chat_id, name, type, username, message_count, platform', () => {
     const results = handleListChats('telegram')
     const tony = results.find(r => r.name === 'Tony Lin')
     expect(tony).toBeDefined()
-    expect(tony).toMatchObject({ chat_id: 1, name: 'Tony Lin', type: 'user', username: 'tonylin1115', platform: 'telegram' })
+    expect(tony).toMatchObject({ chat_id: seedIds.tony, name: 'Tony Lin', type: 'user', username: 'tonylin1115', platform: 'telegram' })
     expect(typeof tony!.message_count).toBe('number')
   })
 
@@ -120,7 +124,7 @@ describe('handleFindChatByName', () => {
   it('matches by username', () => {
     const results = handleFindChatByName('tonylin')
     expect(results).toHaveLength(1)
-    expect(results[0].chat_id).toBe(1)
+    expect(results[0].chat_id).toBe(seedIds.tony)
   })
 
   it('returns empty array when nothing matches', () => {
@@ -129,7 +133,7 @@ describe('handleFindChatByName', () => {
 
   it('result shape includes chat_id, name, type, username, message_count, platform', () => {
     const [r] = handleFindChatByName('Tony')
-    expect(r).toMatchObject({ chat_id: 1, name: 'Tony Lin', type: 'user', username: 'tonylin1115', platform: 'telegram' })
+    expect(r).toMatchObject({ chat_id: seedIds.tony, name: 'Tony Lin', type: 'user', username: 'tonylin1115', platform: 'telegram' })
     expect(typeof r.message_count).toBe('number')
   })
 
@@ -160,57 +164,57 @@ describe('handleFindChatByName', () => {
 
 describe('handleListMessages', () => {
   it('only returns type=text messages with non-null, non-empty text', () => {
-    const { messages } = handleListMessages(1, { limit: 50 })
+    const { messages } = handleListMessages(seedIds.tony, { limit: 50 })
     expect(messages).toHaveLength(3)
     expect(messages.every(m => m.type === 'text')).toBe(true)
     expect(messages.every(m => m.text !== null && m.text !== '')).toBe(true)
   })
 
   it('returns messages ordered by timestamp ASC', () => {
-    const { messages } = handleListMessages(1, { limit: 50 })
+    const { messages } = handleListMessages(seedIds.tony, { limit: 50 })
     const timestamps = messages.map(m => m.timestamp)
     expect(timestamps).toEqual([...timestamps].sort((a, b) => a - b))
   })
 
   it('defaults to limit 50 when not specified', () => {
-    expect(handleListMessages(1).messages).toHaveLength(3)
+    expect(handleListMessages(seedIds.tony).messages).toHaveLength(3)
   })
 
   it('caps limit at 200', () => {
-    expect(() => handleListMessages(1, { limit: 999 })).not.toThrow()
-    expect(handleListMessages(1, { limit: 999 }).messages).toHaveLength(3)
+    expect(() => handleListMessages(seedIds.tony, { limit: 999 })).not.toThrow()
+    expect(handleListMessages(seedIds.tony, { limit: 999 }).messages).toHaveLength(3)
   })
 
   it('supports before_timestamp pagination', () => {
-    const { messages } = handleListMessages(1, { limit: 50, before: T + 5 })
+    const { messages } = handleListMessages(seedIds.tony, { limit: 50, before: T + 5 })
     expect(messages).toHaveLength(2)
     expect(messages.map(m => m.text)).toEqual(['hello there', 'how are you'])
   })
 
   it('returns the N most recent messages before timestamp when more than N exist', () => {
-    upsertChat({ id: 10, name: 'Big Chat', type: 'group', username: null, platform: 'telegram' })
+    const bigChatId = upsertChat({ external_id: 'big-chat', account: 'default', name: 'Big Chat', type: 'group', username: null, platform: 'telegram' })
     for (let i = 1; i <= 10; i++) {
       insertMessage({
-        external_id: String(200 + i), chat_id: 10, sender_id: '1', sender_name: 'Alice',
+        external_id: String(200 + i), chat_id: bigChatId, sender_id: '1', sender_name: 'Alice',
         text: `message ${i}`, type: 'text', timestamp: T + i * 10, is_sender: 0,
         reply_to_external_id: null, platform: 'telegram',
       })
     }
-    const { messages } = handleListMessages(10, { limit: 3, before: T + 100 })
+    const { messages } = handleListMessages(bigChatId, { limit: 3, before: T + 100 })
     expect(messages).toHaveLength(3)
     expect(messages.map(m => m.timestamp)).toEqual([T + 70, T + 80, T + 90])
   })
 
   it('returns results in chronological order even when paginating backwards', () => {
-    upsertChat({ id: 11, name: 'Ordered Chat', type: 'group', username: null, platform: 'telegram' })
+    const orderedChatId = upsertChat({ external_id: 'ordered-chat', account: 'default', name: 'Ordered Chat', type: 'group', username: null, platform: 'telegram' })
     for (let i = 1; i <= 5; i++) {
       insertMessage({
-        external_id: String(300 + i), chat_id: 11, sender_id: '1', sender_name: 'Bob',
+        external_id: String(300 + i), chat_id: orderedChatId, sender_id: '1', sender_name: 'Bob',
         text: `msg ${i}`, type: 'text', timestamp: T + i * 100, is_sender: 0,
         reply_to_external_id: null, platform: 'telegram',
       })
     }
-    const { messages } = handleListMessages(11, { limit: 3, before: T + 500 })
+    const { messages } = handleListMessages(orderedChatId, { limit: 3, before: T + 500 })
     const timestamps = messages.map(m => m.timestamp)
     expect(timestamps).toEqual([...timestamps].sort((a, b) => a - b))
     expect(timestamps[timestamps.length - 1]).toBeLessThan(T + 500)
@@ -218,7 +222,7 @@ describe('handleListMessages', () => {
 
   it('result shape includes id, sender_name, text, type, timestamp, is_sender, platform', () => {
     // With limit=1 the single most-recent text message is returned.
-    const { messages } = handleListMessages(1, { limit: 1 })
+    const { messages } = handleListMessages(seedIds.tony, { limit: 1 })
     const [r] = messages
     expect(r).toMatchObject({
       sender_name: 'Me', text: 'doing well', type: 'text', timestamp: T + 6,
@@ -228,44 +232,44 @@ describe('handleListMessages', () => {
   })
 
   it('returns the N most recent text messages when no beforeTimestamp', () => {
-    upsertChat({ id: 20, name: 'Big Chat', type: 'group', username: null, platform: 'telegram' })
+    const bigChatId2 = upsertChat({ external_id: 'big-chat-2', account: 'default', name: 'Big Chat', type: 'group', username: null, platform: 'telegram' })
     for (let i = 1; i <= 10; i++) {
       insertMessage({
-        external_id: String(500 + i), chat_id: 20, sender_id: '1', sender_name: 'Alice',
+        external_id: String(500 + i), chat_id: bigChatId2, sender_id: '1', sender_name: 'Alice',
         text: `message ${i}`, type: 'text', timestamp: T + i * 10, is_sender: 0,
         reply_to_external_id: null, platform: 'telegram',
       })
     }
-    const { messages } = handleListMessages(20, { limit: 3 })
+    const { messages } = handleListMessages(bigChatId2, { limit: 3 })
     expect(messages).toHaveLength(3)
     // Messages 8, 9, 10 are the 3 most recent, returned in chronological (ASC) order.
     expect(messages.map(m => m.text)).toEqual(['message 8', 'message 9', 'message 10'])
   })
 
   it('returns has_more=true when there are more messages beyond the page', () => {
-    upsertChat({ id: 21, name: 'HasMore Chat', type: 'group', username: null, platform: 'telegram' })
+    const hasMoreChatId = upsertChat({ external_id: 'has-more', account: 'default', name: 'HasMore Chat', type: 'group', username: null, platform: 'telegram' })
     for (let i = 1; i <= 5; i++) {
       insertMessage({
-        external_id: String(600 + i), chat_id: 21, sender_id: '1', sender_name: 'Alice',
+        external_id: String(600 + i), chat_id: hasMoreChatId, sender_id: '1', sender_name: 'Alice',
         text: `msg ${i}`, type: 'text', timestamp: T + i * 10, is_sender: 0,
         reply_to_external_id: null, platform: 'telegram',
       })
     }
-    const result = handleListMessages(21, { limit: 3 })
+    const result = handleListMessages(hasMoreChatId, { limit: 3 })
     expect(result.has_more).toBe(true)
     expect(result.messages).toHaveLength(3)
   })
 
   it('returns has_more=false when all messages fit in the page', () => {
-    upsertChat({ id: 22, name: 'Small Chat', type: 'group', username: null, platform: 'telegram' })
+    const smallChatId = upsertChat({ external_id: 'small-chat', account: 'default', name: 'Small Chat', type: 'group', username: null, platform: 'telegram' })
     for (let i = 1; i <= 3; i++) {
       insertMessage({
-        external_id: String(700 + i), chat_id: 22, sender_id: '1', sender_name: 'Alice',
+        external_id: String(700 + i), chat_id: smallChatId, sender_id: '1', sender_name: 'Alice',
         text: `msg ${i}`, type: 'text', timestamp: T + i * 10, is_sender: 0,
         reply_to_external_id: null, platform: 'telegram',
       })
     }
-    const result = handleListMessages(22, { limit: 10 })
+    const result = handleListMessages(smallChatId, { limit: 10 })
     expect(result.has_more).toBe(false)
     expect(result.messages).toHaveLength(3)
   })
@@ -281,9 +285,9 @@ describe('handleSearchMessages', () => {
   })
 
   it('filters to a specific chat when chat_id is provided', () => {
-    const results = handleSearchMessages('hello', 1)
+    const results = handleSearchMessages('hello', seedIds.tony)
     expect(results).toHaveLength(1)
-    expect(results[0].chat_id).toBe(1)
+    expect(results[0].chat_id).toBe(seedIds.tony)
   })
 
   it('finds messages after rebuildFtsIndex restores search', () => {
@@ -300,7 +304,7 @@ describe('handleSearchMessages', () => {
   it('result shape includes chat_id, chat_name, sender_name, text, timestamp, platform', () => {
     const [r] = handleSearchMessages('hello')
     expect(r).toMatchObject({
-      chat_id: 1, chat_name: 'Tony Lin', sender_name: 'Tony',
+      chat_id: seedIds.tony, chat_name: 'Tony Lin', sender_name: 'Tony',
       text: 'hello there', platform: 'telegram',
     })
     expect(typeof r.timestamp).toBe('number')
@@ -328,31 +332,31 @@ describe('handleSearchMessages', () => {
 
 describe('handleGetChatSummary', () => {
   it('returns correct name, type, username, platform', () => {
-    const s = handleGetChatSummary(1)
+    const s = handleGetChatSummary(seedIds.tony)
     expect(s).toMatchObject({ name: 'Tony Lin', type: 'user', username: 'tonylin1115', platform: 'telegram' })
   })
 
   it('returns total message_count (all types)', () => {
-    const s = handleGetChatSummary(1)
+    const s = handleGetChatSummary(seedIds.tony)
     expect(s.message_count).toBe(6)
   })
 
   it('returns first and last message timestamps', () => {
-    const s = handleGetChatSummary(1)
+    const s = handleGetChatSummary(seedIds.tony)
     expect(s.first_message_date).toBe(T + 1)
     expect(s.last_message_date).toBe(T + 6)
   })
 
   it('returns up to 5 most recent text messages in last_5_texts', () => {
-    const s = handleGetChatSummary(1)
+    const s = handleGetChatSummary(seedIds.tony)
     expect(s.last_5_texts).toHaveLength(3)
     expect(s.last_5_texts).toContain('doing well')
     expect(s.last_5_texts).toContain('hello there')
   })
 
   it('returns null dates and empty last_5_texts for a chat with no messages', () => {
-    upsertChat({ id: 99, name: 'Empty', type: 'user', username: null, platform: 'telegram' })
-    const s = handleGetChatSummary(99)
+    const emptyChatId = upsertChat({ external_id: 'empty', account: 'default', name: 'Empty', type: 'user', username: null, platform: 'telegram' })
+    const s = handleGetChatSummary(emptyChatId)
     expect(s.message_count).toBe(0)
     expect(s.first_message_date).toBeNull()
     expect(s.last_message_date).toBeNull()
@@ -360,7 +364,7 @@ describe('handleGetChatSummary', () => {
   })
 
   it('result includes platform field', () => {
-    const s = handleGetChatSummary(3)
+    const s = handleGetChatSummary(seedIds.imsg)
     expect(s.platform).toBe('imessage')
   })
 })
@@ -383,23 +387,23 @@ describe('handleSemanticFindContacts', () => {
 
   it('returns results after index is built and vectors seeded', async () => {
     upsertEmbeddingMeta('chats', Date.now())
-    upsertChatVector(1, CLOSE_VEC)  // Tony Lin — close to query
-    upsertChatVector(2, FAR_VEC)    // Work Group — far (filtered by distance threshold)
-    upsertChatVector(3, CLOSE_VEC)  // iMsg Friend — close
+    upsertChatVector(seedIds.tony, CLOSE_VEC)  // Tony Lin — close to query
+    upsertChatVector(seedIds.work, FAR_VEC)    // Work Group — far (filtered by distance threshold)
+    upsertChatVector(seedIds.imsg, CLOSE_VEC)  // iMsg Friend — close
 
     const result = await handleSemanticFindContacts('old friend', {})
     expect(Array.isArray(result)).toBe(true)
     const results = result as { chat_id: number; name: string; platform: string; distance: number }[]
     expect(results.length).toBeGreaterThan(0)
     expect(results.every(r => r.distance <= 0.7)).toBe(true)
-    expect(results.find(r => r.chat_id === 1)).toBeDefined()
-    expect(results.find(r => r.chat_id === 2)).toBeUndefined() // filtered by threshold
+    expect(results.find(r => r.chat_id === seedIds.tony)).toBeDefined()
+    expect(results.find(r => r.chat_id === seedIds.work)).toBeUndefined() // filtered by threshold
   })
 
   it('platform filter returns only matching platform', async () => {
     upsertEmbeddingMeta('chats', Date.now())
-    upsertChatVector(1, CLOSE_VEC)
-    upsertChatVector(3, CLOSE_VEC)
+    upsertChatVector(seedIds.tony, CLOSE_VEC)
+    upsertChatVector(seedIds.imsg, CLOSE_VEC)
 
     const result = await handleSemanticFindContacts('friend', { platform: 'imessage' })
     expect(Array.isArray(result)).toBe(true)
@@ -410,13 +414,66 @@ describe('handleSemanticFindContacts', () => {
 
   it('result shape includes chat_id, name, platform, distance', async () => {
     upsertEmbeddingMeta('chats', Date.now())
-    upsertChatVector(1, CLOSE_VEC)
+    upsertChatVector(seedIds.tony, CLOSE_VEC)
 
     const result = await handleSemanticFindContacts('tony', {})
     const results = result as { chat_id: number; name: string; platform: string; distance: number }[]
-    const tony = results.find(r => r.chat_id === 1)
-    expect(tony).toMatchObject({ chat_id: 1, name: 'Tony Lin', platform: 'telegram' })
+    const tony = results.find(r => r.chat_id === seedIds.tony)
+    expect(tony).toMatchObject({ chat_id: seedIds.tony, name: 'Tony Lin', platform: 'telegram' })
     expect(typeof tony!.distance).toBe('number')
+  })
+})
+
+// ── account filter via MCP CallTool ──────────────────────────────────────────
+
+type McpCallResult = { content?: Array<{ type: string; text: string }>; error?: unknown }
+
+async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+  const server = createMcpServer()
+  const handler = (server as unknown as {
+    _requestHandlers: Map<string, (req: unknown) => Promise<McpCallResult>>
+  })._requestHandlers.get('tools/call')!
+  const res = await handler({ method: 'tools/call', params: { name, arguments: args } })
+  if (!res.content) throw new Error(`Tool error: ${JSON.stringify(res)}`)
+  return JSON.parse(res.content[0].text) as unknown
+}
+
+describe('account filter via MCP CallTool', () => {
+  beforeEach(() => {
+    // Add a secondary-account chat so we can verify filtering
+    const secondaryId = upsertChat({ external_id: '99', account: 'secondary', name: 'Secondary Chat', type: 'user', username: null, platform: 'telegram' })
+    insertMessage(msg('99', secondaryId, 'secondary message', 'text', 100))
+    rebuildFtsIndex()
+  })
+
+  it('list_chats with account=secondary returns only secondary chats', async () => {
+    const results = await callTool('list_chats', { account: 'secondary' }) as Array<{ account: string; name: string }>
+    expect(results).toHaveLength(1)
+    expect(results[0].name).toBe('Secondary Chat')
+    expect(results[0].account).toBe('secondary')
+  })
+
+  it('list_chats with account=default excludes secondary chats', async () => {
+    const results = await callTool('list_chats', { account: 'default' }) as Array<{ name: string }>
+    expect(results.find(r => r.name === 'Secondary Chat')).toBeUndefined()
+    expect(results.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('find_chat_by_name with account=secondary filters correctly', async () => {
+    const results = await callTool('find_chat_by_name', { name: '', account: 'secondary' }) as Array<{ account: string }>
+    expect(results.every(r => r.account === 'secondary')).toBe(true)
+    expect(results).toHaveLength(1)
+  })
+
+  it('search_messages with account=secondary scopes FTS to that account', async () => {
+    const results = await callTool('search_messages', { query: 'secondary', account: 'secondary' }) as Array<{ text: string }>
+    expect(results).toHaveLength(1)
+    expect(results[0].text).toBe('secondary message')
+  })
+
+  it('search_messages with account=default excludes secondary-account messages', async () => {
+    const results = await callTool('search_messages', { query: 'secondary', account: 'default' }) as Array<{ text: string }>
+    expect(results).toHaveLength(0)
   })
 })
 

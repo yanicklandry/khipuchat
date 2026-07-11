@@ -15,9 +15,11 @@ router.use((req, res, next) => {
   expressBasicAuth({ users: { [webUser]: webPass }, challenge: true })(req, res, next)
 })
 
-router.get('/api/chats', (_req: Request, res: Response) => {
+router.get('/api/chats', (req: Request, res: Response) => {
   try {
-    res.json(handleListChats())
+    const accountParam = req.query['account']
+    const account = typeof accountParam === 'string' ? accountParam : undefined
+    res.json(handleListChats(undefined, account))
   } catch (err) {
     res.status(500).json({ error: (err as Error).message })
   }
@@ -30,7 +32,9 @@ router.get('/api/search', (req: Request, res: Response) => {
       res.json([])
       return
     }
-    res.json(handleSearchMessages(q))
+    const accountParam = req.query['account']
+    const account = typeof accountParam === 'string' ? accountParam : undefined
+    res.json(handleSearchMessages(q, undefined, undefined, account))
   } catch (err) {
     res.status(500).json({ error: (err as Error).message })
   }

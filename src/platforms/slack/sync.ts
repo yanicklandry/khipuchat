@@ -4,6 +4,7 @@ import { runPlatformSync } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
+import type { AccountCredentials } from '../../account-registry'
 import { createSlackClient, type SlackClient, type SlackConversation, type SlackMessage } from './client'
 
 export function hashStr(s: string): number {
@@ -15,10 +16,11 @@ export function hashStr(s: string): number {
   return h === 0 ? 1 : h
 }
 
-export function mapChat(conv: SlackConversation): Chat {
+export function mapChat(conv: SlackConversation, account: string): Chat {
   const type = conv.is_im ? 'private' : conv.is_mpim ? 'group' : 'user'
   return {
-    id: hashStr(conv.id),
+    external_id: conv.id,
+    account,
     name: conv.name ?? conv.user ?? conv.id,
     type,
     username: null,
@@ -45,15 +47,14 @@ export function mapMessage(
   }
 }
 
-export async function runBackfillImpl(client: SlackClient): Promise<void> {
+export async function runBackfillImpl(client: SlackClient, account: string = 'default'): Promise<void> {
   let totalMessages = 0
   let totalChats = 0
 
   for await (const conv of client.listConversations()) {
     if (conv.is_archived) continue
-    upsertChat(mapChat(conv))
+    const chatId = upsertChat(mapChat(conv, account))
     totalChats++
-    const chatId = hashStr(conv.id)
 
     for await (const msg of client.fetchHistory(conv.id)) {
       const senderName = msg.user ? await client.getUserName(msg.user) : null
@@ -66,16 +67,15 @@ export async function runBackfillImpl(client: SlackClient): Promise<void> {
   console.log(`[slack] Sync complete: ${totalChats} channels, ${totalMessages} messages imported.`)
 }
 
-export async function runIncrementalImpl(client: SlackClient, since: Date): Promise<void> {
+export async function runIncrementalImpl(client: SlackClient, since: Date, account: string = 'default'): Promise<void> {
   const oldest = (since.getTime() / 1000).toString()
   let totalMessages = 0
   let totalChats = 0
 
   for await (const conv of client.listConversations()) {
     if (conv.is_archived) continue
-    upsertChat(mapChat(conv))
+    const chatId = upsertChat(mapChat(conv, account))
     totalChats++
-    const chatId = hashStr(conv.id)
 
     for await (const msg of client.fetchHistory(conv.id, oldest)) {
       const senderName = msg.user ? await client.getUserName(msg.user) : null
@@ -88,26 +88,34 @@ export async function runIncrementalImpl(client: SlackClient, since: Date): Prom
   console.log(`[slack] Incremental sync complete: ${totalChats} channels, ${totalMessages} messages imported.`)
 }
 
-export const slackAdapter: PlatformAdapter = {
-  platform: 'slack',
-  async runBackfill(_db: Database.Database): Promise<void> {
-    const token = process.env['SLACK_USER_TOKEN']
-    if (!token) {
-      process.stderr.write('[slack] SLACK_USER_TOKEN is not set. Export it and re-run.\n')
-      process.exit(1)
-    }
-    await runBackfillImpl(createSlackClient(token))
-  },
-  async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
-    const token = process.env['SLACK_USER_TOKEN']
-    if (!token) {
-      process.stderr.write('[slack] SLACK_USER_TOKEN is not set. Export it and re-run.\n')
-      process.exit(1)
-    }
-    await runIncrementalImpl(createSlackClient(token), since)
-  },
-  startListener(_db: Database.Database): void {},
+export function createSlackAdapter(account: string, credentials: AccountCredentials): PlatformAdapter {
+  return {
+    platform: 'slack' as Platform,
+    account,
+    async runBackfill(_db: Database.Database): Promise<void> {
+      const token = credentials.fields['SLACK_USER_TOKEN'] ?? ''
+      if (!token) {
+        process.stderr.write('[slack] SLACK_USER_TOKEN is not set. Export it and re-run.\n')
+        process.exit(1)
+      }
+      await runBackfillImpl(createSlackClient(token), account)
+    },
+    async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
+      const token = credentials.fields['SLACK_USER_TOKEN'] ?? ''
+      if (!token) {
+        process.stderr.write('[slack] SLACK_USER_TOKEN is not set. Export it and re-run.\n')
+        process.exit(1)
+      }
+      await runIncrementalImpl(createSlackClient(token), since, account)
+    },
+    startListener(_db: Database.Database): void {},
+  }
 }
+
+export const slackAdapter: PlatformAdapter = createSlackAdapter('default', {
+  name: 'default',
+  fields: { SLACK_USER_TOKEN: process.env['SLACK_USER_TOKEN'] ?? '' },
+})
 
 async function main(): Promise<void> {
   const db = initDb('./khipuchat.db')

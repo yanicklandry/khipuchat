@@ -8,6 +8,7 @@ import { runPlatformSync } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { PlatformAdapter } from '../types'
+import type { AccountCredentials } from '../../account-registry'
 
 export type PromptFn = (question: string) => Promise<string>
 export interface WizardConfig { sessionString: string }
@@ -23,14 +24,14 @@ interface EntityLike {
 function entityToChat(entity: EntityLike): Chat | null {
   if (entity.className === 'User') {
     const name = [entity.firstName, entity.lastName].filter(Boolean).join(' ') || 'Unknown'
-    return { id: Number(entity.id), name, type: 'user', username: entity.username ?? null, platform: 'telegram' }
+    return { external_id: String(entity.id), account: 'default', name, type: 'user', username: entity.username ?? null, platform: 'telegram' }
   }
   if (entity.className === 'Chat') {
-    return { id: Number(entity.id), name: entity.title ?? 'Unknown', type: 'group', username: null, platform: 'telegram' }
+    return { external_id: String(entity.id), account: 'default', name: entity.title ?? 'Unknown', type: 'group', username: null, platform: 'telegram' }
   }
   if (entity.className === 'Channel') {
     if (entity.broadcast) return null
-    return { id: Number(entity.id), name: entity.title ?? 'Unknown', type: 'group', username: entity.username ?? null, platform: 'telegram' }
+    return { external_id: String(entity.id), account: 'default', name: entity.title ?? 'Unknown', type: 'group', username: entity.username ?? null, platform: 'telegram' }
   }
   return null
 }
@@ -115,11 +116,11 @@ export async function runBackfill(
   const dialogs = await client.getDialogs({ limit: 500 }) as Array<{ entity: EntityLike; date?: number }>
 
   // Load per-chat last_synced_at so we can skip dialogs with no new activity
-  const syncedAt = new Map<number, number>()
+  const syncedAt = new Map<string, number>()
   const rows = getDb().prepare(
-    "SELECT id, last_synced_at FROM chats WHERE platform = 'telegram' AND last_synced_at IS NOT NULL"
-  ).all() as { id: number; last_synced_at: number }[]
-  for (const row of rows) syncedAt.set(row.id, row.last_synced_at)
+    "SELECT external_id, last_synced_at FROM chats WHERE platform = 'telegram' AND last_synced_at IS NOT NULL"
+  ).all() as { external_id: string; last_synced_at: number }[]
+  for (const row of rows) syncedAt.set(row.external_id, row.last_synced_at)
   const hasPriorSync = syncedAt.size > 0
 
   console.log(`${dialogs.length} dialogs — ${hasPriorSync ? 'incremental' : 'first'} sync`)
@@ -132,7 +133,7 @@ export async function runBackfill(
     if (!chat) continue
 
     const dialogDate = dialogs[i].date ?? 0
-    const chatLastSync = syncedAt.get(chat.id)
+    const chatLastSync = syncedAt.get(chat.external_id)
     if (hasPriorSync && chatLastSync !== undefined && dialogDate <= chatLastSync) {
       skipped++
       continue
@@ -140,8 +141,8 @@ export async function runBackfill(
 
     checked++
     process.stdout.write(`\r  [${checked} checked, ${skipped} skipped] ${chat.name.slice(0, 35).padEnd(35)}`)
-    upsertChat(chat)
-    const lastId = getLastSyncedId(chat.id)
+    const chatId = upsertChat(chat)
+    const lastId = getLastSyncedId(chatId)
     let synced = 0
 
     try {
@@ -152,7 +153,7 @@ export async function runBackfill(
           15000,
         )
         for (const msg of msgs) {
-          const row = msgToRow(msg, chat.id)
+          const row = msgToRow(msg, chatId)
           if (row) { insertMessage(row); synced++ }
         }
       } else {
@@ -164,16 +165,16 @@ export async function runBackfill(
             15000,
           )
           for (const msg of msgs) {
-            const row = msgToRow(msg, chat.id)
+            const row = msgToRow(msg, chatId)
             if (row) { insertMessage(row); synced++ }
           }
           if (msgs.length < pageSize) break
           offsetId = msgs[msgs.length - 1].id
         }
       }
-      setLastSyncedAt(chat.id, Math.floor(Date.now() / 1000))
-      if (isIndexed('messages')) await embedNewMessages([chat.id])
-      if (isIndexed('chats')) await embedNewChats([chat.id])
+      setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
+      if (isIndexed('messages')) await embedNewMessages([chatId])
+      if (isIndexed('chats')) await embedNewChats([chatId])
       if (synced > 0) console.log(`\n  [${chat.name}] +${synced} messages`)
     } catch (err) {
       console.log(`\n  [${chat.name}] skipped: ${(err as Error).message}`)
@@ -226,8 +227,8 @@ export async function syncIncrementalImpl(
     }
 
     checked++
-    upsertChat(chat)
-    const lastId = getLastSyncedId(chat.id)
+    const chatId = upsertChat(chat)
+    const lastId = getLastSyncedId(chatId)
     let synced = 0
 
     try {
@@ -238,7 +239,7 @@ export async function syncIncrementalImpl(
         )
         for (const msg of msgs) {
           if (msg.date <= sinceTs) continue
-          const row = msgToRow(msg, chat.id)
+          const row = msgToRow(msg, chatId)
           if (row) { insertMessage(row); synced++ }
         }
       } else {
@@ -250,16 +251,16 @@ export async function syncIncrementalImpl(
           )
           for (const msg of msgs) {
             if (msg.date <= sinceTs) continue
-            const row = msgToRow(msg, chat.id)
+            const row = msgToRow(msg, chatId)
             if (row) { insertMessage(row); synced++ }
           }
           if (msgs.length < pageSize) break
           offsetId = msgs[msgs.length - 1].id
         }
       }
-      setLastSyncedAt(chat.id, Math.floor(Date.now() / 1000))
-      if (isIndexed('messages')) await embedNewMessages([chat.id])
-      if (isIndexed('chats')) await embedNewChats([chat.id])
+      setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
+      if (isIndexed('messages')) await embedNewMessages([chatId])
+      if (isIndexed('chats')) await embedNewChats([chatId])
     } catch (err) {
       console.log(`\n  [${chat.name}] skipped: ${(err as Error).message}`)
     }
@@ -270,24 +271,42 @@ export async function syncIncrementalImpl(
   console.log(`\nIncremental sync complete. ${totalSynced} new messages. (${checked} checked, ${skipped} skipped)`)
 }
 
-export const telegramAdapter: PlatformAdapter = {
-  platform: 'telegram',
-  async runBackfill(_db: Database.Database): Promise<void> {
-    const session = new StringSession(config.sessionString)
-    const client = new TelegramClient(session, config.apiId, config.apiHash, { connectionRetries: 5 })
-    await client.connect()
-    process.on('unhandledRejection', () => {})
-    try { await runBackfill(client) } finally { await client.disconnect() }
-  },
-  async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
-    const session = new StringSession(config.sessionString)
-    const client = new TelegramClient(session, config.apiId, config.apiHash, { connectionRetries: 5 })
-    await client.connect()
-    process.on('unhandledRejection', () => {})
-    try { await syncIncrementalImpl(client, since) } finally { await client.disconnect() }
-  },
-  startListener(_db: Database.Database): void {},
+export function createTelegramAdapter(account: string, credentials: AccountCredentials): PlatformAdapter {
+  return {
+    platform: 'telegram',
+    account,
+    async runBackfill(_db: Database.Database): Promise<void> {
+      const sessionString = credentials.fields['TG_SESSION'] ?? config.sessionString
+      const apiId = parseInt(credentials.fields['TG_API_ID'] ?? String(config.apiId), 10)
+      const apiHash = credentials.fields['TG_API_HASH'] ?? config.apiHash
+      const session = new StringSession(sessionString)
+      const client = new TelegramClient(session, apiId, apiHash, { connectionRetries: 5 })
+      await client.connect()
+      process.on('unhandledRejection', () => {})
+      try { await runBackfill(client) } finally { await client.disconnect() }
+    },
+    async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
+      const sessionString = credentials.fields['TG_SESSION'] ?? config.sessionString
+      const apiId = parseInt(credentials.fields['TG_API_ID'] ?? String(config.apiId), 10)
+      const apiHash = credentials.fields['TG_API_HASH'] ?? config.apiHash
+      const session = new StringSession(sessionString)
+      const client = new TelegramClient(session, apiId, apiHash, { connectionRetries: 5 })
+      await client.connect()
+      process.on('unhandledRejection', () => {})
+      try { await syncIncrementalImpl(client, since) } finally { await client.disconnect() }
+    },
+    startListener(_db: Database.Database): void {},
+  }
 }
+
+export const telegramAdapter: PlatformAdapter = createTelegramAdapter('default', {
+  name: 'default',
+  fields: {
+    TG_SESSION: config.sessionString,
+    TG_API_ID: String(config.apiId),
+    TG_API_HASH: config.apiHash,
+  },
+})
 
 /** Exported for testing: runs the mode-select + sync logic given a connected client. */
 export async function runSync(
@@ -302,7 +321,7 @@ export async function runSync(
     console.log('[telegram] sync mode: incremental')
   }
   await syncFn(client)
-  setPlatformLastSyncedAt('telegram', Math.floor(Date.now() / 1000))
+  setPlatformLastSyncedAt('telegram', 'default', Math.floor(Date.now() / 1000))
 }
 
 async function main(): Promise<void> {

@@ -90,8 +90,8 @@ describe('mapChat', () => {
     expect(mapChat(baseRow, ['unknown-handle'], new Map()).name).toBe('unknown-handle')
   })
 
-  it('uses hashGuid for id', () => {
-    expect(mapChat(baseRow, ['+111'], contactMap).id).toBe(hashGuid('chat-guid-001'))
+  it('uses guid as external_id', () => {
+    expect(mapChat(baseRow, ['+111'], contactMap).external_id).toBe('chat-guid-001')
   })
 })
 

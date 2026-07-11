@@ -30,13 +30,15 @@ function makeOrthogonalVec(): Float32Array {
 function seedDb() {
   const db = getDb()
   db.exec(`
-    INSERT OR IGNORE INTO chats(id, name, type, platform)
-      VALUES (1, 'Alice', 'user', 'telegram'),
-             (2, 'Bob', 'user', 'imessage');
+    INSERT OR IGNORE INTO chats(id, name, type, platform, account, external_id)
+      VALUES (1, 'Alice', 'user', 'telegram', 'personal', '1'),
+             (2, 'Bob', 'user', 'imessage', 'default', '2'),
+             (3, 'Charlie', 'user', 'telegram', 'work', '3');
     INSERT OR IGNORE INTO messages(external_id, chat_id, sender_name, text, type, timestamp, is_sender, platform)
       VALUES ('m1', 1, 'Alice', 'Hello from Shanghai', 'text', 1000, 0, 'telegram'),
              ('m2', 1, 'Alice', 'See you in 2019',     'text', 2000, 0, 'telegram'),
-             ('m3', 2, 'Bob',   'iMessage text',        'text', 3000, 0, 'imessage');
+             ('m3', 2, 'Bob',   'iMessage text',        'text', 3000, 0, 'imessage'),
+             ('m4', 3, 'Charlie', 'Work message',       'text', 4000, 0, 'telegram');
   `)
 }
 
@@ -75,7 +77,7 @@ describe('vec-db', () => {
 
   it('upsertChatVector removes chat from unindexed list', () => {
     const before = getUnindexedChats()
-    expect(before).toHaveLength(2)
+    expect(before).toHaveLength(3)
 
     upsertChatVector(1, makeVec(0.5))
     const after = getUnindexedChats()
@@ -123,5 +125,64 @@ describe('vec-db', () => {
 
     const results = semanticSearchMessages(makeVec(0.8), { platform: 'telegram' })
     results.forEach(r => expect(r.platform).toBe('telegram'))
+  })
+
+  it('semanticFindContacts result contains account field', () => {
+    upsertChatVector(1, makeVec(0.9))
+
+    const results = semanticFindContacts(makeVec(0.9), {})
+    expect(results.length).toBeGreaterThan(0)
+    expect(results[0].account).toBeDefined()
+    expect(typeof results[0].account).toBe('string')
+  })
+
+  it('semanticSearchMessages result contains account field', () => {
+    upsertMessageVector(1, makeVec(0.8))
+
+    const results = semanticSearchMessages(makeVec(0.8), {})
+    expect(results.length).toBeGreaterThan(0)
+    expect(results[0].account).toBeDefined()
+    expect(typeof results[0].account).toBe('string')
+  })
+
+  it('semanticFindContacts account filter returns only matching account', () => {
+    upsertChatVector(1, makeVec(0.9))  // account='personal'
+    upsertChatVector(2, makeVec(0.9))  // account='default'
+    upsertChatVector(3, makeVec(0.9))  // account='work'
+
+    const results = semanticFindContacts(makeVec(0.9), { account: 'work' })
+    expect(results.length).toBeGreaterThan(0)
+    results.forEach(r => expect(r.account).toBe('work'))
+    expect(results.find(r => r.account !== 'work')).toBeUndefined()
+  })
+
+  it('semanticSearchMessages account filter returns only matching account', () => {
+    upsertMessageVector(1, makeVec(0.8))  // chat 1 => account='personal'
+    upsertMessageVector(3, makeVec(0.8))  // chat 2 => account='default'
+    upsertMessageVector(4, makeVec(0.8))  // chat 3 => account='work'
+
+    const results = semanticSearchMessages(makeVec(0.8), { account: 'work' })
+    expect(results.length).toBeGreaterThan(0)
+    results.forEach(r => expect(r.account).toBe('work'))
+  })
+
+  it('semanticFindContacts without account filter returns results from all accounts', () => {
+    upsertChatVector(1, makeVec(0.9))  // account='personal'
+    upsertChatVector(2, makeVec(0.9))  // account='default'
+    upsertChatVector(3, makeVec(0.9))  // account='work'
+
+    const results = semanticFindContacts(makeVec(0.9), {})
+    const accounts = new Set(results.map(r => r.account))
+    expect(accounts.size).toBeGreaterThan(1)
+  })
+
+  it('semanticSearchMessages without account filter returns results from all accounts', () => {
+    upsertMessageVector(1, makeVec(0.8))  // chat 1 => account='personal'
+    upsertMessageVector(3, makeVec(0.8))  // chat 2 => account='default'
+    upsertMessageVector(4, makeVec(0.8))  // chat 3 => account='work'
+
+    const results = semanticSearchMessages(makeVec(0.8), {})
+    const accounts = new Set(results.map(r => r.account))
+    expect(accounts.size).toBeGreaterThan(1)
   })
 })

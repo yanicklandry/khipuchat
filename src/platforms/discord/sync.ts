@@ -4,6 +4,7 @@ import { runPlatformSync } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
+import type { AccountCredentials } from '../../account-registry'
 import { createDiscordClient, type DiscordClient, type DiscordChannel, type DiscordMessage } from './client'
 
 export function hashStr(s: string): number {
@@ -19,7 +20,8 @@ export function mapChat(channel: DiscordChannel): Chat {
   const isGroup = channel.type === 0 || channel.type === 3
   const name = channel.name ?? channel.recipients?.[0]?.username ?? channel.id
   return {
-    id: hashStr(channel.id),
+    external_id: channel.id,
+    account: 'default',
     name,
     type: isGroup ? 'group' : 'private',
     username: null,
@@ -66,8 +68,7 @@ export async function runBackfillImpl(client: DiscordClient): Promise<void> {
 
   let totalMessages = 0
   for (const channel of channels) {
-    upsertChat(mapChat(channel))
-    const chatId = hashStr(channel.id)
+    const chatId = upsertChat(mapChat(channel))
     let before: string | undefined
     while (true) {
       const messages = await client.getMessages(channel.id, before)
@@ -104,8 +105,7 @@ export async function runIncrementalImpl(client: DiscordClient, since: Date): Pr
 
   let totalMessages = 0
   for (const channel of channels) {
-    upsertChat(mapChat(channel))
-    const chatId = hashStr(channel.id)
+    const chatId = upsertChat(mapChat(channel))
     let afterCursor: string | undefined = after
     while (true) {
       const messages = await client.getMessages(channel.id, undefined, afterCursor)
@@ -123,26 +123,34 @@ export async function runIncrementalImpl(client: DiscordClient, since: Date): Pr
   console.log(`[discord] Incremental sync complete: ${channels.length} channels, ${totalMessages} messages imported.`)
 }
 
-export const discordAdapter: PlatformAdapter = {
-  platform: 'discord',
-  async runBackfill(_db: Database.Database): Promise<void> {
-    const token = process.env['DISCORD_TOKEN']
-    if (!token) {
-      process.stderr.write('[discord] DISCORD_TOKEN is not set. Export it and re-run.\n')
-      process.exit(1)
-    }
-    await runBackfillImpl(createDiscordClient(token))
-  },
-  async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
-    const token = process.env['DISCORD_TOKEN']
-    if (!token) {
-      process.stderr.write('[discord] DISCORD_TOKEN is not set. Export it and re-run.\n')
-      process.exit(1)
-    }
-    await runIncrementalImpl(createDiscordClient(token), since)
-  },
-  startListener(_db: Database.Database): void {},
+export function createDiscordAdapter(account: string, credentials: AccountCredentials): PlatformAdapter {
+  return {
+    platform: 'discord' as Platform,
+    account,
+    async runBackfill(_db: Database.Database): Promise<void> {
+      const token = credentials.fields['DISCORD_TOKEN'] ?? ''
+      if (!token) {
+        process.stderr.write('[discord] DISCORD_TOKEN is not set. Export it and re-run.\n')
+        process.exit(1)
+      }
+      await runBackfillImpl(createDiscordClient(token))
+    },
+    async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
+      const token = credentials.fields['DISCORD_TOKEN'] ?? ''
+      if (!token) {
+        process.stderr.write('[discord] DISCORD_TOKEN is not set. Export it and re-run.\n')
+        process.exit(1)
+      }
+      await runIncrementalImpl(createDiscordClient(token), since)
+    },
+    startListener(_db: Database.Database): void {},
+  }
 }
+
+export const discordAdapter: PlatformAdapter = createDiscordAdapter('default', {
+  name: 'default',
+  fields: { DISCORD_TOKEN: process.env['DISCORD_TOKEN'] ?? '' },
+})
 
 async function main(): Promise<void> {
   const db = initDb('./khipuchat.db')

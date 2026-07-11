@@ -23,10 +23,10 @@ describe('E2E: index:embeddings CLI', () => {
   it('first run: exits 0, stdout contains Done. Indexed, embedding_meta has rows for messages and chats', () => {
     // Seed a file-based DB — initDb creates the full schema including vec tables
     initDb(tmpDb)
-    upsertChat({ id: 1, name: 'Alice', type: 'user', username: null, platform: 'telegram', last_synced_at: null, message_count: 1 })
-    upsertChat({ id: 2, name: 'Bob', type: 'user', username: null, platform: 'imessage', last_synced_at: null, message_count: 1 })
-    insertMessage({ external_id: 'm1', chat_id: 1, sender_id: null, sender_name: 'Alice', text: 'Hello from Shanghai', type: 'text', timestamp: 1000, is_sender: 0, reply_to_external_id: null, platform: 'telegram' })
-    insertMessage({ external_id: 'm2', chat_id: 2, sender_id: null, sender_name: 'Bob', text: 'iMessage content here', type: 'text', timestamp: 2000, is_sender: 0, reply_to_external_id: null, platform: 'imessage' })
+    const aliceId = upsertChat({ external_id: 'alice-1', account: 'default', name: 'Alice', type: 'user', username: null, platform: 'telegram', last_synced_at: null, message_count: 1 })
+    const bobId = upsertChat({ external_id: 'bob-1', account: 'default', name: 'Bob', type: 'user', username: null, platform: 'imessage', last_synced_at: null, message_count: 1 })
+    insertMessage({ external_id: 'm1', chat_id: aliceId, sender_id: null, sender_name: 'Alice', text: 'Hello from Shanghai', type: 'text', timestamp: 1000, is_sender: 0, reply_to_external_id: null, platform: 'telegram' })
+    insertMessage({ external_id: 'm2', chat_id: bobId, sender_id: null, sender_name: 'Bob', text: 'iMessage content here', type: 'text', timestamp: 2000, is_sender: 0, reply_to_external_id: null, platform: 'imessage' })
 
     // Run the CLI in a subprocess — KHIPUCHAT_EMBED_MOCK skips the 90 MB model download
     const stdout = execSync(`${TSX} ${CLI} --db ${tmpDb}`, {
