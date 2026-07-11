@@ -1,22 +1,22 @@
 {
   "feature_name": "incremental-sync",
   "created_at": "2026-05-14T00:00:00.000Z",
-  "updated_at": "2026-05-14T00:00:00.000Z",
+  "updated_at": "2026-07-11T00:00:00.000Z",
   "language": "en",
-  "phase": "tasks-generated",
+  "phase": "requirements-approved",
   "approvals": {
     "requirements": {
       "generated": true,
       "approved": true
     },
     "design": {
-      "generated": true,
-      "approved": true
+      "generated": false,
+      "approved": false
     },
     "tasks": {
-      "generated": true,
-      "approved": true
+      "generated": false,
+      "approved": false
     }
   },
-  "ready_for_implementation": true
+  "ready_for_implementation": false
 }

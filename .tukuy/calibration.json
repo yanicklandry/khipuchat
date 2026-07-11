@@ -1,0 +1,10 @@
+[
+  {
+    "phase": "steering",
+    "timestamp": "2026-07-11T17:50:10.942Z",
+    "estimatedDurationMs": 120000,
+    "actualDurationMs": 75982,
+    "idleDurationMs": 0,
+    "estimatedTokens": 50000
+  }
+]

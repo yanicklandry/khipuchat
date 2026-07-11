@@ -70,3 +70,16 @@ The Release spec packages KhipuChat for easy self-hosted deployment: a multi-arc
 1. A demo GIF or screenshot shall exist in `docs/` and be linked from the README.
 2. The demo asset shall be under 5 MB.
 3. The README shall include a Docker quickstart section with the minimum commands needed to get started.
+
+## Correction (2026-07-11 quality pass — see .kiro/brief.md)
+
+Regenerate design/tasks so packaging and docs reflect the `khipu` CLI and multi-account config:
+
+### Requirement 5: CLI-first packaging and documentation
+
+#### Acceptance Criteria
+
+1. The README, Docker, and CI shall reference the `khipu` command (e.g. `khipu sync all`, `khipu sync telegram`) rather than `npm run sync:*` or raw `tsx src/...` invocations.
+2. The package shall expose a `bin` entry so the tool installs globally; the README shall document the `npm link` development workflow (see `khipu-cli`).
+3. The Docker service shall run `khipu sync all` (daemon) as its default long-running process.
+4. The README shall document `khipu.config.json` for multi-account setup (see `multi-account`) and note that incremental sync is the default, calling out any platform whose source cannot filter server-side and is therefore slower.

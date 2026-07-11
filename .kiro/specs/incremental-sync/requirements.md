@@ -75,3 +75,25 @@ This feature introduces per-platform incremental sync: a `sync_state` table reco
 2. If an unhandled error is thrown during a sync run, the sync system shall not write a new `last_synced_at` for that platform.
 3. The sync system shall write `last_synced_at` at the platform level (not per-chat), capturing the timestamp of when the run completed.
 4. While `last_synced_at` is updated at the platform level, per-chat `chats.last_synced_at` shall continue to be updated after each individual chat sync as before.
+
+## Correction (2026-07-11 quality pass — see .kiro/brief.md)
+
+Regenerate requirements/design/tasks to reflect two reconciliations:
+
+### Requirement 6: `--force` replaces `--backfill` and also reindexes
+
+**Objective:** As an operator, I want one flag that both re-reads all messages and rebuilds the search index, so a full resync is a single command.
+
+#### Acceptance Criteria
+
+1. The full-scan flag shall be named `--force`; `--backfill` shall be accepted as a deprecated alias.
+2. When `--force` is set, the sync runner shall perform a full backfill (ignore `sync_state`) for the targeted platform/account.
+3. When `--force` is set, the runner shall also rebuild embeddings for the affected messages after the sync completes (see `semantic-search` and `khipu-cli`).
+4. When neither `--force` nor `--backfill` is set, the runner shall behave incrementally as already specified.
+
+### Requirement 7: Per-account sync state
+
+#### Acceptance Criteria
+
+1. Once `multi-account` lands, `sync_state` shall be keyed by (platform, account) rather than platform alone, and `getLastSyncedAt`/`setLastSyncedAt` shall take an account argument.
+2. Existing single-account `sync_state` rows shall migrate to account `"default"` without loss.

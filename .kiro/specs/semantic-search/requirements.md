@@ -64,3 +64,16 @@ KhipuChat users archive hundreds of thousands of messages across multiple platfo
 3. While `npm run index:embeddings` is running, the system shall not prevent the MCP server or platform sync processes from operating concurrently.
 4. The system shall download the embedding model at most once, caching it in a local directory, and shall not re-download the model on subsequent runs when the cache is present and valid.
 5. If the local model cache is absent or corrupt, the system shall automatically re-download the model and log that the download occurred.
+
+## Correction (2026-07-11 quality pass — see .kiro/brief.md)
+
+Regenerate design/tasks to reflect the indexing entry points:
+
+### Requirement 6: Automatic and CLI-driven indexing
+
+#### Acceptance Criteria
+
+1. The indexing pipeline shall be invokable programmatically so the watch loop (`khipu sync all`) can run it after each successful sync (see `sync-watcher` Requirement 6).
+2. The indexing pipeline shall be exposed as `khipu index` (replacing `npm run index:embeddings`), with `khipu index --force` rebuilding all embeddings from scratch.
+3. When `khipu sync ... --force` is invoked, the indexing pipeline shall rebuild embeddings for the affected messages.
+4. Indexing shall be account-aware once `multi-account` lands, so embeddings remain correctly scoped per account.

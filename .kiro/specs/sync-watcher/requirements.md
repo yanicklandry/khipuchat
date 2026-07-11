@@ -62,3 +62,25 @@ KhipuChat operators currently have no built-in way to keep the message archive c
 1. The watch daemon shall read a per-platform interval from an environment variable named `WATCH_INTERVAL_<PLATFORM>_MS` (where `<PLATFORM>` is the uppercase platform name, e.g. `WATCH_INTERVAL_TELEGRAM_MS`).
 2. When no per-platform interval environment variable is set, the watch daemon shall apply a default interval of 5 minutes for that platform.
 3. When a per-platform interval environment variable is set to a positive integer, the watch daemon shall use that value (in milliseconds) as the polling interval for that platform.
+
+## Correction (2026-07-11 quality pass — see .kiro/brief.md)
+
+This spec keeps ownership of the daemon loop but gains an indexing step and moves its operator interface to `khipu-cli`. Regenerate design/tasks to reflect:
+
+### Requirement 6: Index after sync
+
+**Objective:** As an operator, I want each poll cycle to also index newly synced messages, so that new messages become semantically searchable without a separate manual step.
+
+#### Acceptance Criteria
+
+1. When a poll cycle for a platform/account fetches one or more new messages, the watch daemon shall run the embedding indexing step for those new messages after the sync completes and before the next wait interval (sync => index => wait).
+2. When a poll cycle fetches no new messages, the watch daemon shall skip indexing for that cycle.
+3. If the indexing step raises an error, the watch daemon shall isolate it the same way it isolates sync errors (log with platform/account, continue running).
+
+### Requirement 7: CLI entry point and single-pass mode
+
+#### Acceptance Criteria
+
+1. The daemon shall be launched via `khipu sync all` (owned by `khipu-cli`), not `npm run watch`; any `npm run watch` script shall remain only as a thin wrapper during transition.
+2. When invoked with `--once`, the runner shall perform a single sync+index pass over all configured platforms/accounts and then exit (for cron), rather than entering the continuous loop.
+3. The poll loop shall operate per configured account (see `multi-account`), not only per platform.
