@@ -1,7 +1,8 @@
 {
   "specName": "multi-account",
   "completedPhases": [
-    "steering"
+    "steering",
+    "discovery"
   ],
   "done": false
 }
