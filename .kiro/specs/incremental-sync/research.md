@@ -106,3 +106,174 @@
 - Slack conversations.history `oldest`: https://api.slack.com/methods/conversations.history
 - imapflow search options: https://imapflow.com/module-imapflow-ImapFlow.html
 - better-sqlite3 synchronous ops: https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md
+
+---
+
+# Gap Analysis (2026-07-11)
+
+## Summary
+
+- The adapter layer (all 7 platforms) and DB infrastructure are **complete**. The main remaining work is the CLI wiring layer.
+- All 7 adapter objects implement `syncIncremental`. DB schema, `getPlatformLastSyncedAt`, and `setPlatformLastSyncedAt` exist and work.
+- Every `main()` entry point still hardcodes `runBackfill` — none of them parse `--force`, read `sync_state`, or call `setPlatformLastSyncedAt` on clean completion (telegram has a partial but broken implementation in `runSync`).
+- The aggregate `npm run sync` script only covers 2 of 7 platforms and uses the wrong flag.
+- Recommended approach: introduce `src/sync-runner.ts` (~60 lines) containing a shared `runPlatformSync` function; each `main()` becomes a 3-line call.
+
+---
+
+## 1. What Already Exists
+
+### DB Layer (`src/db.ts`)
+
+| Item | Status |
+|---|---|
+| `sync_state` table (schema, `createSchema`) | Complete |
+| `getPlatformLastSyncedAt(platform)` | Complete — returns `number \| null` |
+| `setPlatformLastSyncedAt(platform, timestamp)` | Complete — `INSERT OR REPLACE` |
+| `rebuildFtsIndex()` | Complete — available for `--force` post-sync |
+
+Note: requirements name these `getLastSyncedAt`/`setLastSyncedAt`. Current names use the `Platform` prefix; design phase should decide whether to rename.
+
+### PlatformAdapter Interface (`src/platforms/types.ts`)
+
+`syncIncremental?(db, since: Date): Promise<void>` is already declared as optional (line 10).
+
+### All 7 Adapter Implementations
+
+Every platform has a working `syncIncremental` on its adapter object:
+
+| Platform | Adapter implements `syncIncremental` | Incremental strategy |
+|---|---|---|
+| telegram | Yes | Skip dialogs with `date <= sinceTs`; paginate forward from last message ID |
+| imessage | Yes | Cocoa nanosecond threshold `WHERE date > cocoaThreshold` on `chat.db` |
+| wechat | Yes | `WHERE timeCol > sinceTs` per-table (handles V3 + V4 schema) |
+| discord | Yes | `after` snowflake derived from `since` via `dateToDiscordSnowflake` |
+| slack | Yes | `oldest` parameter to `fetchHistory` (Unix float seconds) |
+| email | Yes | Delegates to `runBackfillImpl` with `{ since }` (IMAP `SINCE` filter) |
+| whatsapp | Yes | Client-side filter `msg.timestamp > sinceTs` with logged caveat |
+
+---
+
+## 2. Gaps
+
+### Gap A — CLI `main()` functions do not wire incremental mode (CRITICAL)
+
+Every `main()` calls `runBackfill` unconditionally. For example, `discord/sync.ts` line 148:
+
+```typescript
+async function main(): Promise<void> {
+  const db = initDb('./khipuchat.db')
+  try { await discordAdapter.runBackfill(db) } catch { process.exit(1) }
+}
+```
+
+Telegram is partial but broken. Its `runSync` function logs "incremental" when `since` is non-null but still calls `syncFn(client)` which defaults to `runBackfill` — the incremental path is never executed.
+
+Each `main()` is missing:
+- `--force` / `--backfill` flag parsing
+- `getPlatformLastSyncedAt(platform)` call
+- Mode routing (`syncIncremental` vs `runBackfill`)
+- `console.log('incremental' | 'backfill')` before sync (Req 4.7)
+- `setPlatformLastSyncedAt` only on clean completion (Req 5)
+
+### Gap B — `--force` flag not parsed anywhere (HIGH)
+
+No `main()` recognises `--force`. Telegram reads `--backfill` (deprecated) and `--backfill-only` (internal daemon flag, controls whether the listener loop starts — orthogonal to sync mode).
+
+### Gap C — Semantic search index rebuild on `--force` not wired (MEDIUM)
+
+Req 4.4: sync runner shall rebuild the semantic search index after a `--force` run.
+
+Per-chat `embedNewMessages`/`embedNewChats` are already called inside each incremental impl. The full index rebuild (equivalent to `npm run index:embeddings`) is not triggered from any sync script. There is no exported `rebuildAllEmbeddings` function — the batch loop lives inside `index-embeddings.ts::main()`. Design needs to either extract a function or call the script programmatically.
+
+### Gap D — `npm run sync` aggregate script is incomplete (MEDIUM)
+
+Current `package.json`:
+```
+"sync": "tsx src/platforms/telegram/sync.ts --backfill-only && tsx src/platforms/imessage/sync.ts"
+```
+
+Issues: only 2 of 7 platforms; uses `--backfill-only` (wrong flag); does not forward `--force` (Req 4.6).
+
+### Gap E — `sync_state` per-(platform, account) keying (LOW — future)
+
+Current schema uses `platform TEXT NOT NULL PRIMARY KEY`. Req 6 asks for composite (platform, account) key with migration of existing rows to account `"default"`. This is explicitly tied to the `multi-account` spec and safe to defer. The single-account schema fully satisfies Reqs 1–5.
+
+---
+
+## 3. Implementation Approaches
+
+### Option A: Shared sync runner (Recommended)
+
+Create `src/sync-runner.ts`:
+
+```typescript
+export async function runPlatformSync(
+  adapter: PlatformAdapter,
+  db: Database.Database,
+  argv: string[],
+): Promise<void>
+```
+
+Logic:
+1. Parse `force = argv.includes('--force') || argv.includes('--backfill')`
+2. `const sinceTs = force ? null : getPlatformLastSyncedAt(adapter.platform)`
+3. Print `incremental` or `backfill`
+4. Try: call `adapter.syncIncremental(db, new Date(sinceTs * 1000))` if sinceTs non-null and method exists; else `adapter.runBackfill(db)`
+5. On success: `setPlatformLastSyncedAt(adapter.platform, now)`
+6. On `--force`: trigger full embeddings rebuild
+
+Each `main()` becomes:
+```typescript
+async function main(): Promise<void> {
+  const db = initDb('./khipuchat.db')
+  await runPlatformSync(discordAdapter, db, process.argv)
+}
+```
+
+**Pros**: Single source of truth for all requirements; easy to unit-test; no adapter changes needed.
+**Cons**: One new file (~60 lines).
+
+### Option B: Inline mode selection in each `main()`
+
+Duplicate ~20 lines of flag-parsing + routing into 7 files.
+
+**Pros**: No new abstraction.
+**Cons**: 7-way duplication; any requirement change requires 7 edits.
+
+**Recommendation**: Option A. It maps directly to the spec's "sync runner" concept and is far easier to maintain.
+
+---
+
+## 4. Integration Points
+
+| Point | File | Notes |
+|---|---|---|
+| DB helpers | `src/db.ts` | `getPlatformLastSyncedAt`, `setPlatformLastSyncedAt` already exported |
+| Embeddings rebuild | `src/index-embeddings.ts` | Extract `rebuildAllEmbeddings()` or dynamically import `main` |
+| Telegram daemon flag | `src/platforms/telegram/sync.ts` | Keep `--backfill-only` — controls listener loop, orthogonal to sync mode |
+| Aggregate script | `package.json` | Replace `sync` script; add all 7 platforms; forward `$npm_config_args` or inline flag check |
+| FTS rebuild | `src/db.ts::rebuildFtsIndex()` | Already exists; call inside `--force` path |
+
+---
+
+## 5. Open Questions for Design Phase
+
+1. **Embeddings rebuild scope**: On `--force`, rebuild all messages or only the just-synced platform? Req 4.4 says "for the affected messages" — per-platform scope is faster and sufficient.
+2. **Aggregate `sync` serial vs. parallel**: Current script is serial. `--force` mode may be slow for all 7 platforms in sequence; parallel execution risks wechat decryption resource contention.
+3. **Telegram `--backfill-only` flag**: This controls whether the listener loop starts after sync. Keep separate from `--force` or consolidate?
+4. **Function naming**: `getLastSyncedAt`/`setLastSyncedAt` (spec) vs. `getPlatformLastSyncedAt`/`setPlatformLastSyncedAt` (code). Recommend keeping current names — the `Platform` prefix aids readability.
+5. **Error granularity for Req 5**: If 499/500 Telegram dialogs succeed and one throws, should `setPlatformLastSyncedAt` be written? Current adapter implementations silently skip errored chats; the try/catch in `runSync` would need to distinguish "some chats failed" from "sync crashed entirely."
+
+---
+
+## 6. Verdict
+
+Implementation is approximately 60% complete. The hardest parts (adapter incremental logic, DB schema, interface contract) are done. The remaining work is:
+
+- One new `src/sync-runner.ts` file (~60 lines)
+- Update 7 `main()` functions (3–5 lines each)
+- Update `package.json` sync script
+- Extract `rebuildAllEmbeddings()` from `index-embeddings.ts`
+
+**Risk**: Low. No adapter logic needs changing. `runBackfill` signature is untouched. All changes are in entry points and wiring.
