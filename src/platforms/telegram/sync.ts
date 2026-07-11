@@ -21,17 +21,17 @@ interface EntityLike {
   username?: string | null; title?: string; broadcast?: boolean; bot?: boolean
 }
 
-function entityToChat(entity: EntityLike): Chat | null {
+function entityToChat(entity: EntityLike, account: string): Chat | null {
   if (entity.className === 'User') {
     const name = [entity.firstName, entity.lastName].filter(Boolean).join(' ') || 'Unknown'
-    return { external_id: String(entity.id), account: 'default', name, type: 'user', username: entity.username ?? null, platform: 'telegram' }
+    return { external_id: String(entity.id), account, name, type: 'user', username: entity.username ?? null, platform: 'telegram' }
   }
   if (entity.className === 'Chat') {
-    return { external_id: String(entity.id), account: 'default', name: entity.title ?? 'Unknown', type: 'group', username: null, platform: 'telegram' }
+    return { external_id: String(entity.id), account, name: entity.title ?? 'Unknown', type: 'group', username: null, platform: 'telegram' }
   }
   if (entity.className === 'Channel') {
     if (entity.broadcast) return null
-    return { external_id: String(entity.id), account: 'default', name: entity.title ?? 'Unknown', type: 'group', username: entity.username ?? null, platform: 'telegram' }
+    return { external_id: String(entity.id), account, name: entity.title ?? 'Unknown', type: 'group', username: entity.username ?? null, platform: 'telegram' }
   }
   return null
 }
@@ -112,6 +112,7 @@ export async function runBackfill(
   sleep: (ms: number) => Promise<void> = DEFAULT_SLEEP,
   pageSize = 100,
   firstRunLimit = 200,
+  account = 'default',
 ): Promise<void> {
   const dialogs = await client.getDialogs({ limit: 500 }) as Array<{ entity: EntityLike; date?: number }>
 
@@ -129,7 +130,7 @@ export async function runBackfill(
   let skipped = 0
 
   for (let i = 0; i < dialogs.length; i++) {
-    const chat = entityToChat(dialogs[i].entity)
+    const chat = entityToChat(dialogs[i].entity, account)
     if (!chat) continue
 
     const dialogDate = dialogs[i].date ?? 0
@@ -208,6 +209,7 @@ export async function syncIncrementalImpl(
   sleep: (ms: number) => Promise<void> = DEFAULT_SLEEP,
   pageSize = 100,
   firstRunLimit = 200,
+  account = 'default',
 ): Promise<void> {
   const sinceTs = Math.floor(since.getTime() / 1000)
   const dialogs = await client.getDialogs({ limit: 500 }) as Array<{ entity: EntityLike; date?: number }>
@@ -217,7 +219,7 @@ export async function syncIncrementalImpl(
   let skipped = 0
 
   for (let i = 0; i < dialogs.length; i++) {
-    const chat = entityToChat(dialogs[i].entity)
+    const chat = entityToChat(dialogs[i].entity, account)
     if (!chat) continue
 
     const dialogDate = dialogs[i].date ?? 0
@@ -283,7 +285,7 @@ export function createTelegramAdapter(account: string, credentials: AccountCrede
       const client = new TelegramClient(session, apiId, apiHash, { connectionRetries: 5 })
       await client.connect()
       process.on('unhandledRejection', () => {})
-      try { await runBackfill(client) } finally { await client.disconnect() }
+      try { await runBackfill(client, DEFAULT_SLEEP, 100, 200, account) } finally { await client.disconnect() }
     },
     async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
       const sessionString = credentials.fields['TG_SESSION'] ?? config.sessionString
@@ -293,7 +295,7 @@ export function createTelegramAdapter(account: string, credentials: AccountCrede
       const client = new TelegramClient(session, apiId, apiHash, { connectionRetries: 5 })
       await client.connect()
       process.on('unhandledRejection', () => {})
-      try { await syncIncrementalImpl(client, since) } finally { await client.disconnect() }
+      try { await syncIncrementalImpl(client, since, DEFAULT_SLEEP, 100, 200, account) } finally { await client.disconnect() }
     },
     startListener(_db: Database.Database): void {},
   }

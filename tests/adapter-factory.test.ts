@@ -5,8 +5,16 @@ import {
   slackAdapter,
   runBackfillImpl,
 } from '../src/platforms/slack/sync'
+import { runBackfill as telegramRunBackfill } from '../src/platforms/telegram/sync'
+import { runBackfillImpl as imessageRunBackfillImpl } from '../src/platforms/imessage/sync'
+import { runBackfillImpl as discordRunBackfillImpl } from '../src/platforms/discord/sync'
+import { runBackfillImpl as emailRunBackfillImpl } from '../src/platforms/email/sync'
+import { runBackfillImpl as whatsappRunBackfillImpl } from '../src/platforms/whatsapp/sync'
 import type { AccountCredentials } from '../src/account-registry'
 import type { SlackClient, SlackConversation, SlackMessage } from '../src/platforms/slack/client'
+import type { DiscordClient } from '../src/platforms/discord/client'
+import type { EmailClient } from '../src/platforms/email/client'
+import type { WhatsAppClient } from '../src/platforms/whatsapp/client'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -192,5 +200,100 @@ describe('createSlackAdapter — adapter interface', () => {
     const adapter = createSlackAdapter('work', workCreds)
     const db = initDb(':memory:')
     expect(() => adapter.startListener(db)).not.toThrow()
+  })
+})
+
+// ── Discord: DB account tagging ───────────────────────────────────────────────
+
+describe('discord runBackfillImpl — DB account tagging', () => {
+  beforeEach(() => { initDb(':memory:') })
+
+  it('writes chats with the provided account, not hardcoded default', async () => {
+    const mockClient: DiscordClient = {
+      getGuilds: vi.fn().mockResolvedValue([]),
+      getGuildChannels: vi.fn().mockResolvedValue([]),
+      getDirectMessageChannels: vi.fn().mockResolvedValue([
+        { id: 'DM-work-1', type: 1, name: 'dm-alice', recipients: [{ id: 'U1', username: 'alice' }] },
+      ]),
+      getMessages: vi.fn().mockResolvedValue([]),
+    }
+    await discordRunBackfillImpl(mockClient, 'work')
+    const chats = getChats()
+    expect(chats).toHaveLength(1)
+    expect(chats[0]!.platform).toBe('discord')
+    expect(chats[0]!.account).toBe('work')
+  })
+})
+
+// ── Email: DB account tagging ─────────────────────────────────────────────────
+
+describe('email runBackfillImpl — DB account tagging', () => {
+  beforeEach(() => { initDb(':memory:') })
+
+  it('writes chats with the provided account, not hardcoded default', async () => {
+    async function* fakeInbox() {
+      yield {
+        messageId: 'msg-001@example.com',
+        inReplyTo: null,
+        from: 'sender@example.com',
+        subject: 'Test email',
+        date: new Date('2024-01-01T00:00:00Z'),
+        text: 'Hello',
+      }
+    }
+    const mockClient: EmailClient = {
+      fetchFolder: (folder) => (folder === 'INBOX' ? fakeInbox() : (async function* () {})()),
+      listSpecialFolder: vi.fn().mockResolvedValue(null),
+    }
+    await emailRunBackfillImpl(mockClient, 'work@example.com', undefined, 'work')
+    const chats = getChats()
+    expect(chats).toHaveLength(1)
+    expect(chats[0]!.platform).toBe('email')
+    expect(chats[0]!.account).toBe('work')
+  })
+})
+
+// ── WhatsApp: DB account tagging ──────────────────────────────────────────────
+
+describe('whatsapp runBackfillImpl — DB account tagging', () => {
+  beforeEach(() => { initDb(':memory:') })
+
+  it('writes chats with the provided account, not hardcoded default', async () => {
+    const mockClient: WhatsAppClient = {
+      getChats: vi.fn().mockResolvedValue([
+        { id: { _serialized: 'chat-1@c.us' }, name: 'Alice Work', isGroup: false },
+      ]),
+      fetchMessages: vi.fn().mockResolvedValue([]),
+      getContactName: vi.fn().mockResolvedValue('Alice Work'),
+      destroy: vi.fn().mockResolvedValue(undefined),
+    }
+    await whatsappRunBackfillImpl(mockClient, 'work')
+    const chats = getChats()
+    expect(chats).toHaveLength(1)
+    expect(chats[0]!.platform).toBe('whatsapp')
+    expect(chats[0]!.account).toBe('work')
+  })
+})
+
+// ── Telegram: DB account tagging ─────────────────────────────────────────────
+
+describe('telegram runBackfill — DB account tagging', () => {
+  beforeEach(() => { initDb(':memory:') })
+
+  it('writes chats with the provided account, not hardcoded default', async () => {
+    const mockClient = {
+      getDialogs: vi.fn().mockResolvedValue([
+        {
+          entity: { className: 'User', id: 42n, firstName: 'Alice', lastName: null, username: 'alice', bot: false },
+          date: 1700000000,
+        },
+      ]),
+      getMessages: vi.fn().mockResolvedValue([]),
+    }
+    await telegramRunBackfill(mockClient as never, async () => {}, 100, 200, 'work')
+    const chats = getChats()
+    expect(chats).toHaveLength(1)
+    expect(chats[0]!.platform).toBe('telegram')
+    expect(chats[0]!.account).toBe('work')
   })
 })

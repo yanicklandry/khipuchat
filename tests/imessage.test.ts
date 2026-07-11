@@ -267,6 +267,13 @@ describe('runBackfillImpl integration', () => {
     const msgCount = khipuDb.prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }
     expect(msgCount.n).toBe(4)
   })
+
+  it('writes chats with the provided account, not hardcoded default', async () => {
+    await runBackfillImpl(makeMockChatDb(), 'work')
+    const chats = getChats()
+    expect(chats.length).toBeGreaterThan(0)
+    expect(chats.every(c => c.account === 'work')).toBe(true)
+  })
 })
 
 // ── runIncrementalImpl with cocoaThreshold filtering ─────────────────────────

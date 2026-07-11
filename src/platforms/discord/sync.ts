@@ -16,12 +16,12 @@ export function hashStr(s: string): number {
   return h === 0 ? 1 : h
 }
 
-export function mapChat(channel: DiscordChannel): Chat {
+export function mapChat(channel: DiscordChannel, account = 'default'): Chat {
   const isGroup = channel.type === 0 || channel.type === 3
   const name = channel.name ?? channel.recipients?.[0]?.username ?? channel.id
   return {
     external_id: channel.id,
-    account: 'default',
+    account,
     name,
     type: isGroup ? 'group' : 'private',
     username: null,
@@ -50,7 +50,7 @@ export function dateToDiscordSnowflake(date: Date): string {
   return ((BigInt(date.getTime()) - 1420070400000n) << 22n).toString()
 }
 
-export async function runBackfillImpl(client: DiscordClient): Promise<void> {
+export async function runBackfillImpl(client: DiscordClient, account = 'default'): Promise<void> {
   const channels: DiscordChannel[] = []
 
   const dms = await client.getDirectMessageChannels()
@@ -68,7 +68,7 @@ export async function runBackfillImpl(client: DiscordClient): Promise<void> {
 
   let totalMessages = 0
   for (const channel of channels) {
-    const chatId = upsertChat(mapChat(channel))
+    const chatId = upsertChat(mapChat(channel, account))
     let before: string | undefined
     while (true) {
       const messages = await client.getMessages(channel.id, before)
@@ -86,7 +86,7 @@ export async function runBackfillImpl(client: DiscordClient): Promise<void> {
   console.log(`[discord] Sync complete: ${channels.length} channels, ${totalMessages} messages imported.`)
 }
 
-export async function runIncrementalImpl(client: DiscordClient, since: Date): Promise<void> {
+export async function runIncrementalImpl(client: DiscordClient, since: Date, account = 'default'): Promise<void> {
   const after = dateToDiscordSnowflake(since)
   const channels: DiscordChannel[] = []
 
@@ -105,7 +105,7 @@ export async function runIncrementalImpl(client: DiscordClient, since: Date): Pr
 
   let totalMessages = 0
   for (const channel of channels) {
-    const chatId = upsertChat(mapChat(channel))
+    const chatId = upsertChat(mapChat(channel, account))
     let afterCursor: string | undefined = after
     while (true) {
       const messages = await client.getMessages(channel.id, undefined, afterCursor)
@@ -133,7 +133,7 @@ export function createDiscordAdapter(account: string, credentials: AccountCreden
         process.stderr.write('[discord] DISCORD_TOKEN is not set. Export it and re-run.\n')
         process.exit(1)
       }
-      await runBackfillImpl(createDiscordClient(token))
+      await runBackfillImpl(createDiscordClient(token), account)
     },
     async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
       const token = credentials.fields['DISCORD_TOKEN'] ?? ''
@@ -141,7 +141,7 @@ export function createDiscordAdapter(account: string, credentials: AccountCreden
         process.stderr.write('[discord] DISCORD_TOKEN is not set. Export it and re-run.\n')
         process.exit(1)
       }
-      await runIncrementalImpl(createDiscordClient(token), since)
+      await runIncrementalImpl(createDiscordClient(token), since, account)
     },
     startListener(_db: Database.Database): void {},
   }

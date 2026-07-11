@@ -59,6 +59,7 @@ export function mapChat(
   row: ChatDbRow,
   handleIds: ReadonlyArray<string>,
   contactMap: Map<string, string>,
+  account = 'default',
 ): Chat {
   const primaryHandle = handleIds[0]
   const name = row.display_name
@@ -68,7 +69,7 @@ export function mapChat(
     ?? row.chat_identifier
   return {
     external_id: row.guid,
-    account: 'default',
+    account,
     name,
     type: handleIds.length > 1 ? 'group' : 'private',
     username: null,
@@ -99,7 +100,7 @@ export function mapMessage(
 
 // ── Backfill (chatDb injectable for testing) ──────────────────────────────────
 
-export async function runBackfillImpl(chatDb: Database.Database): Promise<void> {
+export async function runBackfillImpl(chatDb: Database.Database, account = 'default'): Promise<void> {
   const handles = chatDb.prepare('SELECT ROWID, id FROM handle').all() as HandleRow[]
   const contactMap = buildContactMap(handles.map(h => h.id))
   const handleIndex = new Map(handles.map(h => [h.ROWID, h]))
@@ -126,7 +127,7 @@ export async function runBackfillImpl(chatDb: Database.Database): Promise<void> 
       'SELECT h.id FROM handle h JOIN chat_handle_join chj ON chj.handle_id = h.ROWID WHERE chj.chat_id = ?',
     ).all(chatRow.ROWID) as { id: string }[]).map(r => r.id)
 
-    const chatId = upsertChat(mapChat(chatRow, chatHandles, contactMap))
+    const chatId = upsertChat(mapChat(chatRow, chatHandles, contactMap, account))
 
     const chatLastSync = hasPriorSync ? syncedAt.get(chatRow.guid) : undefined
     // Convert Unix seconds threshold to Cocoa nanoseconds (what chat.db stores on modern macOS)
@@ -156,7 +157,7 @@ export async function runBackfillImpl(chatDb: Database.Database): Promise<void> 
 }
 
 /** Incremental sync: only fetch messages with Cocoa date > cocoaThreshold derived from `since`. */
-export async function runIncrementalImpl(chatDb: Database.Database, since: Date): Promise<void> {
+export async function runIncrementalImpl(chatDb: Database.Database, since: Date, account = 'default'): Promise<void> {
   const COCOA_OFFSET = 978307200
   const cocoaThreshold = BigInt(Math.floor(since.getTime() / 1000) - COCOA_OFFSET) * 1_000_000_000n
 
@@ -175,7 +176,7 @@ export async function runIncrementalImpl(chatDb: Database.Database, since: Date)
       'SELECT h.id FROM handle h JOIN chat_handle_join chj ON chj.handle_id = h.ROWID WHERE chj.chat_id = ?',
     ).all(chatRow.ROWID) as { id: string }[]).map(r => r.id)
 
-    const chatId = upsertChat(mapChat(chatRow, chatHandles, contactMap))
+    const chatId = upsertChat(mapChat(chatRow, chatHandles, contactMap, account))
 
     const msgRows = chatDb.prepare(`
       SELECT m.ROWID, m.guid, m.text, m.date, m.is_from_me, m.handle_id, m.reply_to_guid
@@ -204,12 +205,12 @@ export function createIMessageAdapter(account: string, _credentials: AccountCred
     async runBackfill(_db: Database.Database): Promise<void> {
       const chatDbPath = join(homedir(), 'Library', 'Messages', 'chat.db')
       const chatDb = openChatDb(chatDbPath)
-      try { await runBackfillImpl(chatDb) } finally { chatDb.close() }
+      try { await runBackfillImpl(chatDb, account) } finally { chatDb.close() }
     },
     async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
       const chatDbPath = join(homedir(), 'Library', 'Messages', 'chat.db')
       const chatDb = openChatDb(chatDbPath)
-      try { await runIncrementalImpl(chatDb, since) } finally { chatDb.close() }
+      try { await runIncrementalImpl(chatDb, since, account) } finally { chatDb.close() }
     },
     startListener(_db: Database.Database): void {},
   }

@@ -16,10 +16,10 @@ export function hashStr(s: string): number {
   return h === 0 ? 1 : h
 }
 
-export function mapChat(chat: WAChat): Chat {
+export function mapChat(chat: WAChat, account = 'default'): Chat {
   return {
     external_id: chat.id._serialized,
-    account: 'default',
+    account,
     name: chat.name,
     type: chat.isGroup ? 'group' : 'private',
     username: null,
@@ -42,7 +42,7 @@ export function mapMessage(msg: WAMessage, chatId: number, senderName: string): 
   }
 }
 
-export async function runBackfillImpl(client: WhatsAppClient): Promise<void> {
+export async function runBackfillImpl(client: WhatsAppClient, account = 'default'): Promise<void> {
   const chats = await client.getChats()
 
   // Load per-chat last_synced_at for incremental mode (mirrors Telegram sync pattern)
@@ -68,7 +68,7 @@ export async function runBackfillImpl(client: WhatsAppClient): Promise<void> {
     }
 
     checked++
-    const chatId = upsertChat(mapChat(chat))
+    const chatId = upsertChat(mapChat(chat, account))
     const messages = await client.fetchMessages(chat.id._serialized)
 
     let newCount = 0
@@ -92,7 +92,7 @@ export async function runBackfillImpl(client: WhatsAppClient): Promise<void> {
   console.log(`[whatsapp] Sync complete (${mode}): ${checked} chats checked, ${skipped} skipped, ${totalMessages} new messages.`)
 }
 
-export async function runIncrementalImpl(client: WhatsAppClient, since: Date): Promise<void> {
+export async function runIncrementalImpl(client: WhatsAppClient, since: Date, account = 'default'): Promise<void> {
   const sinceTs = since.getTime() / 1000
   console.log('[whatsapp] incremental: client-side filter only (WhatsApp Web API has no server-side time filter)')
 
@@ -100,7 +100,7 @@ export async function runIncrementalImpl(client: WhatsAppClient, since: Date): P
   let totalMessages = 0
 
   for (const chat of chats) {
-    const chatId = upsertChat(mapChat(chat))
+    const chatId = upsertChat(mapChat(chat, account))
     const messages = await client.fetchMessages(chat.id._serialized)
 
     let newCount = 0
@@ -135,7 +135,7 @@ export function createWhatsAppAdapter(account: string, credentials: AccountCrede
       let client: WhatsAppClient | null = null
       try {
         client = await createWhatsAppClient({ sessionDataPath: sessionPath, debug })
-        await runBackfillImpl(client)
+        await runBackfillImpl(client, account)
       } catch (err) {
         const e = err as Error
         process.stderr.write(
@@ -153,7 +153,7 @@ export function createWhatsAppAdapter(account: string, credentials: AccountCrede
       let client: WhatsAppClient | null = null
       try {
         client = await createWhatsAppClient({ sessionDataPath: sessionPath, debug })
-        await runIncrementalImpl(client, since)
+        await runIncrementalImpl(client, since, account)
       } catch (err) {
         const e = err as Error
         process.stderr.write(

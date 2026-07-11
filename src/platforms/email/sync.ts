@@ -50,7 +50,7 @@ export function mapMessage(raw: RawEmailMessage, chatId: number, userEmail: stri
   }
 }
 
-export async function runBackfillImpl(client: EmailClient, userEmail: string, criteria?: EmailSearchCriteria): Promise<void> {
+export async function runBackfillImpl(client: EmailClient, userEmail: string, criteria?: EmailSearchCriteria, account = 'default'): Promise<void> {
   const threadMap = new Map<string, string>()
   const seenChats = new Map<string, number>()
   let totalMessages = 0
@@ -66,7 +66,7 @@ export async function runBackfillImpl(client: EmailClient, userEmail: string, cr
       if (chatId === undefined) {
         chatId = upsertChat({
           external_id: threadExternalId,
-          account: 'default',
+          account,
           name: raw.subject || raw.messageId,
           type: 'user',
           username: null,
@@ -108,7 +108,7 @@ export function createEmailAdapter(account: string, credentials: AccountCredenti
         process.stderr.write(`[email] Missing environment variables: ${missing.join(', ')}. Set them and re-run.\n`)
         process.exit(1)
       }
-      await runBackfillImpl(createEmailClient(host, user, pass), user)
+      await runBackfillImpl(createEmailClient(host, user, pass), user, undefined, account)
     },
     async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
       const host = credentials.fields['EMAIL_IMAP_HOST'] ?? ''
@@ -120,7 +120,7 @@ export function createEmailAdapter(account: string, credentials: AccountCredenti
         process.stderr.write(`[email] Missing environment variables: ${missing.join(', ')}. Set them and re-run.\n`)
         process.exit(1)
       }
-      await runBackfillImpl(createEmailClient(host, user, pass), user, { since })
+      await runBackfillImpl(createEmailClient(host, user, pass), user, { since }, account)
     },
     startListener(_db: Database.Database): void {},
   }
