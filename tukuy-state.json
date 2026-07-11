@@ -1,7 +1,8 @@
 {
   "specName": "incremental-sync",
   "completedPhases": [
-    "steering"
+    "steering",
+    "discovery"
   ],
   "done": false
 }
