@@ -211,3 +211,63 @@ New module for config registry; extend existing modules surgically.
 ---
 
 _Status: Gap analysis complete. Proceed with `/kiro-spec-design multi-account` to generate the technical design._
+
+---
+
+# Design Phase Research & Decisions
+
+_Appended: 2026-07-11 during `/kiro-spec-design`._
+
+## Summary
+- **Discovery Scope**: Extension (brownfield, all layers)
+- **Key Findings**:
+  1. `chats.id` is **not** a raw external id — adapters compute it deterministically (Telegram `Number(entity.id)`, Slack `hashStr(conv.id)`, etc.) and supply it explicitly. It is referenced by `messages.chat_id` **and** by `vec_chats.rowid` / `vec_messages.rowid` (embeddings are keyed on chat/message ids). Any migration that reassigns chat ids breaks message FKs and chat embeddings.
+  2. Adapters compute the chat id independently on the chat side (`upsertChat`) and the message side (`mapMessage(msg, chatId)`). Moving identity ownership into the DB requires `upsertChat` to **return** the resolved surrogate id.
+  3. `sync-all.ts` spawns each platform's `sync.ts` as a **separate process**; per-account iteration must live in a shared runner helper invoked from each platform `main()`.
+  4. Every adapter reads credentials differently (env vars directly, or the Telegram `config` singleton). Credential injection needs a per-platform factory that accepts a resolved credential record.
+
+## Design Decisions
+
+### Decision: Surrogate PK preserved, identity via `(platform, account, external_id)`
+- **Context**: 2.1 requires two accounts on the same platform to hold the same external chat id without collision. Current `chats.id` = adapter-computed external-derived integer, used as PK and as embedding rowid.
+- **Alternatives Considered**:
+  1. Reassign chat ids to autoincrement surrogate (research Option 2a) — breaks `vec_chats.rowid` for all existing chats and requires remapping every `messages.chat_id`.
+  2. Composite PK `(id, platform, account)` (Option 2b) — SQLite cannot use a composite as a single-column FK target for `messages.chat_id`.
+  3. Namespaced derived id `hash(account:external)` — changes existing `default` ids, breaking embeddings/FKs, and leaks identity logic into all 7 adapters.
+- **Selected Approach**: Keep `id INTEGER PRIMARY KEY` and **preserve all existing id values** (migration sets `external_id = CAST(id AS TEXT)`, `account = 'default'`). Add `external_id TEXT` and `account TEXT NOT NULL DEFAULT 'default'`. Enforce identity with `UNIQUE(platform, account, external_id)`. New chats omit `id` so SQLite assigns a fresh rowid (max+1, no collision with existing large external-derived ids). `upsertChat` resolves via `ON CONFLICT(platform, account, external_id) DO UPDATE ... RETURNING id` and returns the surrogate id; adapters use the returned id for messages.
+- **Rationale**: Preserves existing `messages.chat_id` FKs and all existing embeddings with zero data remap. Centralizes identity in the DB instead of in every adapter.
+- **Trade-offs**: `upsertChat` contract changes (returns id); every adapter must use the returned id and supply `external_id` + `account` instead of a computed `id`.
+- **Follow-up**: Verify `RETURNING` support in `better-sqlite3-multiple-ciphers@11` (better-sqlite3 supports RETURNING since v9). Verify autoincrement rowid assignment does not collide with existing external-derived ids.
+
+### Decision: No `account` column on `messages`
+- **Context**: 4.2 requires an `account` field on every message result; 2.2 only mandates the account dimension on chats and sync_state.
+- **Selected Approach**: Derive message account from its chat via the existing `messages JOIN chats` used by search/semantic queries; `handleListMessages` adds the same join.
+- **Rationale**: Avoids a second NOT-NULL column migration and denormalization. Account is an attribute of the chat, not the message.
+- **Trade-offs**: One extra join in `handleListMessages` (previously chat-less).
+
+### Decision: Adapter factory for credential isolation
+- **Context**: 3.2 requires per-account credential isolation across up to N accounts per platform.
+- **Selected Approach**: Each platform exposes `createXAdapter(account: string, credentials: XCredentials): PlatformAdapter`; the adapter closes over its account+credentials and carries `account` on the object. Existing singleton exports become thin wrappers `createXAdapter('default', legacyEnvCreds)` for backward compatibility. `PlatformAdapter` gains a `readonly account: string`.
+- **Rationale**: Least-disruptive pattern (research Pattern A); keeps `runPlatformSync(adapter, ...)` shape intact.
+- **Trade-offs**: Touches all multi-account adapters; WeChat retains its single-account entry only.
+
+### Decision: Hand-rolled config loader/validation (no new dependency)
+- **Context**: 1.1–1.4 need JSON load, `$VAR` resolution, duplicate/empty-name validation, WeChat exclusion.
+- **Alternatives Considered**: `zod` for schema validation.
+- **Selected Approach**: Hand-rolled loader in a new `account-registry.ts`, matching the existing minimal `config.ts` style.
+- **Rationale**: Project has no schema-validation dependency; the rules are simple and explicit. Avoids adding `zod` for one config file.
+- **Trade-offs**: Manual validation code vs. declarative schema.
+
+### Decision: Single account-filter predicate shared by all three surfaces (generalization)
+- **Context**: 4.1, 5.1, 6.1 are the same capability (optional account filter) exposed on three surfaces.
+- **Selected Approach**: Add `account?: string` to the query layer (`searchMessages`, `handle*` in the extracted `query-handlers.ts`, `ContactFilters`/`MessageFilters` in `vec-db.ts`) as a single `AND c.account = ?` predicate. MCP/CLI/Web only thread the value through.
+- **Rationale**: One filter implementation, three thin call sites; guarantees agent-native parity (steering) by construction.
+
+## Risks & Mitigations
+- **`sync_state` rebuild under WAL** — Mitigation: perform `CREATE new / INSERT / DROP / RENAME` inside a single transaction in `runMigrations`; guard with idempotent PK-shape check.
+- **Adapter id-return refactor regressions** — Mitigation: `upsertChat` returns id; add unit tests asserting two accounts with identical `external_id` get distinct surrogate ids and correctly-scoped messages.
+- **Chat embeddings after migration** — Existing chat embeddings remain valid because ids are preserved; only chats newly split across accounts get fresh ids and are picked up by the existing unindexed-chat backfill.
+
+## References
+- better-sqlite3 RETURNING support — https://github.com/WiseLibs/better-sqlite3/releases (v9+)
+- SQLite ALTER TABLE limitations (no DROP/ADD PRIMARY KEY) — https://www.sqlite.org/lang_altertable.html

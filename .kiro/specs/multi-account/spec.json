@@ -1,16 +1,16 @@
 {
   "feature_name": "multi-account",
   "created_at": "2026-07-11T00:00:00.000Z",
-  "updated_at": "2026-07-11T01:00:00.000Z",
+  "updated_at": "2026-07-11T02:00:00.000Z",
   "language": "en",
-  "phase": "requirements-generated",
+  "phase": "design-generated",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "design": {
-      "generated": false,
+      "generated": true,
       "approved": false
     },
     "tasks": {
