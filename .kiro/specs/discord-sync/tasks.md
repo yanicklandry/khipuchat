@@ -1,53 +1,76 @@
 # Implementation Plan
 
-- [ ] 1. Foundation — script and test scaffold
-- [ ] 1.1 Add npm script and create module directory
-  - Add `"sync:discord": "tsx src/platforms/discord/sync.ts"` to `package.json`
-  - Create `src/platforms/discord/` directory
-  - Create `tests/discord.test.ts` skeleton with a mock `DiscordClient` factory returning fixture channels and messages
+- [ ] 1. Add sync script and test scaffold
+  - Add the `sync:discord` entry to the scripts section in `package.json`
+  - Create the `src/platforms/discord/` directory
+  - Create a test file skeleton with a mock client factory returning fixture channel and message data
   - `npm test` passes with no new failures
   - _Requirements: 5.1_
 
-- [ ] 2. Core — client wrapper and mappers (parallel)
-- [ ] 2.1 (P) Implement the Discord REST client wrapper
-  - Create `src/platforms/discord/client.ts` with `DiscordChannel`, `DiscordMessage`, `DiscordClient` interfaces
-  - Implement `createDiscordClient(token)`: wraps `globalThis.fetch` with `Authorization: Bot {token}` header
-  - Implement `getGuilds`, `getGuildChannels`, `getDirectMessageChannels`, `getMessages` methods
-  - On 429: read `Retry-After` header, `await` the delay, retry the request once
-  - On other non-2xx: throw a typed error with status and URL
-  - `getMessages` accepts optional `before` snowflake parameter for cursor pagination
+- [ ] 2. Core - Discord REST client and data mappers
+- [ ] 2.1 (P) Implement the Discord REST client
+  - Wrap `globalThis.fetch` with Discord API v10 base URL and `Authorization: Bot` header
+  - Support listing guilds, listing guild channels, listing DM channels, and fetching messages with optional before/after snowflake cursors and a 100-message page limit
+  - On a 429 response: wait the duration from the `Retry-After` header, then retry once; throw on a second 429 or any other non-2xx response
+  - The client is injectable via a factory function so tests can substitute a mock
   - _Requirements: 1.1, 2.1, 2.2, 4.1, 4.2_
-  - _Boundary: Discord Client (client.ts)_
+  - _Boundary: Discord Client_
 
-- [ ] 2.2 (P) Implement row mappers and hash helper
-  - Create `src/platforms/discord/sync.ts` with `hashStr` (FNV-1a, same algorithm as wechat-sync)
-  - Implement `mapChat(channel)`: derives stable numeric `id` via `hashStr(channel.id)`; name from `channel.name` or first recipient username; type `'group'` for multi-recipient DMs and guild text, `'private'` for single DMs
-  - Implement `mapMessage(msg, chatId)`: `external_id = msg.id`; `timestamp = Math.floor(Date.parse(msg.timestamp) / 1000)`; `text = msg.content || null`; `type = 'other'` when content is empty; `is_sender = 0` (bot token cannot identify current user); `reply_to_external_id` from `message_reference.message_id`
-  - Mappers pass unit tests with fixture data
+- [ ] 2.2 (P) Implement data mappers, hash helper, and snowflake converter
+  - Add a hash helper that produces a stable non-zero numeric identifier from a string (FNV-1a algorithm)
+  - Add a chat mapper: derives a human-readable name from channel name, first recipient username, or channel id; marks group-DM and guild-text channels as group type and single DMs as private; sets platform to 'discord'
+  - Add a message mapper: converts snowflake id to external_id; converts ISO timestamp to Unix seconds; sets text to null when content is empty; assigns type 'other' for embed-only messages; records reply reference when present; sets is_sender to 0
+  - Add a date-to-snowflake converter: converts a JS Date to a Discord snowflake string using the Discord epoch and a 22-bit left shift
+  - Mapper functions pass unit tests with fixture data
   - _Requirements: 2.3, 3.2, 3.3, 3.4, 3.5_
-  - _Boundary: Row Mappers (sync.ts)_
+  - _Boundary: Row Mappers and Helpers_
 
-- [ ] 3. Backfill runner and adapter
+- [ ] 3. Sync runners
 - [ ] 3.1 Implement the paginated backfill runner
-  - Add `runBackfillImpl(client: DiscordClient)` to `sync.ts`
-  - Discover channels: call `getDirectMessageChannels()` + `getGuilds()` → `getGuildChannels(id)` for each; filter to channel types 0, 1, 3 only
-  - For each channel: call `upsertChat(mapChat(channel))`; paginate `getMessages` with `before` cursor until response length < 100; call `insertMessage(mapMessage(...))` for each message
-  - Running with same mock client twice produces no duplicate DB records
-  - _Requirements: 2.1, 2.2, 2.3, 3.1, 5.2, 5.3_
+  - Discover channels: combine DM channels with all text channels from every guild the bot has joined; skip announcement, voice, forum, and other non-text channel types
+  - For each discovered channel: create or update a chat record, then page backward through messages until a page returns fewer than 100 results, storing each message without modifying any previously stored records
+  - After processing each channel: trigger embedding updates for messages and chats when the corresponding index exists
+  - Running the same sync twice with the same fixture produces identical records (INSERT OR IGNORE idempotency)
+  - _Requirements: 2.1, 2.2, 2.3, 3.1, 3.4, 5.2_
 
-- [ ] 3.2 Implement the adapter, token check, and main entry point
-  - Add `discordAdapter: PlatformAdapter` with `platform: 'discord'`, `runBackfill` (reads `DISCORD_TOKEN`, calls `createDiscordClient`, calls `runBackfillImpl`), no-op `startListener`
-  - If `DISCORD_TOKEN` is missing: write error to stderr and call `process.exit(1)`
-  - Add `main()` and `require.main === module` guard
-  - `npm run sync:discord` with `DISCORD_TOKEN` unset exits non-zero and prints an actionable message
+- [ ] 3.2 Implement the paginated incremental runner
+  - Channel discovery is identical to the backfill runner
+  - Seed a forward cursor from the `since` timestamp converted to a Discord snowflake; page forward advancing the cursor to the last returned message id, stopping when a page returns fewer than 100 results
+  - Apply the same per-message storage and per-channel embedding calls as the backfill runner
+  - Running with a `since` date only inserts messages newer than that point; older rows remain unmodified
+  - _Requirements: 3.1, 5.3_
+  - _Depends: 3.1_
+
+- [ ] 4. Integration: adapter factory and entry point
+- [ ] 4.1 Wire the adapter factory and CLI entry point
+  - Create an adapter factory that accepts an account name and credentials and returns a platform adapter for 'discord'
+  - The backfill method reads the bot token from credentials; if absent, writes an actionable error to stderr and exits with code 1
+  - The incremental-sync method applies the same token check and delegates to the incremental runner
+  - The listener method is a no-op (REST-only scope)
+  - Export a default-account adapter instance that reads the bot token from the environment
+  - Add a CLI entry point that initialises the database then delegates to the shared sync runner (which selects backfill vs incremental based on stored state); guard it so it only runs when the module is the direct entry point
+  - `npm run sync:discord` with no token set exits with code 1 and prints an actionable message
   - _Requirements: 1.1, 1.2, 5.1_
+  - _Boundary: Adapter Factory, Entry Point (integration across client and runners)_
+  - _Depends: 3.1, 3.2_
 
-- [ ] 4. Tests
-- [ ] 4.1 Unit and integration tests
-  - `mapChat`: correct name fallback chain; group/private type derivation
-  - `mapMessage`: timestamp conversion; `type='other'` for empty content; `reply_to_external_id` populated
-  - `runBackfillImpl` with mock client → correct chats and messages in in-memory archive DB
-  - Idempotency: running `runBackfillImpl` twice with same fixture yields identical records
-  - Missing `DISCORD_TOKEN` → process exits with code 1
-  - All tests pass with `npm test`
-  - _Requirements: 1.2, 2.3, 3.2, 3.5, 5.2_
+- [ ] 5. Tests
+- [ ] 5.1 Unit tests for helpers and mappers
+  - Hash helper: FNV-1a produces a stable result; result is never zero
+  - Snowflake converter: output matches the expected value for a known date (Discord epoch and 22-bit shift math)
+  - Chat mapper: name fallback chain (channel name => first recipient username => id); type derivation for all three allowed channel types
+  - Message mapper: ISO-to-Unix-seconds conversion; type 'other' for empty content; reply reference extracted when present
+  - All unit tests pass with `npm test`
+  - _Requirements: 2.3, 3.2, 3.5_
+  - _Depends: 4.1_
+
+- [ ] 5.2 Integration tests for runners and rate-limit handling
+  - Backfill runner with a mock client fixture: correct chat and message rows appear in an in-memory DB
+  - Idempotency: running the backfill twice with the same fixture produces identical records
+  - Incremental runner with a `since` date: only messages newer than the cursor are inserted; older rows are untouched
+  - Channel-type filtering: announcement, voice, and forum channels in the fixture are excluded from results
+  - Rate-limit handling: a mock returning 429 with a `Retry-After` header on the first call and succeeding on the second triggers exactly one retry and a successful insert (note: proactive 50 req/s throttle from req 4.2 is intentionally omitted per design - rate limiting is reactive only)
+  - Missing token in the adapter: the process exits with code 1 and stderr contains an actionable message
+  - All integration tests pass with `npm test`
+  - _Requirements: 1.2, 2.3, 3.1, 4.1, 5.2, 5.3_
+  - _Depends: 5.1_
