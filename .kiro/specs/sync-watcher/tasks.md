@@ -3,13 +3,13 @@
 ## sync-watcher
 
 - [ ] 1. Add `watch` script to package.json and scaffold `src/watch.ts` entry point
-- [ ] 1.1 Add `"watch": "tsx src/watch.ts"` to package.json scripts
+- [x] 1.1 Add `"watch": "tsx src/watch.ts"` to package.json scripts
   - Append the `watch` entry to the `scripts` object in `package.json`.
   - Running `npm run watch` resolves to `tsx src/watch.ts` without errors.
   - _Requirements: 1.4_
   - _Boundary: package.json_
 
-- [ ] 1.2 Create `src/watch.ts` with dotenv load, DB init, and constants
+- [x] 1.2 Create `src/watch.ts` with dotenv load, DB init, and constants
   - Import `dotenv/config`, `initDb` from `src/db.ts`, and `Platform` / `PlatformAdapter` from `src/platforms/types.ts`.
   - Define `DEFAULT_INTERVAL_MS = 300_000` (5 minutes).
   - Call `initDb('./khipuchat.db')` at module startup and store the DB handle.
@@ -18,21 +18,21 @@
   - _Boundary: watch.ts_
 
 - [ ] 2. Implement core poll-cycle helpers
-- [ ] 2.1 Implement `getIntervalMs(platform)` helper
+- [x] 2.1 Implement `getIntervalMs(platform)` helper
   - Read `` process.env[`WATCH_INTERVAL_${platform.toUpperCase()}_MS`] ``.
   - Parse as integer; return the parsed value if it is a positive finite number, otherwise return `DEFAULT_INTERVAL_MS`.
   - `getIntervalMs('telegram')` returns 300000 when env var is unset; returns the env var integer value when set.
   - _Requirements: 5.1, 5.2, 5.3_
   - _Boundary: watch.ts_
 
-- [ ] 2.2 Implement `isConfigured(platform)` credential check
+- [x] 2.2 Implement `isConfigured(platform)` credential check
   - For each platform in the `Platform` union, inspect the known required env vars (e.g., `TELEGRAM_SESSION` for telegram, `DISCORD_TOKEN` for discord, `SLACK_TOKEN` for slack, `EMAIL_USER` / `EMAIL_PASSWORD` for email, `WHATSAPP_SESSION` for whatsapp; iMessage and WeChat are file-system-based and return `true` unconditionally).
   - Returns `true` if required env vars are non-empty strings, `false` otherwise.
   - `isConfigured('discord')` returns `false` when `DISCORD_TOKEN` is unset; returns `true` when set.
   - _Requirements: 1.2_
   - _Boundary: watch.ts_
 
-- [ ] 2.3 Implement `pollCycle(adapter, db)` with routing and error isolation
+- [x] 2.3 Implement `pollCycle(adapter, db)` with routing and error isolation
   - Call `getPlatformLastSyncedAt(adapter.platform)` to get `since` (null or Unix seconds number).
   - If `adapter.syncIncremental` is defined and `since` is non-null, call `adapter.syncIncremental(db, new Date(since * 1000))`; otherwise call `adapter.runBackfill(db)`.
   - Count messages inserted during the cycle by querying `SELECT COUNT(*) FROM messages WHERE platform = ?` before and after; log `[platform] synced N new messages` if N > 0, else `[platform] up to date`.
@@ -42,7 +42,7 @@
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2, 3.3_
   - _Boundary: watch.ts_
 
-- [ ] 2.4 Add embedding indexing step within pollCycle
+- [x] 2.4 Add embedding indexing step within pollCycle
   - After a successful sync that fetched one or more new messages, call the embedding indexing function for those messages before the cycle resolves.
   - Skip the indexing call when the cycle fetched zero new messages.
   - Wrap the indexing call in its own try/catch; on error log `[platform] index error: <error.message>` and continue (same isolation as sync errors).
@@ -52,7 +52,7 @@
   - _Depends: 2.3_
 
 - [ ] 3. Implement daemon startup loop
-- [ ] 3.1 Build platform and account registry; detect unconfigured pairs at startup
+- [x] 3.1 Build platform and account registry; detect unconfigured pairs at startup
   - Import all platform adapter objects from `src/platforms/*/sync.ts` into `watch.ts`.
   - For each platform, retrieve the list of configured accounts from the account registry and iterate over each platform/account pair independently (req 2.6).
   - Call `isConfigured(platform)` for each pair; for unconfigured pairs log `[platform] skipped: not configured (missing credentials)` and exclude from the active registry.
