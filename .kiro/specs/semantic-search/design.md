@@ -1,511 +1,446 @@
-# Design Document: semantic-search
+# Design Document
 
 ## Overview
 
-This feature adds a local semantic search layer to KhipuChat. Users archive hundreds of thousands of messages across multiple platforms; existing keyword (FTS5) search fails when the exact words are not remembered. Semantic search embeds messages and chats as float32 vectors using a locally-run ONNX model, stores them in the existing SQLite database via the `sqlite-vec` extension, and exposes two new MCP tools — `semantic_find_contacts` and `semantic_search_messages` — that Claude can call to discover relevant people or conversations by meaning without loading all messages into context.
+**Purpose**: This feature delivers local, meaning-based retrieval to KhipuChat users, letting Claude discover relevant contacts and messages by semantic similarity rather than exact keywords, over an on-device embedding index that never leaves the machine.
 
-All embedding computation runs on-device. No message text is transmitted to external services.
+**Users**: Claude (via MCP) is the primary consumer, invoking `semantic_find_contacts` and `semantic_search_messages`. The KhipuChat operator is the secondary user, running `khipu index` to build the index and relying on automatic incremental embedding after each platform sync.
+
+**Impact**: The core semantic pipeline (ONNX embeddings, `sqlite-vec` vector tables, kNN query handlers, both MCP tools, and the query-side CLI) is **already implemented and tested**. This design closes the remaining additive gaps so the feature satisfies its requirements end to end: a first-class `khipu index [--force]` CLI subcommand, a force-rebuild capability in the shared indexing pipeline, force pass-through on `sync --force`, total-count reporting, model-download logging, and operator-facing messages that point at `khipu index`. No schema changes, no new dependencies, no architectural shifts.
 
 ### Goals
-- Enable meaning-based contact and message retrieval via two new MCP tools (Requirements 3, 4)
-- Provide a one-time CLI indexing command and incremental sync-time embedding (Requirements 1, 2)
-- Stay within 2 GB/1M messages disk budget and return results within 2 seconds (Requirement 5)
-- Zero external service calls for embeddings at any stage (Requirement 1.5)
+- Provide a named `khipu index` / `khipu index --force` CLI subcommand as the operator entry point for indexing.
+- Add a single force-rebuild path in the shared `rebuildEmbeddings` pipeline that fully re-embeds from scratch.
+- Keep semantic search current automatically after each sync, including forced per-platform rebuilds.
+- Satisfy all indexing, reporting, and model-cache requirements without transmitting any data externally.
 
 ### Non-Goals
-- Web UI integration (owned by the web-ui spec)
-- Changes to the existing FTS5 keyword search
-- Message sending, drafting, or editing
-- Cross-platform deduplication
-
----
+- Web UI integration (owned by the `web-ui` spec).
+- Changes to keyword/FTS search, message sending/drafting, or cross-platform deduplication.
+- Account-scoped embedding / full multi-account indexing (deferred to a future multi-account spec; the existing `account` passthrough filter is retained but not extended).
+- Re-architecting the already-working embedding, vector-store, or MCP-tool layers.
 
 ## Boundary Commitments
 
 ### This Spec Owns
-- `src/embeddings.ts` — ONNX model singleton lifecycle, `embed()` batch function
-- `src/vec-db.ts` — sqlite-vec extension load, vector table DDL, vector upsert and kNN query functions
-- `src/index-embeddings.ts` — CLI entry point for `npm run index:embeddings`
-- Two new MCP tool handlers in `src/mcp.ts`: `handleSemanticFindContacts`, `handleSemanticSearchMessages`
-- Vector table schema: `vec_chats`, `vec_messages`, `embedding_meta`
+- The embedding indexing pipeline: initial full index, incremental sweep, and forced full rebuild (`rebuildEmbeddings`, `embedNewMessages`, `embedNewChats`).
+- The `khipu index [--force]` CLI subcommand surface.
+- The two semantic MCP tools (`semantic_find_contacts`, `semantic_search_messages`) and their query handlers.
+- The vector storage contract inside the app DB: `vec_chats`, `vec_messages`, and `embedding_meta` (structure, upsert semantics, index-state tracking).
+- The local embedding-model lifecycle: one-time download, cache location, offline-after-load behavior, and download logging.
 
 ### Out of Boundary
-- Web UI search surfaces (web-ui spec)
-- Existing FTS5 index or `searchMessages()` function — untouched
-- Platform sync logic — sync scripts call `embedNewMessages()` as a post-step; they do not own the embedding
-- DB encryption (`DB_KEY` / SQLCipher) — vec tables inherit the same encryption via the existing `initDb()` pragma path
+- Web UI surfacing of these tools (`web-ui` spec).
+- The `messages` and `chats` table schemas (owned by the platform-abstraction spec); this spec reads them and stores vectors keyed by their row IDs but does not alter them.
+- Multi-account scoping of the index; single-account indexing only.
+- Keyword/FTS search behavior and the `sync` command's non-embedding responsibilities.
 
 ### Allowed Dependencies
-- `src/db.ts` exports (`getDb`, `initDb`, `Platform`, existing types) — read-only dependency; this spec adds new exports to `db.ts` but does not modify existing functions
-- `src/mcp.ts` — adds two new handlers and registers two new tools; does not modify existing tools
-- `@huggingface/transformers` v3.x (ONNX model runtime)
-- `sqlite-vec` (vector extension for SQLite)
+- `messages` and `chats` tables remaining stable, keyed by integer `id`.
+- The shared DB connection (`getDb`) with the `sqlite-vec` extension loaded at `initDb` time.
+- `@huggingface/transformers` (ONNX runtime) for local inference; `sqlite-vec` for vector storage.
+- The sync runner (`sync-runner.ts`) as the caller that triggers incremental/forced embedding after a sync.
 
 ### Revalidation Triggers
-- Changes to the `messages` or `chats` table schema (platform-abstraction spec)
-- Upgrading `better-sqlite3-multiple-ciphers` past a major version (may affect `loadExtension` compatibility)
-- Replacing the embedding model (changes vector dimension, requires full re-index)
-
----
+- Any change to the `messages`/`chats` primary-key shape or the meaning of their `id` columns (vector rowids depend on it).
+- A change to the embedding dimension (384) or distance metric (cosine) — invalidates stored vectors and the `vec0` column declaration.
+- A change to the `rebuildEmbeddings` signature or the `embedNewMessages`/`embedNewChats` contract consumed by `sync-runner.ts`.
+- A change to either MCP tool's input schema or result shape (consumed by MCP clients and, later, the web-ui spec).
+- Introduction of account-scoped indexing (would change how vectors are partitioned and queried).
 
 ## Architecture
 
 ### Existing Architecture Analysis
 
-`src/db.ts` exports flat synchronous functions and a module-level singleton `_db`. `src/mcp.ts` exports `handleXxx` functions tested directly without the MCP protocol layer. All platform sync scripts import from `../../db` and follow the same `initDb → upsertChat → insertMessage` pattern. Files are kept under 200 lines.
+The feature is an **extension** of a largely complete implementation. Current, verified state:
 
-This design follows these exact conventions: flat exported functions, module-level singletons, synchronous DB calls, async only for ONNX inference.
+- **Synchronous DB, async inference**: All DB access uses `better-sqlite3-multiple-ciphers` synchronously; embedding inference is async and wrapped around a synchronous-first DB shell. This split is preserved.
+- **Flat-function modules, no DI**: `embeddings.ts` (inference), `vec-db.ts` (storage + kNN), `index-embeddings.ts` (orchestration), `query-handlers.ts` (tool logic), `mcp.ts` (tool registration), `cli.ts` (terminal dispatch). No service classes.
+- **Model singleton**: `embeddings.ts` holds a module-level pipeline loaded once per process; `env.allowRemoteModels` flips to `false` after first load to guarantee no re-download.
+- **Vector storage**: `vec0` virtual tables (`vec_chats`, `vec_messages`) with `float[384] distance_metric=cosine`; upsert is DELETE-then-INSERT because `vec0` has no `INSERT OR REPLACE`. `embedding_meta` records "indexed at least once" per table, gating the MCP tools via `isIndexed()`.
+- **Dependency direction (must be preserved)**: `db` → `vec-db` / `embeddings` → `index-embeddings` / `query-handlers` → `mcp` / `cli` / `sync-runner`. `vec-db.ts` and `embeddings.ts` do not import each other, keeping storage and inference independently testable.
 
-### Architecture Pattern
+The gaps are additive and isolated; no existing boundary moves.
+
+### Architecture Pattern & Boundary Map
 
 ```mermaid
 graph TB
-    CLI[index-embeddings.ts CLI] --> Embed[embeddings.ts]
-    SyncScripts[Platform sync scripts] --> Embed
-    MCP[mcp.ts handlers] --> Embed
-    MCP --> VecDb[vec-db.ts]
-    Embed --> HFT[huggingface transformers v3]
-    HFT --> ONNXModel[all-MiniLM-L6-v2 local ONNX]
-    VecDb --> SqliteVec[sqlite-vec extension]
-    VecDb --> DB[(telegram.db)]
-    DB --> ExistingTables[chats / messages / messages_fts]
-    DB --> VecTables[vec_chats / vec_messages / embedding_meta]
+    subgraph Entry
+        CLI[cli index case]
+        Sync[sync-runner force path]
+        MCP[mcp tools]
+    end
+    subgraph Orchestration
+        IndexEmb[index-embeddings rebuildEmbeddings]
+        QH[query-handlers]
+    end
+    subgraph Core
+        Emb[embeddings inference]
+        VecDb[vec-db storage and kNN]
+    end
+    DB[app sqlite db with sqlite-vec]
+    Model[local ONNX model cache]
+
+    CLI --> IndexEmb
+    Sync --> IndexEmb
+    MCP --> QH
+    IndexEmb --> Emb
+    IndexEmb --> VecDb
+    QH --> Emb
+    QH --> VecDb
+    VecDb --> DB
+    Emb --> Model
 ```
 
-**Dependency direction**: `index-embeddings.ts` and `mcp.ts` → `embeddings.ts` + `vec-db.ts` → SQLite DB. `embeddings.ts` and `vec-db.ts` do not import from each other.
+**Architecture Integration**:
+- **Selected pattern**: Layered pipeline (Entry → Orchestration → Core → Storage), matching the existing codebase. Retained because it already satisfies the separation and testability needs.
+- **Domain boundaries**: Inference (`embeddings.ts`) and storage (`vec-db.ts`) stay decoupled; orchestration (`index-embeddings.ts`) is the only module that composes both for write paths, and `query-handlers.ts` the only one for read paths.
+- **Existing patterns preserved**: synchronous DB, flat functions, model singleton, DELETE-then-INSERT upsert, `isIndexed()` gating.
+- **New components rationale**: No new modules. The `force` behavior extends an existing function; the `index` command extends an existing dispatch switch, keeping a single source of truth for rebuild logic and a single admin+query CLI surface.
+- **Steering compliance**: All embedding is strictly local (no network at inference/index time); MCP is the primary surface; CLI maintains parity.
 
 ### Technology Stack
 
-| Layer | Choice / Version | Role |
-|-------|-----------------|------|
-| Embedding runtime | `@huggingface/transformers` ^3.x | ONNX inference, model download, Float32Array output |
-| Vector store | `sqlite-vec` ^0.1.x | vec0 virtual tables, cosine kNN queries in SQLite |
-| DB driver | `better-sqlite3-multiple-ciphers` (existing) | All DB I/O; `loadExtension()` called by sqlite-vec |
-| Model | `Xenova/all-MiniLM-L6-v2` | 384-dim float32, Apache-2.0, ~90 MB, M4-native ONNX |
-| Runtime | Node.js / tsx (existing) | No build step |
+| Layer | Choice / Version | Role in Feature | Notes |
+|-------|------------------|-----------------|-------|
+| CLI | Node + `tsx` (`src/cli.ts`) | Hosts the new `index` subcommand | Existing dispatch switch; add one case |
+| Backend / Services | `@huggingface/transformers` ^3.x, `Xenova/all-MiniLM-L6-v2` | Local 384-dim feature extraction | Already integrated; ONNX CPU, offline after first load |
+| Data / Storage | `sqlite-vec` ^0.1.x on `better-sqlite3-multiple-ciphers` ^11.x | `vec0` KNN tables + upsert | Loaded via `sqliteVec.load(db)` at `initDb` |
+| Infrastructure / Runtime | Local model cache at `~/.cache/khipuchat/models` | One-time model download | Add explicit download logging on cache miss |
 
----
+> No new dependencies. Extended rationale and dependency-version verification live in `research.md`.
 
 ## File Structure Plan
 
-### New Files
+### Directory Structure
 ```
 src/
-├── embeddings.ts         # Model singleton, embed() batch function — no DB imports
-├── vec-db.ts             # sqlite-vec load, vector DDL, upsert/query functions — no model imports
-└── index-embeddings.ts   # CLI: npm run index:embeddings entry point
+├── cli.ts                 # MODIFY: add `index` case (parse --force, call rebuildEmbeddings)
+├── index-embeddings.ts    # MODIFY: rebuildEmbeddings gains force param + total-count reporting
+├── sync-runner.ts         # MODIFY: pass force through to rebuildEmbeddings on --force sync
+├── embeddings.ts          # MODIFY: log model download on cache miss (Req 5.5)
+├── query-handlers.ts      # MODIFY: point INDEX_NOT_BUILT_MSG at `khipu index`
+├── mcp.ts                 # MODIFY: tool descriptions reference `khipu index`
+└── vec-db.ts              # MODIFY (small): add force-wipe helpers (clear vec rows, scoped/global)
 ```
 
 ### Modified Files
-- `src/db.ts` — add `loadVecExtension()` called inside `initDb()`; add `embedding_meta` table to `createSchema()`; export new vec types (`SemanticContactResult`, `SemanticMessageResult`)
-- `src/mcp.ts` — add `handleSemanticFindContacts`, `handleSemanticSearchMessages`; register two new tools in `ListToolsRequestSchema` handler and dispatch in `CallToolRequestSchema`
-- `package.json` — add `"index:embeddings": "tsx src/index-embeddings.ts"` script; add `@huggingface/transformers` and `sqlite-vec` dependencies
+- `src/vec-db.ts` — Add `clearMessageVectors(platform?)` and `clearChatVectors(platform?)` that delete `vec0` rows (global, or scoped to a platform via rowids collected from `messages`/`chats`). One responsibility: vector-store mutation.
+- `src/index-embeddings.ts` — Add `force?: boolean` to `rebuildEmbeddings(platform?, force?)`. When `force`, call the clear helpers before the sweep. Report DB totals on completion (Req 1.3).
+- `src/cli.ts` — Add `case 'index'`: parse `--force` from args, call `rebuildEmbeddings(undefined, force)`, exit. Extend usage text.
+- `src/sync-runner.ts` — Pass the already-parsed `force` flag into `rebuildEmbeddings(adapter.platform, force)` (Req 2.3).
+- `src/embeddings.ts` — Before first `pipeline()` load, detect an absent/incomplete model cache and log that a download is occurring (Req 5.5).
+- `src/query-handlers.ts` — Change `INDEX_NOT_BUILT_MSG` to instruct `khipu index` (Req 3.7, 4.8).
+- `src/mcp.ts` — Update both tool descriptions to reference `khipu index` instead of `npm run index:embeddings`.
 
----
+> Dependency direction is unchanged: new helpers live in the layer that already owns their concern; no upward imports are introduced. No new files are created.
 
 ## System Flows
 
-### Initial / Incremental Indexing Flow
+### Indexing flow (initial, incremental, forced)
 
 ```mermaid
-sequenceDiagram
-    participant CLI as index-embeddings.ts
-    participant V as vec-db.ts
-    participant E as embeddings.ts
-    participant DB as SQLite
-
-    CLI->>V: getUnindexedMessages(batchSize=100)
-    V->>DB: SELECT id, text FROM messages WHERE id NOT IN vec_messages LIMIT 100
-    DB-->>V: rows[]
-    loop until no rows remain
-        V->>E: embed(texts[])
-        E-->>V: Float32Array[]
-        V->>DB: INSERT INTO vec_messages(rowid, embedding) for each
-        CLI->>CLI: log progress every 1000
-        V->>V: getUnindexedMessages(next batch)
-    end
-    CLI->>V: getUnindexedChats()
-    V->>DB: SELECT id, name FROM chats WHERE id NOT IN vec_chats
-    DB-->>V: chats[]
-    loop for each chat
-        V->>DB: SELECT text FROM messages WHERE chat_id=? ORDER BY timestamp DESC LIMIT 5
-        DB-->>V: snippets[]
-        V->>E: embed(name + snippets joined)
-        E-->>V: Float32Array
-        V->>DB: INSERT INTO vec_chats(rowid, embedding)
-    end
-    CLI->>V: upsertEmbeddingMeta('messages', now)
-    CLI->>V: upsertEmbeddingMeta('chats', now)
-    CLI->>CLI: print summary
+flowchart TD
+    Start[Entry: khipu index or sync force] --> Force{force?}
+    Force -->|yes| Clear[Clear vec rows scoped or global]
+    Force -->|no| Sweep
+    Clear --> Sweep[Select unindexed messages and chats]
+    Sweep --> Empty{any rows?}
+    Empty -->|no| Report
+    Empty -->|yes| DL{model cache present?}
+    DL -->|no| Log[Log downloading model]
+    DL -->|yes| Batch
+    Log --> Batch[Embed in batches, upsert vectors]
+    Batch --> Meta[upsertEmbeddingMeta]
+    Meta --> Report[Report DB totals: X messages, Y chats]
 ```
 
-### Semantic Query Flow (MCP)
-
-```mermaid
-sequenceDiagram
-    participant Claude
-    participant MCP as mcp.ts handler
-    participant E as embeddings.ts
-    participant V as vec-db.ts
-    participant DB as SQLite
-
-    Claude->>MCP: semantic_find_contacts(query, filters)
-    MCP->>V: isIndexed()
-    V->>DB: SELECT last_indexed_at FROM embedding_meta WHERE table_name='chats'
-    DB-->>V: row or null
-    alt not indexed
-        V-->>MCP: false
-        MCP-->>Claude: error: run npm run index:embeddings
-    else indexed
-        V-->>MCP: true
-        MCP->>E: embed(query)
-        E-->>MCP: Float32Array
-        MCP->>V: semanticFindContacts(vector, filters)
-        V->>DB: KNN query on vec_chats + JOIN chats + filter by date/platform
-        DB-->>V: ranked rows
-        V-->>MCP: SemanticContactResult[]
-        MCP-->>Claude: JSON results
-    end
-```
-
----
+Key decisions:
+- **Force = clear then sweep**: after clearing, every record is "unindexed", so the existing incremental sweep re-embeds everything with no separate full-scan code path.
+- **Per-record failure isolation**: individual embed failures are logged and skipped; the run continues (Req 2.5). This is existing behavior and is preserved on the force path.
+- **Gating unchanged**: `embedding_meta` is written after each sweep; `isIndexed()` continues to gate the MCP tools.
 
 ## Requirements Traceability
 
-| Requirement | Summary | Components | Key Interfaces |
-|-------------|---------|------------|----------------|
-| 1.1 | Index all messages on CLI run | `index-embeddings.ts`, `vec-db.ts`, `embeddings.ts` | `getUnindexedMessages`, `embed`, `upsertMessageVector` |
-| 1.2 | Index all chats on CLI run | same | `getUnindexedChats`, `embed`, `upsertChatVector` |
-| 1.3 | Report count on completion | `index-embeddings.ts` | stdout print |
-| 1.4 | Incremental update on re-run | `vec-db.ts` | `getUnindexedMessages` WHERE NOT IN vec table |
-| 1.5 | No external network calls | `embeddings.ts` | `env.allowRemoteModels=false` after first download |
-| 1.6 | Log progress every 1000 | `index-embeddings.ts` | counter in batch loop |
-| 2.1 | Embed new messages after sync | sync scripts → `embeddings.ts` + `vec-db.ts` | `embedNewMessages(since)` |
-| 2.2 | Update chat embedding after sync | same | `embedNewChats(chatIds)` |
-| 2.3 | Continue on per-message failure | `vec-db.ts` batch loop | try/catch per row, `console.error` |
-| 3.1 | Ranked contact results by query | `handleSemanticFindContacts`, `vec-db.ts` | `semanticFindContacts(vector, filters)` |
-| 3.2 | Result includes name, platform, date, count, snippet | `vec-db.ts` JOIN query | `SemanticContactResult` |
-| 3.3 | `limit` parameter (default 10, max 50) | `handleSemanticFindContacts` | clamp in handler |
-| 3.4 | `before` date filter | `vec-db.ts` | SQL WHERE on `chats.last_synced_at` or message timestamp |
-| 3.5 | `after` date filter | `vec-db.ts` | SQL WHERE |
-| 3.6 | `platform` filter | `vec-db.ts` | SQL WHERE on `chats.platform` |
-| 3.7 | Error if not indexed | `handleSemanticFindContacts`, `vec-db.ts` | `isIndexed('chats')` check |
-| 3.8 | Empty list below threshold | `vec-db.ts` | filter `distance > THRESHOLD` (0.7) |
-| 4.1–4.8 | Semantic message search (parallel to 3.x) | `handleSemanticSearchMessages`, `vec-db.ts` | `semanticSearchMessages(vector, filters)` |
-| 5.1 | Results within 2 seconds at 1M messages | `vec-db.ts` kNN | sqlite-vec HNSW index is sub-100ms |
-| 5.2 | ≤ 2 GB / 1M messages | vector schema | 384 × 4B × 1M = 1.46 GB |
-| 5.3 | Indexing does not block MCP/sync | `index-embeddings.ts` | separate process; no shared lock beyond WAL |
-| 5.4 | Download model once | `embeddings.ts` | `env.cacheDir` set; `env.allowRemoteModels=false` after |
-| 5.5 | Re-download on corrupt cache | `embeddings.ts` | `env.allowRemoteModels=true` default; auto-retry |
-
----
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 1.1 | `khipu index` embeds all messages | IndexCli, IndexPipeline | `rebuildEmbeddings()` | Indexing |
+| 1.2 | `khipu index` embeds all chats | IndexPipeline, VecStore | `rebuildEmbeddings()`, `getChatSnippets` | Indexing |
+| 1.3 | Report total indexed on completion | IndexPipeline | completion report | Indexing |
+| 1.4 | Incremental by default | IndexPipeline, VecStore | `getUnindexedMessages`, `getUnindexedChats` | Indexing |
+| 1.5 | `--force` re-embeds from scratch | IndexCli, IndexPipeline, VecStore | `rebuildEmbeddings(_, force)`, `clear*Vectors` | Indexing |
+| 1.6 | No network transmission | Embeddings | offline-after-load | — |
+| 1.7 | Progress at least every 1,000 msgs | IndexPipeline | progress bar (per 100-batch) | Indexing |
+| 2.1 | Embed new messages after sync | SyncEmbedHook, IndexPipeline | `embedNewMessages` / `rebuildEmbeddings` | Indexing |
+| 2.2 | Update chat embedding after sync | IndexPipeline, VecStore | `embedNewChats` | Indexing |
+| 2.3 | `--force` sync rebuilds affected embeddings | SyncEmbedHook, IndexPipeline | `rebuildEmbeddings(platform, force)` | Indexing |
+| 2.4 | Programmatic pipeline API | IndexPipeline | exported `rebuildEmbeddings` | — |
+| 2.5 | Per-message failure isolation | IndexPipeline | try/catch per record | Indexing |
+| 3.1 | Ranked contacts by query | SemanticTools, VecStore | `semanticFindContacts` | — |
+| 3.2 | Contact result fields | VecStore | `SemanticContactResult` | — |
+| 3.3 | `limit` (def 10, max 50) | SemanticTools, VecStore | clamp in `semanticFindContacts` | — |
+| 3.4 | `before` filter | VecStore | `ContactFilters.before` | — |
+| 3.5 | `after` filter | VecStore | `ContactFilters.after` | — |
+| 3.6 | `platform` filter | VecStore | `ContactFilters.platform` | — |
+| 3.7 | Error when index not built | SemanticTools | `isIndexed('chats')`, `INDEX_NOT_BUILT_MSG` | — |
+| 3.8 | Empty list below threshold | VecStore | `CONTACT_DISTANCE_THRESHOLD` | — |
+| 4.1 | Ranked messages by query | SemanticTools, VecStore | `semanticSearchMessages` | — |
+| 4.2 | Message result fields | VecStore | `SemanticMessageResult` | — |
+| 4.3 | `chat_id` filter | VecStore | `MessageFilters.chat_id` | — |
+| 4.4 | `platform` filter | VecStore | `MessageFilters.platform` | — |
+| 4.5 | `limit` (def 20, max 100) | SemanticTools, VecStore | clamp in `semanticSearchMessages` | — |
+| 4.6 | `before_timestamp` filter | VecStore | `MessageFilters.before_timestamp` | — |
+| 4.7 | `after_timestamp` filter | VecStore | `MessageFilters.after_timestamp` | — |
+| 4.8 | Error when index not built | SemanticTools | `isIndexed('messages')`, `INDEX_NOT_BUILT_MSG` | — |
+| 5.1 | 2s query ceiling | VecStore | in-process kNN | — |
+| 5.2 | ≤ 2 GB / 1M messages | VecStore | 384×4 bytes + HNSW | — |
+| 5.3 | Concurrent operation during indexing | Storage | WAL mode, separate process | — |
+| 5.4 | Model downloaded once, cached | Embeddings | `env.cacheDir`, offline-after-load | — |
+| 5.5 | Re-download on absent/corrupt cache + log | Embeddings | cache-miss detection + log | Indexing |
 
 ## Components and Interfaces
 
-### Summary Table
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
+|-----------|--------------|--------|--------------|--------------------------|-----------|
+| IndexPipeline (`index-embeddings.ts`) | Orchestration | Full/incremental/forced embedding sweep | 1.1–1.7, 2.1–2.5, 5.5 | Embeddings (P0), VecStore (P0) | Service, Batch |
+| VecStore (`vec-db.ts`) | Core / Storage | Vector upsert, clear, kNN, index-state | 1.4, 1.5, 3.1–3.8, 4.1–4.8, 5.2 | app DB (P0) | Service, State |
+| Embeddings (`embeddings.ts`) | Core | Local ONNX inference + model lifecycle | 1.6, 5.4, 5.5 | model cache (P0) | Service |
+| IndexCli (`cli.ts` index case) | Entry | Operator command surface | 1.1, 1.4, 1.5 | IndexPipeline (P0) | Service |
+| SyncEmbedHook (`sync-runner.ts`) | Entry | Trigger embedding after sync | 2.1–2.3 | IndexPipeline (P0) | Service |
+| SemanticTools (`query-handlers.ts` + `mcp.ts`) | Entry | MCP tool logic + registration | 3.1–3.8, 4.1–4.8 | VecStore (P0), Embeddings (P0) | Service, API |
 
-| Component | Layer | Intent | Req Coverage | Key Dependencies |
-|-----------|-------|--------|--------------|-----------------|
-| `embeddings.ts` | Inference | ONNX model singleton + batch embed | 1.5, 2.x, 5.4, 5.5 | `@huggingface/transformers` (P0) |
-| `vec-db.ts` | Data | Vector DDL, upsert, kNN query | 1.1–2.3, 3.x, 4.x, 5.1–5.2 | `sqlite-vec` (P0), `src/db.ts` (P0) |
-| `index-embeddings.ts` | CLI | Orchestrate full + incremental indexing | 1.1–1.6 | `embeddings.ts`, `vec-db.ts` |
-| `mcp.ts` additions | MCP | Two new tool handlers + registrations | 3.x, 4.x | `embeddings.ts`, `vec-db.ts` |
+Only components with a changed boundary get a full block below. `SemanticTools` are already implemented and tested; their contracts are documented for completeness (only the not-built message text and tool descriptions change).
 
----
+### Orchestration
 
-### Inference Layer
-
-#### embeddings.ts
+#### IndexPipeline (`rebuildEmbeddings`)
 
 | Field | Detail |
 |-------|--------|
-| Intent | Owns the ONNX model singleton; exposes `embed()` for batch text → vector conversion |
-| Requirements | 1.5, 2.1, 5.4, 5.5 |
+| Intent | Embed unindexed (or, with force, all) messages and chats and record index state |
+| Requirements | 1.1, 1.2, 1.3, 1.4, 1.5, 1.7, 2.1, 2.2, 2.3, 2.4, 2.5, 5.5 |
 
 **Responsibilities & Constraints**
-- Loads `Xenova/all-MiniLM-L6-v2` once at first call (lazy singleton)
-- Sets `env.cacheDir` to `~/.cache/khipuchat/models`; after first successful load sets `env.allowRemoteModels = false`
-- Returns normalized 384-dim float32 vectors with `pooling: 'mean'`
-- Must not import from `vec-db.ts` or `db.ts` — pure inference layer
+- Owns the write-side embedding sweep and completion reporting.
+- With `force`, clears the relevant vectors (scoped to `platform` when provided, else global) before sweeping, so re-embedding starts from scratch.
+- Preserves per-record failure isolation: a failed embed is logged and skipped; the run does not abort.
+- Writes `embedding_meta` after each of the messages and chats phases.
 
 **Dependencies**
-- External: `@huggingface/transformers` ^3.x — ONNX runtime + model (P0)
+- Outbound: `embeddings.embed` / `embedOne` — inference (P0).
+- Outbound: `vec-db` upsert, clear, and unindexed-query helpers — storage (P0).
 
-**Contracts**: Batch [ ✓ ]
+**Contracts**: Service [x] / Batch [x]
 
 ##### Service Interface
 ```typescript
-// src/embeddings.ts
+type Platform = 'telegram' | 'imessage' | 'discord' | 'slack' | 'whatsapp' | 'wechat' | 'email';
 
-export interface EmbedOptions {
-  batchSize?: number   // default 64
-}
+/**
+ * Embed unindexed messages and chats.
+ * - platform omitted: whole-database scope.
+ * - platform set: restrict to that platform's chats/messages.
+ * - force=true: clear existing vectors in scope, then re-embed everything in scope.
+ */
+export function rebuildEmbeddings(platform?: Platform, force?: boolean): Promise<void>;
 
-/** Embed one or more texts. Returns one Float32Array (384 dims) per input. */
-export async function embed(
-  texts: string[],
-  opts?: EmbedOptions
-): Promise<Float32Array[]>
-
-/** Convenience wrapper for a single text. */
-export async function embedOne(text: string): Promise<Float32Array>
+// sync-integration helpers (unchanged signatures)
+export function embedNewMessages(chatIds: number[]): Promise<void>;
+export function embedNewChats(chatIds: number[]): Promise<void>;
 ```
-- Preconditions: `texts` non-empty; each element non-empty string
-- Postconditions: returned arrays have length 384 each; L2-normalized
-- Invariants: model singleton initialized at most once per process
+- Preconditions: `initDb()` has run; `sqlite-vec` extension loaded.
+- Postconditions: every in-scope message/chat with non-empty text has a current vector; `embedding_meta` updated; completion line reports DB totals in scope.
+- Invariants: no external network calls; DB writes remain synchronous around async inference.
+
+##### Batch / Job Contract
+- Trigger: `khipu index [--force]` (operator), `sync --force` (per-platform), or a direct programmatic call (Req 2.4).
+- Input / validation: optional `platform`, optional `force`; an empty scope reports "already up-to-date".
+- Output / destination: `vec_messages`, `vec_chats`, `embedding_meta` in the app DB.
+- Idempotency & recovery: incremental sweep is idempotent (skips already-indexed rows); force clears then re-embeds, also idempotent by result. Failed records are logged and retried on the next run.
 
 **Implementation Notes**
-- Integration: `pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'fp32', device: 'cpu' })`
-- Validation: throw `Error('No texts to embed')` for empty array; log + skip empty individual strings
-- Risks: `better-sqlite3-multiple-ciphers` is not involved here; no compatibility concern
+- Integration: `force` composes with the existing sweep by making all in-scope rows "unindexed" via the clear helpers — no separate full-scan branch.
+- Validation: the completion report must count rows present in `vec_messages`/`vec_chats` for the scope (Req 1.3), not just rows embedded this run.
+- Risks: clearing then failing mid-sweep leaves the index partially rebuilt; acceptable because the next `khipu index` (incremental) fills the remainder, and the operator is expected to re-run after a forced failure.
 
----
+### Core / Storage
 
-### Data Layer
-
-#### vec-db.ts
+#### VecStore (`vec-db.ts`)
 
 | Field | Detail |
 |-------|--------|
-| Intent | Loads sqlite-vec extension, owns vector table DDL, upsert, and kNN query functions |
-| Requirements | 1.1–2.3, 3.x, 4.x, 5.1–5.3 |
+| Intent | Vector upsert/clear, kNN retrieval, and index-state tracking |
+| Requirements | 1.4, 1.5, 3.1–3.8, 4.1–4.8, 5.2 |
 
 **Responsibilities & Constraints**
-- Exports `loadVecExtension(db)` called by `initDb()` in `db.ts`
-- Owns DDL for `vec_chats`, `vec_messages`, `embedding_meta` (created in `createVecSchema()`)
-- All DB calls synchronous (better-sqlite3 pattern); only `embed()` calls are async
-- Must not import from `embeddings.ts`
+- Sole owner of `vec_chats`, `vec_messages`, and `embedding_meta` mutations and reads.
+- New: clear helpers that remove vectors globally or scoped to a platform.
+- kNN queries fetch an over-scan candidate set, then apply metadata/temporal/platform filters and the similarity threshold in application code (existing behavior).
 
 **Dependencies**
-- Outbound: `sqlite-vec` — extension load (P0)
-- Outbound: `src/db.ts` → `getDb()` — DB handle access (P0)
+- Outbound: `getDb()` — shared connection with `sqlite-vec` loaded (P0).
 
-**Contracts**: Service [ ✓ ] / Batch [ ✓ ]
-
-##### Vector Schema (SQL)
-```sql
--- Indexed chat-level embeddings (cosine distance)
-CREATE VIRTUAL TABLE IF NOT EXISTS vec_chats
-  USING vec0(rowid INTEGER PRIMARY KEY, embedding float[384] distance_metric=cosine);
-
--- Indexed message-level embeddings (cosine distance)
-CREATE VIRTUAL TABLE IF NOT EXISTS vec_messages
-  USING vec0(rowid INTEGER PRIMARY KEY, embedding float[384] distance_metric=cosine);
-
--- Track last successful indexing timestamp per granularity
-CREATE TABLE IF NOT EXISTS embedding_meta (
-  table_name    TEXT    PRIMARY KEY,
-  last_indexed_at INTEGER NOT NULL
-);
-```
+**Contracts**: Service [x] / State [x]
 
 ##### Service Interface
 ```typescript
-// src/vec-db.ts
+// existing (unchanged)
+export function upsertMessageVector(id: number, vector: Float32Array): void;
+export function upsertChatVector(id: number, vector: Float32Array): void;
+export function getUnindexedMessages(limit: number): Array<{ id: number; text: string }>;
+export function getUnindexedChats(): Array<{ id: number; name: string }>;
+export function isIndexed(table: 'chats' | 'messages'): boolean;
+export function upsertEmbeddingMeta(table: string, timestamp: number): void;
+export function semanticFindContacts(q: Float32Array, f: ContactFilters): SemanticContactResult[];
+export function semanticSearchMessages(q: Float32Array, f: MessageFilters): SemanticMessageResult[];
 
-export interface SemanticContactResult {
-  chat_id: number
-  name: string
-  platform: Platform
-  last_message_date: number | null
-  message_count: number
-  snippet: string | null
-  distance: number
-}
-
-export interface SemanticMessageResult {
-  chat_id: number
-  chat_name: string
-  sender_name: string | null
-  text: string | null
-  timestamp: number
-  platform: Platform
-  distance: number
-}
-
-export interface ContactFilters {
-  before?: number      // unix timestamp — last message before this date
-  after?: number       // unix timestamp — last message after this date
-  platform?: Platform
-  limit?: number       // default 10, max 50
-}
-
-export interface MessageFilters {
-  chat_id?: number
-  platform?: Platform
-  before_timestamp?: number
-  after_timestamp?: number
-  limit?: number       // default 20, max 100
-}
-
-/** Load sqlite-vec extension into db. Called by initDb(). */
-export function loadVecExtension(db: Database.Database): void
-
-/** Create vec_chats, vec_messages, embedding_meta tables if not exist. */
-export function createVecSchema(): void
-
-/** True if the given table ('chats'|'messages') has been indexed at least once. */
-export function isIndexed(table: 'chats' | 'messages'): boolean
-
-/** Return message rows not yet in vec_messages (batched). */
-export function getUnindexedMessages(limit: number): Array<{ id: number; text: string }>
-
-/** Return chat ids not yet in vec_chats. */
-export function getUnindexedChats(): Array<{ id: number; name: string }>
-
-/** Fetch last N message texts for a chat (for chat embedding input). */
-export function getChatSnippets(chatId: number, n?: number): string[]
-
-/** Upsert a message vector. */
-export function upsertMessageVector(messageId: number, vector: Float32Array): void
-
-/** Upsert a chat vector. */
-export function upsertChatVector(chatId: number, vector: Float32Array): void
-
-/** Record successful indexing timestamp. */
-export function upsertEmbeddingMeta(table: string, timestamp: number): void
-
-/** kNN search over vec_chats with optional date/platform filters. */
-export function semanticFindContacts(
-  queryVector: Float32Array,
-  filters: ContactFilters
-): SemanticContactResult[]
-
-/** kNN search over vec_messages with optional filters. */
-export function semanticSearchMessages(
-  queryVector: Float32Array,
-  filters: MessageFilters
-): SemanticMessageResult[]
+// new (force-rebuild support)
+/** Delete message vectors: all rows, or only those whose chat is on `platform`. */
+export function clearMessageVectors(platform?: Platform): void;
+/** Delete chat vectors: all rows, or only chats on `platform`. */
+export function clearChatVectors(platform?: Platform): void;
 ```
-- `semanticFindContacts`: kNN on `vec_chats`, JOIN `chats`, filter, distance threshold 0.7, clamp limit 1–50
-- `semanticSearchMessages`: kNN on `vec_messages`, JOIN `messages` + `chats`, filter, clamp limit 1–100
-- **Risk**: `sqliteVec.load(db)` calls `db.loadExtension()` — verify this works with `better-sqlite3-multiple-ciphers` in the integration test
+- Preconditions: `initDb()` has run.
+- Postconditions: after `clear*Vectors`, the in-scope rows are absent from the `vec0` table.
+- Invariants: `vec0` mutation stays DELETE-based (no `INSERT OR REPLACE`); rowids equal `messages.id` / `chats.id`.
 
----
-
-### CLI Layer
-
-#### index-embeddings.ts
-
-| Field | Detail |
-|-------|--------|
-| Intent | CLI entry point: orchestrates full + incremental indexing of messages and chats |
-| Requirements | 1.1–1.6 |
-
-**Responsibilities & Constraints**
-- Calls `initDb(dbPath)` (which calls `loadVecExtension` and `createVecSchema`)
-- Iterates `getUnindexedMessages` in batches of 100, calls `embed()`, calls `upsertMessageVector`
-- Logs progress every 1,000 messages to stdout
-- On per-message embed failure: `console.error` + continue (Req 2.3)
-- Prints final count summary on completion
+##### State Management
+- State model: `embedding_meta(table_name, last_indexed_at)` records whether a table has ever been indexed.
+- Persistence & consistency: same DB, WAL mode; concurrent readers (MCP, sync) tolerated (Req 5.3).
+- Concurrency strategy: single writer per process; indexing typically runs in its own process.
 
 **Implementation Notes**
-- Integration: `npm run index:embeddings` via `tsx src/index-embeddings.ts`; runs in a separate process — MCP server and sync scripts are not blocked
-- Validation: exit with code 1 and message if DB not found
-- Risks: very first run downloads ~90 MB model — progress indicator should note "downloading model..."
+- Integration: platform-scoped clear collects target rowids via a plain SQL SELECT over `messages`/`chats`, then deletes per rowid (the proven upsert idiom), avoiding reliance on unverified `DELETE ... WHERE rowid IN (subquery)` on `vec0` tables (see `research.md`). Global clear may use `DELETE FROM vec_messages` / `DELETE FROM vec_chats`.
+- Validation: a Vitest test must confirm force-rebuild restores identical row counts from scratch.
+- Risks: none new; deletion is scoped and idempotent.
 
----
+### Core
 
-### MCP Layer (additions to mcp.ts)
-
-#### handleSemanticFindContacts / handleSemanticSearchMessages
+#### Embeddings (`embeddings.ts`)
 
 | Field | Detail |
 |-------|--------|
-| Intent | Thin MCP handlers: validate input, call embed + vec-db query, return typed results |
-| Requirements | 3.x, 4.x |
+| Intent | Local ONNX feature extraction and model-cache lifecycle |
+| Requirements | 1.6, 5.4, 5.5 |
 
-**Contracts**: Service [ ✓ ]
+**Responsibilities & Constraints**
+- Loads the model once per process; goes offline (`allowRemoteModels = false`) after first successful load so no re-download or leak occurs (Req 1.6, 5.4).
+- New: on an absent/incomplete cache, logs that a download is occurring before loading (Req 5.5); if the cache is present and valid, loads silently.
+
+**Contracts**: Service [x]
 
 ##### Service Interface
 ```typescript
-// Additions to src/mcp.ts
-
-export async function handleSemanticFindContacts(
-  query: string,
-  filters: ContactFilters
-): Promise<SemanticContactResult[] | { error: string }>
-
-export async function handleSemanticSearchMessages(
-  query: string,
-  filters: MessageFilters
-): Promise<SemanticMessageResult[] | { error: string }>
+export function embed(texts: string[]): Promise<Float32Array[]>;   // 384-dim, normalized
+export function embedOne(text: string): Promise<Float32Array>;
 ```
-- Return `{ error: 'Embedding index not built. Run: npm run index:embeddings' }` when `isIndexed` returns false
-- Both handlers are `async` (call `embed()`); existing handlers remain synchronous
+- Preconditions: a writable cache directory.
+- Postconditions: one normalized 384-dim vector per non-empty input.
+- Invariants: after first load, no network access.
 
----
+**Implementation Notes**
+- Integration: cache-miss detection checks the model files under `env.cacheDir` before `pipeline()`; keeps the existing `KHIPUCHAT_EMBED_MOCK` test hook intact.
+- Validation: assert a log line is emitted when the cache is absent and suppressed when present.
+- Risks: over-eager "missing cache" detection could log spuriously; scope the check to the model's own subdirectory.
+
+### Entry
+
+#### SemanticTools (`query-handlers.ts` + `mcp.ts`)
+
+| Field | Detail |
+|-------|--------|
+| Intent | Contact/message semantic-search tool logic and MCP registration |
+| Requirements | 3.1–3.8, 4.1–4.8 |
+
+**Responsibilities & Constraints** (already implemented; only messaging text changes)
+- `handleSemanticFindContacts` / `handleSemanticSearchMessages` embed the query, run kNN, join metadata, apply filters, and enforce defaults/maxima (contacts default 10/max 50; messages default 20/max 100).
+- Return `INDEX_NOT_BUILT_MSG` when the relevant table is not indexed — updated to instruct `khipu index` (Req 3.7, 4.8).
+- Empty result when nothing meets the similarity threshold (Req 3.8).
+
+**Contracts**: Service [x] / API [x]
+
+##### Service Interface
+```typescript
+export function handleSemanticFindContacts(
+  query: string, filters: ContactFilters,
+): Promise<SemanticContactResult[] | { error: string }>;
+
+export function handleSemanticSearchMessages(
+  query: string, filters: MessageFilters,
+): Promise<SemanticMessageResult[] | { error: string }>;
+```
+
+##### API Contract (MCP tool inputs)
+| Tool | Required | Optional | Result item |
+|------|----------|----------|-------------|
+| `semantic_find_contacts` | `query` | `limit` (≤50, def 10), `before`, `after`, `platform`, `account` | chat name, platform, last message date, message count, snippet |
+| `semantic_search_messages` | `query` | `limit` (≤100, def 20), `chat_id`, `platform`, `before_timestamp`, `after_timestamp`, `account` | chat name, sender name, text, timestamp, platform |
+
+**Implementation Notes**
+- Integration: only the not-built message string and the two tool descriptions change; result shapes and filters are unchanged.
+- Validation: existing `mcp.ts` / `query-handlers.ts` tests continue to pass; assert the new message text references `khipu index`.
+- Risks: none; text-only change.
 
 ## Data Models
 
-### Physical Schema (additions)
+No schema changes. The relevant persisted structures (already present, owned here) are:
 
-Vector tables use SQLite virtual table syntax via sqlite-vec:
-
-| Table | Type | Key Columns | Storage |
-|-------|------|-------------|---------|
-| `vec_chats` | vec0 virtual | `rowid` → `chats.id`, `embedding float[384]` | ~1.5 KB/chat |
-| `vec_messages` | vec0 virtual | `rowid` → `messages.id`, `embedding float[384]` | ~1.5 KB/message |
-| `embedding_meta` | regular | `table_name TEXT PK`, `last_indexed_at INTEGER` | negligible |
-
-**Indexing**: sqlite-vec builds an HNSW index automatically; no manual index DDL needed.
-
-**Disk budget**: 384 × 4 bytes = 1,536 bytes/vector × 1,000,000 messages ≈ 1.46 GB (within 2 GB Req 5.2).
-
----
+### Physical Data Model
+```sql
+CREATE VIRTUAL TABLE vec_chats
+  USING vec0(rowid INTEGER PRIMARY KEY, embedding float[384] distance_metric=cosine);
+CREATE VIRTUAL TABLE vec_messages
+  USING vec0(rowid INTEGER PRIMARY KEY, embedding float[384] distance_metric=cosine);
+CREATE TABLE embedding_meta (
+  table_name      TEXT    PRIMARY KEY,
+  last_indexed_at INTEGER NOT NULL
+);
+```
+- **Keys**: `vec_*.rowid` equals the corresponding `messages.id` / `chats.id`. Referential integrity is enforced by convention (vectors are keyed by, but not FK-constrained to, source rows).
+- **Consistency**: upserts are DELETE-then-INSERT; force-clear deletes in scope before re-insert.
+- **Sizing**: 384 × 4 bytes = 1,536 bytes/vector; ~1.47 GB per 1M messages + ~20% index overhead ≈ 1.77 GB, within the 2 GB/1M ceiling (Req 5.2).
 
 ## Error Handling
 
-| Error | Source | Response |
-|-------|--------|----------|
-| Index not built | `isIndexed()` returns false | MCP tool returns `{ error: 'Run npm run index:embeddings' }` |
-| Model download failure | `pipeline()` throws | `index-embeddings.ts` exits with code 1 and error message |
-| Per-message embed failure | `embed()` throws on one item | Log error, skip that message, continue batch |
-| `loadExtension` incompatible | `sqliteVec.load()` throws | `initDb()` propagates throw — fail fast at startup |
-| Empty query | handler input | Return empty array (no embed call) |
-| DB not found at startup | `initDb()` throws | CLI exits with code 1 |
+### Error Strategy
+- **Per-record embed failure** (indexing): catch, log to stderr, continue (Req 2.5). Never aborts the sweep or the enclosing sync.
+- **Index-not-built** (query): return a structured `{ error }` with actionable text pointing at `khipu index` (Req 3.7, 4.8) rather than throwing.
+- **Model cache absent/corrupt**: log the download and let `@huggingface/transformers` fetch the model, then go offline (Req 5.5). If the download fails (no network), the error surfaces to the operator with the underlying cause.
 
----
+### Error Categories and Responses
+- **User/operator errors**: unindexed archive → descriptive "run `khipu index`" message; unknown CLI tool → usage help + non-zero exit (existing).
+- **System errors**: embedding-inference exceptions are isolated per record; storage errors propagate (fail fast) since they indicate a corrupt DB.
+- **Business-logic**: below-threshold similarity yields an empty list, not an error.
+
+### Monitoring
+- Progress bar updates at least every 100-message batch (satisfies the ≥1,000-message logging cadence, Req 1.7).
+- Completion line reports total messages and chats indexed (Req 1.3).
+- Download notice logged on cache miss (Req 5.5); per-record failures logged to stderr.
 
 ## Testing Strategy
 
-### Unit Tests (`tests/vec-db.test.ts`)
-- `loadVecExtension` registers vec0 tables in an in-memory DB
-- `upsertMessageVector` + `semanticSearchMessages` returns correct ranked order for known vectors
-- `semanticFindContacts` with `before`/`after` filters excludes out-of-range chats
-- `isIndexed` returns false before first `upsertEmbeddingMeta`, true after
+### Unit Tests
+- `clearMessageVectors` / `clearChatVectors`: global clear empties the `vec0` table; platform-scoped clear removes only in-scope rows and leaves others intact.
+- `rebuildEmbeddings(_, force=true)`: after seeding + indexing, a forced rebuild restores identical row counts from scratch (extends `tests/rebuild-embeddings.test.ts`).
+- Completion report counts DB totals in scope, not rows embedded this run (Req 1.3).
+- `embeddings.ts`: logs a download line on simulated cache miss and stays silent when the cache is present (Req 5.5), preserving the `KHIPUCHAT_EMBED_MOCK` hook.
 
-### Unit Tests (`tests/embeddings.test.ts`)
-- `embedOne` returns Float32Array of length 384
-- `embed(['a','b'])` returns two arrays
-- Same text embedded twice returns identical vectors (deterministic)
+### Integration Tests
+- `cli.ts index`: `khipu index` triggers a whole-DB sweep; `khipu index --force` triggers a clear-then-rebuild; usage text lists the command (`tests/cli.test.ts`).
+- `sync-runner.ts` force path: `sync --force` calls `rebuildEmbeddings(platform, true)` so already-indexed messages are re-embedded (Req 2.3) (`tests/sync-runner.test.ts`).
+- MCP tools return the updated `khipu index` not-built message when the index is absent (`tests/mcp.test.ts`, `tests/query-handlers.test.ts`).
 
-### Integration Tests (`tests/mcp.test.ts` additions)
-- `handleSemanticFindContacts` returns `{ error }` when index not built
-- `handleSemanticFindContacts` with seeded vectors returns ranked results
-- `handleSemanticSearchMessages` with `platform` filter excludes other platforms
-- `handleSemanticSearchMessages` with `before_timestamp` excludes later messages
-
-### E2E / CLI Tests
-- `npm run index:embeddings` on a seeded test DB exits 0 and prints count summary
-- Re-running `index:embeddings` skips already-indexed rows (incremental behavior)
-
-### Performance
-- Verify kNN query on 10,000-row vec_messages returns within 200 ms (extrapolates to well under 2 s at 1M)
-
----
+### Performance / Load (manual validation)
+- Query latency: on a ~1M-message indexed DB, confirm `semantic_find_contacts` and `semantic_search_messages` return within 2 s (Req 5.1). No automated benchmark exists; treat as a manual checkpoint, per `research.md`.
+- Storage: verify index size stays under 2 GB per 1M messages (Req 5.2).
+- Concurrency: confirm indexing does not block the MCP server or sync (WAL mode, separate process) (Req 5.3).
 
 ## Security Considerations
-
-- All model inference is local; `env.allowRemoteModels` is set to `false` after the model cache warms up
-- Vector tables are stored in the same SQLite file, inheriting any `DB_KEY` encryption via `better-sqlite3-multiple-ciphers`
-- MCP tool auth (Bearer token check) already applied at the `CallToolRequestSchema` handler — new tools are dispatched inside the same auth-gated block
-
----
+- **Local-only guarantee**: after the one-time model download, `env.allowRemoteModels = false` ensures no message text, metadata, or identifiers ever leave the device during indexing or querying (Req 1.6). The cache-miss download path fetches only model weights, never archive data.
+- **No new attack surface**: no new endpoints, no new dependencies, no schema changes; force-clear only deletes vectors derived from local data.
 
 ## Performance & Scalability
-
-- **Batch size 64**: balances ONNX throughput vs memory; ~5,000 embeddings/sec on M4 CPU → ~3 min for 1M messages
-- **HNSW index**: sqlite-vec builds HNSW automatically; kNN at 1M rows is expected sub-100 ms
-- **Separate process**: `index-embeddings.ts` runs in its own process; WAL mode prevents DB lock contention with MCP server
-- **Chat snippets**: chat-level embedding uses 5 most-recent message texts + chat name (≤ 512 tokens) — well within model limit
+- **Query**: in-process `sqlite-vec` kNN with an over-scan candidate set keeps the 2 s ceiling reachable without a separate vector-DB process (Req 5.1).
+- **Index build**: batched inference (batch 64 in `embed`, 100-row DB batches in the sweep) bounds memory; progress/ETA reported live.
+- **Force rebuild cost**: clearing is O(rows in scope) deletes; re-embedding dominates runtime and is bounded by the same batching as initial indexing.

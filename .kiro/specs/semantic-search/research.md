@@ -224,3 +224,36 @@ Concrete tasks:
 |-----------|--------|---------------|
 | Effort | **S** (1-3 days) | All foundational plumbing exists. Gaps are additive and isolated: one new CLI case, one new parameter, one conditional DELETE |
 | Risk | **Low** | No new external dependencies, no schema changes, no architectural shifts. Force-delete path is the only net-new operation; sqlite-vec DELETE is standard SQL |
+
+---
+
+# Design-Phase Synthesis (2026-07-12)
+
+## Current-State Re-Verification (design phase)
+
+Re-read of the actual source at design time refines the gap analysis:
+
+- `rebuildEmbeddings(platform?)` already exists **with** the platform parameter (`index-embeddings.ts:138`); it still has **no `force` parameter**. Force-wipe is the one net-new behavior.
+- `sync-runner.ts:63` already calls `rebuildEmbeddings(adapter.platform)` on `--force`, but passes no force flag downstream — already-indexed rows are skipped, so Req 2.3 (rebuild *affected* embeddings) is unmet.
+- `cli.ts` dispatches query tools only (`semantic-search`, `semantic-contacts`, `search`, `list-chats`, …). No `index` case. Req 1 CLI surface unmet.
+- `embeddings.ts` flips `env.allowRemoteModels = true → false` after first load; there is no explicit "downloading model" log tied to cache absence/corruption. `index-embeddings.ts:154` logs a download notice, but only gated on `!isIndexed('messages')`, not on actual cache state. Req 5.5 partially unmet.
+- `INDEX_NOT_BUILT_MSG` (`query-handlers.ts:194`) and both MCP tool descriptions (`mcp.ts:46-47`) still instruct `npm run index:embeddings`. Req 3.7 / 4.8 require the operator be pointed at `khipu index`.
+- `Done. Indexed X messages, Y chats` reports rows embedded **this run**, not DB totals. Req 1.3 asks for the total successfully indexed.
+- An `account` column already exists on results and filters (multi-account plumbing is partly present). This spec does **not** add account-scoped indexing; it stays single-account per the boundary. The existing `account` passthrough filter is left untouched.
+
+## Build-vs-Adopt / Simplification (unchanged, reaffirmed)
+
+- Extend `rebuildEmbeddings` with `force?: boolean` rather than adding a parallel `forceRebuild()` — single source of truth (Option A from gap analysis).
+- Add the `index` case to `cli.ts` rather than a new entry point (Option A) — keeps one unified admin+query surface, consistent with how `cli.ts` already hosts multiple tools.
+- Force-wipe uses the same DELETE-then-INSERT idiom `upsertMessageVector`/`upsertChatVector` already rely on, so no new sqlite-vec interaction pattern is introduced.
+
+## Force-Delete Approach & Residual Risk
+
+- Global force: `DELETE FROM vec_messages` / `DELETE FROM vec_chats`.
+- Platform-scoped force (sync `--force`): delete only rows whose chat is on that platform.
+- **Risk**: `DELETE FROM vec0_table WHERE rowid IN (SELECT ...)` against a vec0 virtual table is not yet verified. **Mitigation**: collect the target rowids with a plain SQL SELECT over `messages`/`chats`, then delete per-rowid (the proven `upsert` idiom) in a loop. The design specifies the per-rowid fallback as the primary implementation to avoid depending on unverified subquery-DELETE support.
+
+## Carried-Forward Validation Items
+
+- Benchmark query latency on a ~1M-row DB to confirm the 2s ceiling (Req 5.1) — no automated benchmark exists; treat as a manual validation checkpoint, not a blocking unit test.
+- Confirm the force-rebuild path restores identical row counts from scratch (new Vitest test).
