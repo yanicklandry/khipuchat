@@ -293,6 +293,25 @@ describe('searchMessages', () => {
     })
   })
 
+  it('result shape includes type field on every result row', () => {
+    const results = searchMessages('hello')
+    expect(results.length).toBeGreaterThan(0)
+    for (const r of results) {
+      expect(r).toHaveProperty('type')
+    }
+  })
+
+  it('image message match reports type: image', () => {
+    insertMessage({
+      external_id: '50', chat_id: chatId1, sender_id: '1', sender_name: 'Tony',
+      text: 'hello image caption', type: 'image', timestamp: T + 5, is_sender: 0,
+      reply_to_external_id: null, platform: 'telegram',
+    })
+    const results = searchMessages('hello image caption')
+    expect(results).toHaveLength(1)
+    expect(results[0].type).toBe('image')
+  })
+
   it('platform filter returns only matching platform messages', () => {
     const results = searchMessages('hello', { platform: 'telegram' })
     expect(results).toHaveLength(1)
@@ -750,6 +769,13 @@ describe('searchMessages — finds image messages by ocr_text', () => {
   it('does not return image message before ocr_text is set', () => {
     const results = searchMessages('uniqueocrterm')
     expect(results).toHaveLength(0)
+  })
+
+  it('image message matched via ocr_text returns type: image (Req 4.1, 4.3)', () => {
+    updateMessageMedia(msgId, { ocr_text: 'uniqueocrterm' })
+    const results = searchMessages('uniqueocrterm')
+    expect(results).toHaveLength(1)
+    expect(results[0].type).toBe('image')
   })
 })
 

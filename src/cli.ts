@@ -24,6 +24,7 @@ import {
   handleSemanticFindContacts,
   handleSemanticSearchMessages,
   parseTemporalFilters,
+  handleGetImage,
 } from './mcp'
 import { listArchiveAccounts } from './query-handlers'
 import { parseQueryFilters } from './cli-filters'
@@ -83,6 +84,7 @@ Tools:
   find-chat <name>            Find chats by name
   messages <chat_id>          List recent messages in a chat
   summary <chat_id>           Get chat summary
+  get_image <message_id>      Retrieve a stored image: file path, availability, and OCR text
   index [--force]             Embed all messages/chats (incremental by default; --force clears and rebuilds from scratch)
 `
 }
@@ -240,6 +242,24 @@ async function main() {
       if (s.last_message_date) console.log(`Last:  ${ts(s.last_message_date)}`)
       console.log('\nRecent messages:')
       for (const t of s.last_5_texts) console.log(`  "${t.slice(0, 100)}"`)
+      break
+    }
+
+    case 'get_image': {
+      const messageId = parseInt(query, 10)
+      if (isNaN(messageId)) { console.error('Usage: npm run cli get_image <message_id>'); process.exit(1) }
+      const result = await handleGetImage(messageId)
+      if (result.file_available) {
+        console.log(`file_path:      ${result.file_path}`)
+        console.log(`file_available: true`)
+        console.log(`ocr_text:       ${result.ocr_text ?? '(none)'}`)
+        console.log(`content_base64: [${result.content_base64.length} chars]`)
+      } else {
+        console.log(`file_path:      ${result.file_path ?? '(none)'}`)
+        console.log(`file_available: false`)
+        console.log(`error:          ${result.error}`)
+        console.log(`ocr_text:       ${result.ocr_text ?? '(none)'}`)
+      }
       break
     }
 

@@ -51,6 +51,7 @@ export interface SearchResult {
   chat_name: string
   sender_name: string | null
   text: string | null
+  type: MessageType
   timestamp: number
   platform: Platform
   account: string
@@ -249,7 +250,7 @@ export function searchMessages(query: string, filters?: DbSearchFilters): Search
   if (type !== undefined) { extra += ' AND m.type = ?'; args.push(type) }
   args.push(limit)
   return db().prepare(`
-    SELECT m.chat_id, c.name AS chat_name, m.sender_name, m.text, m.timestamp, m.platform, c.account
+    SELECT m.chat_id, c.name AS chat_name, m.sender_name, m.text, m.type, m.timestamp, m.platform, c.account
     FROM messages_fts f
     JOIN messages m ON m.id = f.rowid
     JOIN chats c ON c.id = m.chat_id

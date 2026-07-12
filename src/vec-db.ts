@@ -2,6 +2,7 @@ import * as sqliteVec from 'sqlite-vec'
 import type Database from 'better-sqlite3-multiple-ciphers'
 import type { Platform } from './platforms/types'
 import { getDb } from './db'
+import type { MessageType } from './db'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ export interface SemanticMessageResult {
   timestamp: number
   platform: Platform
   account: string
+  type: MessageType
   distance: number
 }
 
@@ -299,7 +301,7 @@ export function semanticSearchMessages(
     const row = getDb()
       .prepare(`
         SELECT m.chat_id, c.name AS chat_name, m.sender_name,
-               m.text, m.timestamp, m.platform, c.account
+               m.text, m.timestamp, m.platform, c.account, m.type
         FROM messages m
         JOIN chats c ON c.id = m.chat_id
         WHERE m.id = ?
@@ -312,6 +314,7 @@ export function semanticSearchMessages(
         timestamp: number
         platform: Platform
         account: string
+        type: MessageType
       } | undefined
 
     if (!row) continue

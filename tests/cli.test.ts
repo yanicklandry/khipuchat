@@ -3,13 +3,18 @@
  * and the `index [--force]` subcommand dispatch.
  * Covers requirement 5.1: account filter on CLI list and search.
  * Covers requirements 1.1, 1.4, 1.5: index command and --force flag.
+ * Covers requirements 3.5, 3.6: get_image CLI subcommand.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { initDb, upsertChat, insertMessage, rebuildFtsIndex } from '../src/db'
+import * as os from 'os'
+import * as path from 'path'
+import * as fs from 'fs'
+import { initDb, upsertChat, insertMessage, rebuildFtsIndex, getDb } from '../src/db'
 import {
   parseAccountArg,
   formatPlatformLabel,
   parseForceArg,
+  getUsageText,
 } from '../src/cli'
 import {
   handleListChats,
@@ -18,6 +23,7 @@ import {
 } from '../src/query-handlers'
 import { parseQueryFilters } from '../src/cli-filters'
 import { rebuildEmbeddings } from '../src/index-embeddings'
+import { handleGetImage } from '../src/mcp'
 
 vi.mock('../src/index-embeddings', () => ({
   rebuildEmbeddings: vi.fn().mockResolvedValue(undefined),
@@ -302,5 +308,99 @@ describe('search case uses parseQueryFilters', () => {
     const searchQuery = result.rest[0] ?? ''
     const rows = handleSearchMessages(searchQuery, result.filters)
     expect(rows).toEqual([])
+  })
+})
+
+// ── get_image CLI subcommand ──────────────────────────────────────────────────
+// Requirements 3.5 (CLI access to get_image), 3.6 (documented in README + usage)
+
+describe('get_image CLI subcommand', () => {
+  // Helper: insert an image message and return its row ID
+  function insertImageMessage(chatId: number, mediaFilePath: string | null, ocrText: string | null): number {
+    const result = getDb()
+      .prepare(
+        `INSERT INTO messages
+           (external_id, chat_id, sender_id, sender_name, text, type, timestamp, is_sender,
+            reply_to_external_id, platform, media_file_path, ocr_text)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        `img-${Date.now()}-${Math.random()}`,
+        chatId,
+        '1',
+        'Alice',
+        null,
+        'image',
+        1700000010,
+        0,
+        null,
+        'telegram',
+        mediaFilePath,
+        ocrText,
+      )
+    return result.lastInsertRowid as number
+  }
+
+  it('getUsageText() mentions get_image', () => {
+    const usage = getUsageText()
+    expect(usage).toContain('get_image')
+  })
+
+  it('handleGetImage returns file_available:true for a stored image file', async () => {
+    const chatId = ids.personal
+    // Write a temp image file
+    const tmpPath = path.join(os.tmpdir(), `khipuchat-test-img-${Date.now()}.jpg`)
+    fs.writeFileSync(tmpPath, Buffer.from('fakeimagedata'))
+    try {
+      const msgId = insertImageMessage(chatId, tmpPath, 'some ocr text')
+      const result = await handleGetImage(msgId)
+      expect(result.file_available).toBe(true)
+      if (!result.file_available) return
+      expect(result.file_path).toBe(tmpPath)
+      expect(result.ocr_text).toBe('some ocr text')
+      // content_base64 should be non-empty (base64 of 'fakeimagedata')
+      expect(result.content_base64.length).toBeGreaterThan(0)
+    } finally {
+      fs.unlinkSync(tmpPath)
+    }
+  })
+
+  it('handleGetImage returns file_available:false with error when file missing from disk', async () => {
+    const chatId = ids.personal
+    const msgId = insertImageMessage(chatId, '/nonexistent/path/image.jpg', 'ocr fallback')
+    const result = await handleGetImage(msgId)
+    expect(result.file_available).toBe(false)
+    if (result.file_available) return
+    expect(result.error).toMatch(/not found on disk/)
+    expect(result.ocr_text).toBe('ocr fallback')
+  })
+
+  it('handleGetImage throws for a non-image message ID', async () => {
+    // Use a text message (seeded by seed())
+    // The text messages in seed() have type 'text'
+    const row = getDb()
+      .prepare('SELECT id FROM messages WHERE type = ? LIMIT 1')
+      .get('text') as { id: number } | undefined
+    expect(row).toBeDefined()
+    await expect(handleGetImage(row!.id)).rejects.toThrow(/not supported by get_image/)
+  })
+
+  it('handleGetImage throws for a missing message ID', async () => {
+    await expect(handleGetImage(999999999)).rejects.toThrow(/message not found/)
+  })
+
+  it('parseInt NaN-guard: NaN messageId would exit (guard contract test)', () => {
+    // Simulate what the case 'get_image' handler does before calling handleGetImage
+    const query = 'notanumber'
+    const messageId = parseInt(query, 10)
+    expect(isNaN(messageId)).toBe(true)
+    // When NaN, we print usage and exit — no call to handleGetImage
+  })
+
+  it('parseInt NaN-guard: valid numeric string parses correctly', () => {
+    const query = '42'
+    const messageId = parseInt(query, 10)
+    expect(isNaN(messageId)).toBe(false)
+    expect(messageId).toBe(42)
   })
 })

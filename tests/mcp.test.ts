@@ -295,11 +295,11 @@ describe('handleSearchMessages', () => {
     expect(handleSearchMessages('zzznomatch')).toEqual([])
   })
 
-  it('result shape includes chat_id, chat_name, sender_name, text, timestamp, platform', () => {
+  it('result shape includes chat_id, chat_name, sender_name, text, timestamp, platform, type', () => {
     const [r] = handleSearchMessages('hello')
     expect(r).toMatchObject({
       chat_id: seedIds.tony, chat_name: 'Tony Lin', sender_name: 'Tony',
-      text: 'hello there', platform: 'telegram',
+      text: 'hello there', platform: 'telegram', type: 'text',
     })
     expect(typeof r.timestamp).toBe('number')
   })
@@ -517,14 +517,14 @@ describe('handleSemanticSearchMessages', () => {
     expect(results.every(r => r.timestamp < cutoff)).toBe(true)
   })
 
-  it('result shape includes id, text, platform, timestamp, distance', async () => {
+  it('result shape includes id, text, platform, timestamp, distance, type', async () => {
     upsertEmbeddingMeta('messages', Date.now())
     const db = getDb()
     const rows = db.prepare("SELECT id FROM messages WHERE type='text' AND text IS NOT NULL AND text != ''").all() as { id: number }[]
     for (const { id } of rows) upsertMessageVector(id, CLOSE_VEC)
 
     const result = await handleSemanticSearchMessages('hello', {})
-    const results = result as { chat_id: number; chat_name: string; text: string; platform: string; timestamp: number; distance: number }[]
+    const results = result as { chat_id: number; chat_name: string; text: string; platform: string; timestamp: number; distance: number; type: string }[]
     expect(results.length).toBeGreaterThan(0)
     const r = results[0]
     expect(typeof r.chat_id).toBe('number')
@@ -533,6 +533,7 @@ describe('handleSemanticSearchMessages', () => {
     expect(typeof r.platform).toBe('string')
     expect(typeof r.timestamp).toBe('number')
     expect(typeof r.distance).toBe('number')
+    expect(typeof r.type).toBe('string')
   })
 })
 
@@ -630,5 +631,96 @@ describe('list_chats via MCP with since/until/type/limit filters', () => {
   it('passes limit filter to handleListChats', async () => {
     const result = await callTool('list_chats', { limit: 1 }) as unknown[]
     expect(result).toHaveLength(1)
+  })
+})
+
+// ── get_image MCP tool: discriminated union serialization ──────────────────────
+// Req 4.3: JSON.stringify passthrough — mcp.ts returns handleGetImage result directly
+
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
+
+describe('get_image MCP tool: discriminated union serialization', () => {
+  function insertImageMessage(chatId: number, mediaFilePath: string | null, ocrText: string | null): number {
+    const db = getDb()
+    const result = db
+      .prepare(
+        `INSERT INTO messages
+           (external_id, chat_id, sender_id, sender_name, text, type, timestamp, is_sender,
+            reply_to_external_id, platform, media_file_path, ocr_text)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        `mcp-img-${Date.now()}-${Math.random()}`,
+        chatId,
+        '1',
+        'Alice',
+        null,
+        'image',
+        1700000099,
+        0,
+        null,
+        'telegram',
+        mediaFilePath,
+        ocrText,
+      )
+    return result.lastInsertRowid as number
+  }
+
+  it('available arm: serializes with file_available:true, content_base64, ocr_text, type', async () => {
+    const tmpPath = path.join(os.tmpdir(), `khipuchat-mcp-test-img-${Date.now()}.jpg`)
+    fs.writeFileSync(tmpPath, Buffer.from('fakeimagedata'))
+    try {
+      const msgId = insertImageMessage(seedIds.tony, tmpPath, 'some ocr text')
+      const result = await callTool('get_image', { message_id: msgId }) as {
+        file_available: boolean
+        content_base64: string
+        ocr_text: string | null
+        type: string
+        error?: string
+      }
+      expect(result.file_available).toBe(true)
+      expect(typeof result.content_base64).toBe('string')
+      expect(result.content_base64.length).toBeGreaterThan(0)
+      expect(result.ocr_text).toBe('some ocr text')
+      expect(result.type).toBe('image')
+    } finally {
+      fs.unlinkSync(tmpPath)
+    }
+  })
+
+  it('unavailable arm: serializes with file_available:false, error, ocr_text, type', async () => {
+    const msgId = insertImageMessage(seedIds.tony, '/nonexistent/path/mcp-image.jpg', 'fallback ocr')
+    const result = await callTool('get_image', { message_id: msgId }) as {
+      file_available: boolean
+      error: string
+      ocr_text: string | null
+      type: string
+      content_base64?: string
+    }
+    expect(result.file_available).toBe(false)
+    expect(typeof result.error).toBe('string')
+    expect(result.error).toMatch(/not found on disk/)
+    expect(result.ocr_text).toBe('fallback ocr')
+    expect(result.type).toBe('image')
+    expect(result.content_base64).toBeUndefined()
+  })
+
+  it('search_messages response includes type field end-to-end via JSON.stringify passthrough', async () => {
+    const results = await callTool('search_messages', { query: 'hello' }) as { type: string }[]
+    expect(results.length).toBeGreaterThan(0)
+    expect(results.every(r => typeof r.type === 'string')).toBe(true)
+  })
+
+  it('semantic_search_messages response includes type field end-to-end', async () => {
+    upsertEmbeddingMeta('messages', Date.now())
+    const db = getDb()
+    const rows = db.prepare("SELECT id FROM messages WHERE type='text' AND text IS NOT NULL AND text != ''").all() as { id: number }[]
+    for (const { id } of rows) upsertMessageVector(id, CLOSE_VEC)
+    const result = await callTool('semantic_search_messages', { query: 'hello' }) as { type: string }[]
+    expect(Array.isArray(result)).toBe(true)
+    expect(result.length).toBeGreaterThan(0)
+    expect(result.every(r => typeof r.type === 'string')).toBe(true)
   })
 })

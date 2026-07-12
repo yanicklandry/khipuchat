@@ -147,6 +147,33 @@ describe('vec-db', () => {
     expect(typeof results[0].account).toBe('string')
   })
 
+  it('semanticSearchMessages result contains type field', () => {
+    upsertMessageVector(1, makeVec(0.8))
+
+    const results = semanticSearchMessages(makeVec(0.8), {})
+    expect(results.length).toBeGreaterThan(0)
+    expect(results[0].type).toBeDefined()
+    expect(typeof results[0].type).toBe('string')
+  })
+
+  it('semanticSearchMessages returns image messages and type field shows image (Req 4.2, 4.3)', () => {
+    // Insert an image message into the DB
+    const db = getDb()
+    db.exec(`
+      INSERT OR IGNORE INTO messages(external_id, chat_id, sender_name, text, ocr_text, type, timestamp, is_sender, platform)
+        VALUES ('img-sem-1', 1, 'Alice', NULL, 'photo content', 'image', 5000, 0, 'telegram');
+    `)
+    const imgRow = db.prepare("SELECT id FROM messages WHERE external_id = 'img-sem-1'").get() as { id: number }
+
+    // Index it with a vector close to the query
+    upsertMessageVector(imgRow.id, makeVec(0.8))
+
+    const results = semanticSearchMessages(makeVec(0.8), {})
+    const imgResult = results.find(r => r.type === 'image')
+    expect(imgResult).toBeDefined()
+    expect(imgResult!.type).toBe('image')
+  })
+
   it('semanticFindContacts account filter returns only matching account', () => {
     upsertChatVector(1, makeVec(0.9))  // account='personal'
     upsertChatVector(2, makeVec(0.9))  // account='default'

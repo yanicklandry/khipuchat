@@ -52,6 +52,8 @@ describe('handleGetImage', () => {
 
     const result = await handleGetImage(messageId)
 
+    expect(result.file_available).toBe(true)
+    if (!result.file_available) throw new Error('expected file_available: true')
     expect(result.message_id).toBe(messageId)
     expect(result.file_path).toBe('/fake/path/image.jpg')
     expect(result.content_base64).toBe(Buffer.from('fake image data').toString('base64'))
@@ -68,29 +70,69 @@ describe('handleGetImage', () => {
 
     const result = await handleGetImage(messageId)
 
+    expect(result.file_available).toBe(true)
+    if (!result.file_available) throw new Error('expected file_available: true')
     expect(result.message_id).toBe(messageId)
     expect(result.ocr_text).toBeNull()
     expect(result.ocr_available).toBe(false)
   })
 
-  it('throws a descriptive error when message has no media_file_path', async () => {
-    // media_file_path is NULL by default
-    await expect(handleGetImage(messageId)).rejects.toThrow('image not available')
+  it('returns GetImageResultUnavailable with error when message has no media_file_path', async () => {
+    // media_file_path is NULL by default; ocr_text is also NULL
+    const result = await handleGetImage(messageId)
+
+    expect(result.file_available).toBe(false)
+    if (result.file_available) throw new Error('expected file_available: false')
+    expect(result.message_id).toBe(messageId)
+    expect(result.file_path).toBeNull()
+    expect(result.ocr_text).toBeNull()
+    expect(result.ocr_available).toBe(false)
+    expect(result.error).toContain(String(messageId))
   })
 
-  it('throws a descriptive error when the file is missing on disk', async () => {
+  it('returns GetImageResultUnavailable with file_path and error when file is missing on disk (ENOENT)', async () => {
     getDb()
-      .prepare('UPDATE messages SET media_file_path = ? WHERE id = ?')
-      .run('/missing/file.jpg', messageId)
+      .prepare('UPDATE messages SET media_file_path = ?, ocr_text = ? WHERE id = ?')
+      .run('/missing/file.jpg', 'extracted text', messageId)
 
     ;(fs.readFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {
       throw Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
     })
 
-    await expect(handleGetImage(messageId)).rejects.toThrow('image file not found on disk')
+    const result = await handleGetImage(messageId)
+
+    expect(result.file_available).toBe(false)
+    if (result.file_available) throw new Error('expected file_available: false')
+    expect(result.message_id).toBe(messageId)
+    expect(result.file_path).toBe('/missing/file.jpg')
+    expect(result.ocr_text).toBe('extracted text')
+    expect(result.ocr_available).toBe(true)
+    expect(result.error).toContain(String(messageId))
   })
 
   it('throws a descriptive error when message is not found', async () => {
     await expect(handleGetImage(999999)).rejects.toThrow('message not found')
+  })
+
+  it('throws a descriptive error naming the type when message is not an image', async () => {
+    // Insert a text message in the same chat
+    insertMessage({
+      external_id: '202',
+      chat_id: chatId,
+      sender_id: null,
+      sender_name: null,
+      text: 'hello',
+      type: 'text',
+      timestamp: T,
+      is_sender: 0,
+      reply_to_external_id: null,
+      platform: 'telegram',
+    })
+
+    const textRow = getDb()
+      .prepare('SELECT id FROM messages WHERE external_id = ? AND chat_id = ?')
+      .get('202', chatId) as { id: number }
+
+    await expect(handleGetImage(textRow.id)).rejects.toThrow("'text'")
   })
 })

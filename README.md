@@ -121,6 +121,37 @@ If you run `khipu setup-claude` or `khipu setup-sync` again (e.g. after a Node u
 | `get_chat_summary(chat_id)` | Stats + last 5 texts for a chat |
 | `get_image(message_id)` | Retrieve a stored image as base64 content, with file path and OCR text if available |
 
+### `get_image` response shape
+
+| Field | Type | Description |
+|---|---|---|
+| `message_id` | `number` | The message ID queried |
+| `type` | `"image"` | Always `"image"` |
+| `file_available` | `boolean` | `true` if the image file was read from disk; `false` if it is missing or not recorded |
+| `file_path` | `string \| null` | Absolute path where the image is stored (or was expected) |
+| `content_base64` | `string` | Base64-encoded image bytes (only present when `file_available: true`) |
+| `ocr_text` | `string \| null` | OCR-extracted text from the image, if available |
+| `ocr_available` | `boolean` | `true` when `ocr_text` is non-null |
+| `error` | `string` | Human-readable reason why the file is unavailable (only present when `file_available: false`) |
+
+## CLI tools
+
+Run any MCP tool from the terminal with `npm run cli <tool> [args]`.
+
+```bash
+npm run cli get_image <message_id>
+```
+
+Prints:
+- `file_path`: where the image is stored on disk
+- `file_available`: `true` or `false`
+- `ocr_text`: OCR-extracted text, or `(none)` if not available
+- `content_base64`: shown as a byte-count summary (the full blob is not printed)
+
+When `file_available` is `false`, the `error` field and any retained `ocr_text` are printed instead.
+
+On a non-image message ID, or when the message is not found, the CLI exits non-zero with an error message. On a missing or non-numeric argument, usage is printed and the CLI exits non-zero.
+
 ## Multi-account configuration
 
 By default, KhipuChat reads credentials from environment variables. For multiple accounts on the same platform, create a `khipu.config.json` file in the project root:
