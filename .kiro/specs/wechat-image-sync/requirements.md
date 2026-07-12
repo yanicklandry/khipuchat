@@ -1,66 +1,58 @@
 # Requirements Document
 
 ## Introduction
-This document outlines the requirements for enhancing image message handling in the WeChat sync functionality. The goal is to ensure all image-related messages from WeChat are properly detected, processed, and synced as 'image' type messages with appropriate metadata.
+This document outlines the requirements for enhancing image message handling in the WeChat sync functionality. The goal is to ensure all image-related messages from WeChat are properly detected and synced as image-type messages with appropriate metadata, across all WeChat database schema versions.
 
 ## Boundary Context (Optional)
-- **In scope**: 
-  - Expand image message type detection to include all relevant WeChat message types
-  - Improve metadata extraction for image messages
-  - Ensure consistent handling of image messages across legacy and V4 schemas
-- **Out of scope**: 
-  - Image storage or download functionality
-  - Image processing or transformation capabilities
-  - Implementation of specific media handling features
-- **Adjacent expectations**: 
-  - Must maintain compatibility with existing WeChat message types
-  - Should not impact performance of non-image messages
-  - Follow existing code patterns in the wechat adapter
+- **In scope**:
+  - Image message type detection for all relevant WeChat message types (Type 4, Type 43, Type 49, local_type 4)
+  - Metadata extraction from image messages (file paths, URLs, dimensions) when present in message data
+  - Consistent image handling across legacy, WeChat, and V4 database schemas
+- **Out of scope**:
+  - Image file storage, download, or retrieval
+  - Image processing, compression, or format conversion
+  - Changes to downstream query surfaces (MCP, CLI, Web)
+- **Adjacent expectations**:
+  - Downstream query surfaces (MCP, CLI, Web) receive enriched image message records without any interface changes on their side
+  - WeChat database access and message parsing behavior remain unchanged
+  - Non-image message handling is not affected
 
 ## Requirements
 
-### Requirement 1: Enhanced Image Message Type Detection
-**Objective:** As a user, I want all image-related messages from WeChat to be properly detected and synced as image type messages, so that I can maintain complete message history across platforms.
+### Requirement 1: Image Message Type Detection
+
+**Objective:** As a user, I want all image-related WeChat messages to be recognized as image-type messages during sync, so that my complete image message history appears in the archive.
 
 #### Acceptance Criteria
-1. When a message with Type 4 is identified in legacy schema, the system shall classify it as an image message
-2. When a message with Type 43 is identified in WeChat schema, the system shall classify it as an image message
-3. When a message with Type 49 is identified in WeChat schema, the system shall classify it as an image message
-4. When a message with local_type 4 is identified in V4 schema, the system shall classify it as an image message
-5. The system shall detect and handle additional media types that may contain images
+1. When the WeChat Sync encounters a message with Type 4 in the legacy schema, it shall classify it as an image-type message.
+2. When the WeChat Sync encounters a message with Type 43, it shall classify it as an image-type message.
+3. When the WeChat Sync encounters a message with Type 49, it shall classify it as an image-type message.
+4. When the WeChat Sync encounters a message with local_type 4 in the V4 schema, it shall classify it as an image-type message.
 
-### Requirement 2: Rich Image Metadata Extraction
-**Objective:** As a user, I want image messages to include relevant metadata for downstream processing, so that I can access complete information about each image.
+### Requirement 2: Image Metadata Extraction
+
+**Objective:** As a user, I want image messages in the archive to include available metadata, so that I can access file paths, URLs, and dimensions when querying image messages through MCP, CLI, or Web.
 
 #### Acceptance Criteria
-1. When an image message is processed, the system shall extract file paths or URLs if available
-2. The system shall capture image dimensions when available in message data
-3. For image messages, the text field shall contain relevant metadata instead of empty string
-4. The system shall preserve original message identifiers for tracking purposes
+1. When an image message contains a file path in its message data, the WeChat Sync shall include that file path in the synced message record.
+2. When an image message contains a URL in its message data, the WeChat Sync shall include that URL in the synced message record.
+3. When an image message contains dimension data in its message data, the WeChat Sync shall include width and height values in the synced message record.
+4. If image metadata fields are absent from the message data, the WeChat Sync shall still sync the message as an image-type without failing.
 
 ### Requirement 3: Cross-Schema Compatibility
-**Objective:** As a user, I want image messages to be handled consistently across all WeChat database schemas, so that my complete message history is preserved.
+
+**Objective:** As a user, I want image messages from all WeChat schema versions to be handled consistently, so that my complete image message history is preserved regardless of which WeChat database version is present.
 
 #### Acceptance Criteria
-1. When processing legacy schema messages, the system shall detect and handle image messages correctly
-2. When processing V4 schema messages, the system shall detect and handle image messages correctly
-3. The system shall maintain compatibility with existing non-image message handling
-4. Message type mapping shall work consistently across both schema versions
+1. When the WeChat Sync processes messages from the legacy schema, it shall detect and classify all image message types defined in Requirement 1 correctly.
+2. When the WeChat Sync processes messages from the V4 schema, it shall detect and classify all image message types defined in Requirement 1 correctly.
+3. The WeChat Sync shall produce image-type message records with consistent structure regardless of which schema version the source database uses.
 
-### Requirement 4: Performance and Compatibility
-**Objective:** As a system administrator, I want the enhanced image handling to not impact performance or break existing functionality, so that the application remains stable.
+### Requirement 4: Backward Compatibility
 
-#### Acceptance Criteria
-1. The system shall process image messages without affecting performance of non-image messages
-2. All existing WeChat message types shall continue to work as expected
-3. The implementation shall be backward compatible with current sync behavior
-4. Memory usage for image processing shall remain within acceptable limits
-
-### Requirement 5: Platform Integration
-**Objective:** As a developer, I want the enhanced image handling to integrate seamlessly with existing platform components, so that new features can be built on top of this foundation.
+**Objective:** As a user, I want the enhanced image handling to not affect existing non-image message sync behavior, so that my existing archived messages remain correct and complete.
 
 #### Acceptance Criteria
-1. The implementation shall follow existing code patterns in the wechat adapter
-2. Image message handling shall work with existing message processing pipelines
-3. Integration points with downstream systems shall remain unchanged
-4. The enhanced functionality shall be easily testable and maintainable
+1. When the WeChat Sync processes non-image messages, it shall continue to classify and represent them identically to pre-enhancement behavior.
+2. The WeChat Sync shall continue to process and sync all previously supported non-image message types without modification.
+3. If the WeChat Sync encounters an unrecognized message type, it shall treat it as a non-image message rather than failing or skipping it.
