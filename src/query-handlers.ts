@@ -191,7 +191,7 @@ export function listArchiveAccounts(): { platform: string; account: string }[] {
   `).all() as { platform: string; account: string }[]
 }
 
-const INDEX_NOT_BUILT_MSG = 'Embedding index not built. Run: npm run index:embeddings'
+const INDEX_NOT_BUILT_MSG = 'Embedding index not built. Run: khipu index'
 
 export async function handleSemanticFindContacts(
   query: string,

@@ -60,7 +60,7 @@ export async function runPlatformSync(
 
   if (force) {
     rebuildFtsIndex()
-    await rebuildEmbeddings(adapter.platform)
+    await rebuildEmbeddings(adapter.platform, force)
   }
 }
 

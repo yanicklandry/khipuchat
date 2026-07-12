@@ -382,7 +382,7 @@ const FAR_VEC = (() => {
 describe('handleSemanticFindContacts', () => {
   it('returns error object when chats index is not built', async () => {
     const result = await handleSemanticFindContacts('old friend', {})
-    expect(result).toMatchObject({ error: expect.stringContaining('index') })
+    expect(result).toMatchObject({ error: expect.stringContaining('khipu index') })
   })
 
   it('returns results after index is built and vectors seeded', async () => {
@@ -482,7 +482,7 @@ describe('account filter via MCP CallTool', () => {
 describe('handleSemanticSearchMessages', () => {
   it('returns error object when messages index is not built', async () => {
     const result = await handleSemanticSearchMessages('hello', {})
-    expect(result).toMatchObject({ error: expect.stringContaining('index') })
+    expect(result).toMatchObject({ error: expect.stringContaining('khipu index') })
   })
 
   it('returns results after index is built and vectors seeded', async () => {
@@ -539,5 +539,33 @@ describe('handleSemanticSearchMessages', () => {
     expect(typeof r.platform).toBe('string')
     expect(typeof r.timestamp).toBe('number')
     expect(typeof r.distance).toBe('number')
+  })
+})
+
+// ── MCP tool descriptions ─────────────────────────────────────────────────────
+
+type ListToolsResult = { tools: Array<{ name: string; description: string }> }
+
+async function listTools(): Promise<ListToolsResult> {
+  const server = createMcpServer()
+  const handler = (server as unknown as {
+    _requestHandlers: Map<string, (req: unknown) => Promise<ListToolsResult>>
+  })._requestHandlers.get('tools/list')!
+  return handler({ method: 'tools/list', params: {} })
+}
+
+describe('MCP tool descriptions reference khipu index', () => {
+  it('semantic_find_contacts description mentions khipu index', async () => {
+    const { tools } = await listTools()
+    const tool = tools.find(t => t.name === 'semantic_find_contacts')
+    expect(tool).toBeDefined()
+    expect(tool!.description).toContain('khipu index')
+  })
+
+  it('semantic_search_messages description mentions khipu index', async () => {
+    const { tools } = await listTools()
+    const tool = tools.find(t => t.name === 'semantic_search_messages')
+    expect(tool).toBeDefined()
+    expect(tool!.description).toContain('khipu index')
   })
 })

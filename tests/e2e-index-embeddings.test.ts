@@ -40,13 +40,15 @@ describe('E2E: index:embeddings CLI', () => {
     expect(isIndexed('chats')).toBe(true)
   })
 
-  it('second run: skips already-indexed records and prints Done. Indexed 0 messages, 0 chats.', () => {
-    // Re-run on same DB — all records already indexed
+  it('second run: skips already-indexed records and reports DB totals on completion', () => {
+    // Re-run on same DB — all records already indexed (incremental: nothing new to embed)
+    // The completion line now reports DB totals (vec_messages/vec_chats row counts), not "this run" counts
     const stdout = execSync(`${TSX} ${CLI} --db ${tmpDb}`, {
       env: { ...process.env, KHIPUCHAT_EMBED_MOCK: '1' },
       encoding: 'utf8',
     })
 
-    expect(stdout).toContain('Done. Indexed 0 messages, 0 chats.')
+    // DB has 2 messages and 2 chats from the first run — reported as totals
+    expect(stdout).toContain('Done. Indexed 2 messages, 2 chats.')
   })
 })

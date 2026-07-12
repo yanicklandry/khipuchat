@@ -150,6 +150,48 @@ export function upsertChatVector(id: number, vector: Float32Array): void {
   db.prepare('INSERT INTO vec_chats(rowid, embedding) VALUES(?, ?)').run(bigId, vector)
 }
 
+// ── Vector clear ──────────────────────────────────────────────────────────────
+
+/** Delete message vectors: all rows when no platform is given, or only rows
+ *  whose source message belongs to the specified platform.
+ *  Platform-scoped variant collects matching rowids from `messages` first,
+ *  then deletes per-rowid (the proven DELETE-per-rowid idiom for vec0 tables). */
+export function clearMessageVectors(platform?: Platform): void {
+  const db = getDb()
+  if (platform === undefined) {
+    db.prepare('DELETE FROM vec_messages').run()
+    return
+  }
+  const rowids = db
+    .prepare('SELECT id FROM messages WHERE platform = ?')
+    .pluck()
+    .all(platform) as number[]
+  const del = db.prepare('DELETE FROM vec_messages WHERE rowid = ?')
+  for (const id of rowids) {
+    del.run(BigInt(id))
+  }
+}
+
+/** Delete chat vectors: all rows when no platform is given, or only rows
+ *  whose source chat belongs to the specified platform.
+ *  Platform-scoped variant collects matching rowids from `chats` first,
+ *  then deletes per-rowid (the proven DELETE-per-rowid idiom for vec0 tables). */
+export function clearChatVectors(platform?: Platform): void {
+  const db = getDb()
+  if (platform === undefined) {
+    db.prepare('DELETE FROM vec_chats').run()
+    return
+  }
+  const rowids = db
+    .prepare('SELECT id FROM chats WHERE platform = ?')
+    .pluck()
+    .all(platform) as number[]
+  const del = db.prepare('DELETE FROM vec_chats WHERE rowid = ?')
+  for (const id of rowids) {
+    del.run(BigInt(id))
+  }
+}
+
 // ── kNN queries ───────────────────────────────────────────────────────────────
 
 /** Find contacts (chats) by semantic similarity to a query vector. */

@@ -1,10 +1,23 @@
 import os from 'os'
 import path from 'path'
+import { readdirSync } from 'node:fs'
 
 // Lazily import to avoid loading the heavy ONNX runtime at module load time
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers').pipeline>>
 
+const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2'
+
 let _pipeline: Pipeline | null = null
+
+function isCachePresent(cacheDir: string): boolean {
+  const modelDir = path.join(cacheDir, MODEL_NAME)
+  try {
+    const entries = readdirSync(modelDir)
+    return entries.length > 0
+  } catch {
+    return false
+  }
+}
 
 async function getPipeline(): Promise<Pipeline> {
   if (_pipeline) return _pipeline
@@ -13,7 +26,11 @@ async function getPipeline(): Promise<Pipeline> {
   env.cacheDir = path.join(os.homedir(), '.cache', 'khipuchat', 'models')
   env.allowRemoteModels = true
 
-  _pipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+  if (!isCachePresent(env.cacheDir)) {
+    console.log(`Downloading embedding model (~90 MB on first run)...`)
+  }
+
+  _pipeline = await pipeline('feature-extraction', MODEL_NAME, {
     dtype: 'fp32',
     device: 'cpu',
   } as Parameters<typeof pipeline>[2])

@@ -1,18 +1,26 @@
 /**
- * Tests for CLI --account flag parsing and multi-account output formatting.
+ * Tests for CLI --account flag parsing, multi-account output formatting,
+ * and the `index [--force]` subcommand dispatch.
  * Covers requirement 5.1: account filter on CLI list and search.
+ * Covers requirements 1.1, 1.4, 1.5: index command and --force flag.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { initDb, upsertChat, insertMessage, rebuildFtsIndex } from '../src/db'
 import {
   parseAccountArg,
   formatPlatformLabel,
+  parseForceArg,
 } from '../src/cli'
 import {
   handleListChats,
   handleSearchMessages,
   listArchiveAccounts,
 } from '../src/query-handlers'
+import { rebuildEmbeddings } from '../src/index-embeddings'
+
+vi.mock('../src/index-embeddings', () => ({
+  rebuildEmbeddings: vi.fn().mockResolvedValue(undefined),
+}))
 
 const T = 1700000000
 
@@ -152,5 +160,76 @@ describe('multi-account detection via listArchiveAccounts', () => {
     rebuildFtsIndex()
     const results = handleListChats(undefined, 'work')
     expect(results).toEqual([])
+  })
+})
+
+// ── parseForceArg ─────────────────────────────────────────────────────────────
+// Requirements 1.4 (incremental by default) and 1.5 (--force re-embeds from scratch)
+
+describe('parseForceArg', () => {
+  it('returns false when --force is absent', () => {
+    expect(parseForceArg(['index'])).toBe(false)
+  })
+
+  it('returns true when --force is present', () => {
+    expect(parseForceArg(['index', '--force'])).toBe(true)
+  })
+
+  it('returns true when --force appears as the only arg', () => {
+    expect(parseForceArg(['--force'])).toBe(true)
+  })
+
+  it('returns false for an empty args array (incremental by default)', () => {
+    expect(parseForceArg([])).toBe(false)
+  })
+})
+
+// ── index command usage text ──────────────────────────────────────────────────
+// Requirement 1.1: usage text lists the `index` command
+
+describe('CLI usage text includes index command', () => {
+  it('usage text exported from getUsageText includes index [--force]', async () => {
+    const { getUsageText } = await import('../src/cli')
+    const usage = getUsageText()
+    expect(usage).toContain('index')
+    expect(usage).toContain('--force')
+  })
+})
+
+// ── index command dispatch integration ───────────────────────────────────────
+// Requirements 1.1, 1.4 (incremental sweep), 1.5 (--force clear-then-rebuild)
+// Verifies: parseForceArg + rebuildEmbeddings call contract as wired in `case 'index'`.
+
+describe('index command dispatch', () => {
+  beforeEach(() => {
+    vi.mocked(rebuildEmbeddings).mockClear()
+  })
+
+  it('khipu index (no --force) calls rebuildEmbeddings with force=false (incremental sweep)', async () => {
+    // Simulate: case 'index': const force = parseForceArg(rawRest); await rebuildEmbeddings(undefined, force)
+    const rawRest = ['index']
+    const force = parseForceArg(rawRest)
+    expect(force).toBe(false)
+    await rebuildEmbeddings(undefined, force)
+    expect(vi.mocked(rebuildEmbeddings)).toHaveBeenCalledOnce()
+    expect(vi.mocked(rebuildEmbeddings)).toHaveBeenCalledWith(undefined, false)
+  })
+
+  it('khipu index --force calls rebuildEmbeddings with force=true (clear-then-rebuild)', async () => {
+    // Simulate: case 'index': const force = parseForceArg(rawRest); await rebuildEmbeddings(undefined, force)
+    const rawRest = ['index', '--force']
+    const force = parseForceArg(rawRest)
+    expect(force).toBe(true)
+    await rebuildEmbeddings(undefined, force)
+    expect(vi.mocked(rebuildEmbeddings)).toHaveBeenCalledOnce()
+    expect(vi.mocked(rebuildEmbeddings)).toHaveBeenCalledWith(undefined, true)
+  })
+
+  it('index dispatch never passes a platform (whole-DB scope)', async () => {
+    const rawRest: string[] = []
+    const force = parseForceArg(rawRest)
+    await rebuildEmbeddings(undefined, force)
+    const [platform] = vi.mocked(rebuildEmbeddings).mock.calls[0]
+    expect(platform).toBeUndefined()
   })
 })

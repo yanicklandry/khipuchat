@@ -19,6 +19,18 @@ vi.mock('@huggingface/transformers', () => {
 import { initDb, getDb, upsertChat, insertMessage } from '../src/db'
 import { getUnindexedMessages, getUnindexedChats } from '../src/vec-db'
 import { rebuildEmbeddings } from '../src/index-embeddings'
+import * as embeddings from '../src/embeddings'
+
+// Capture console.log output for completion-line assertions
+function captureLog(): { lines: string[]; restore: () => void } {
+  const lines: string[] = []
+  const orig = console.log.bind(console)
+  console.log = (...args: unknown[]) => {
+    lines.push(args.map(String).join(' '))
+    orig(...args)
+  }
+  return { lines, restore: () => { console.log = orig } }
+}
 
 function seedDb() {
   const db = getDb()
@@ -115,5 +127,113 @@ describe('rebuildEmbeddings', () => {
       const row = db.prepare('SELECT rowid FROM vec_messages WHERE rowid = ?').get(BigInt(id))
       expect(row).toBeUndefined()
     }
+  })
+
+  it('completion line reports DB totals (vec_messages/vec_chats row counts)', async () => {
+    const { lines, restore } = captureLog()
+    try {
+      await rebuildEmbeddings()
+    } finally {
+      restore()
+    }
+    const db = getDb()
+    const msgTotal = db.prepare('SELECT COUNT(*) FROM vec_messages').pluck().get() as number
+    const chatTotal = db.prepare('SELECT COUNT(*) FROM vec_chats').pluck().get() as number
+    const doneLine = lines.find(l => l.startsWith('Done.'))
+    expect(doneLine).toBeDefined()
+    expect(doneLine).toContain(`${msgTotal.toLocaleString()} messages`)
+    expect(doneLine).toContain(`${chatTotal.toLocaleString()} chats`)
+  })
+
+  describe('force=true', () => {
+    it('re-indexes all messages even when previously indexed', async () => {
+      // First run: index everything normally
+      await rebuildEmbeddings()
+      const db = getDb()
+      expect(db.prepare('SELECT COUNT(*) FROM vec_messages').pluck().get()).toBe(3)
+      expect(db.prepare('SELECT COUNT(*) FROM vec_chats').pluck().get()).toBe(2)
+
+      // Second run with force=true should clear and re-index
+      await rebuildEmbeddings(undefined, true)
+
+      expect(db.prepare('SELECT COUNT(*) FROM vec_messages').pluck().get()).toBe(3)
+      expect(db.prepare('SELECT COUNT(*) FROM vec_chats').pluck().get()).toBe(2)
+    })
+
+    it('with force=true, completion line reports DB totals after re-index', async () => {
+      // Seed with first index run
+      await rebuildEmbeddings()
+
+      const { lines, restore } = captureLog()
+      try {
+        await rebuildEmbeddings(undefined, true)
+      } finally {
+        restore()
+      }
+
+      const db = getDb()
+      const msgTotal = db.prepare('SELECT COUNT(*) FROM vec_messages').pluck().get() as number
+      const chatTotal = db.prepare('SELECT COUNT(*) FROM vec_chats').pluck().get() as number
+
+      const doneLine = lines.find(l => l.startsWith('Done.'))
+      expect(doneLine).toBeDefined()
+      expect(doneLine).toContain(`${msgTotal.toLocaleString()} messages`)
+      expect(doneLine).toContain(`${chatTotal.toLocaleString()} chats`)
+    })
+
+    it('with force=true and platform, only clears and re-indexes that platform', async () => {
+      // First run: index everything
+      await rebuildEmbeddings()
+      const db = getDb()
+      expect(db.prepare('SELECT COUNT(*) FROM vec_messages').pluck().get()).toBe(3)
+      expect(db.prepare('SELECT COUNT(*) FROM vec_chats').pluck().get()).toBe(2)
+
+      // Force re-index telegram only
+      await rebuildEmbeddings('telegram', true)
+
+      // All messages should still be indexed (telegram re-indexed, imessage untouched)
+      expect(db.prepare('SELECT COUNT(*) FROM vec_messages').pluck().get()).toBe(3)
+      expect(db.prepare('SELECT COUNT(*) FROM vec_chats').pluck().get()).toBe(2)
+
+      // Specifically, imessage chat (id=2) is still in vec_chats
+      const imessageChatRow = db.prepare('SELECT rowid FROM vec_chats WHERE rowid = ?').get(2n)
+      expect(imessageChatRow).toBeDefined()
+    })
+
+    it('per-record failure isolation: a deliberate per-record embed failure leaves the sweep running for remaining records', async () => {
+      // Verify req 2.5: if embedding fails for an individual message, the sweep continues
+      // and remaining records are still processed.
+
+      const db = getDb()
+
+      // First run: clear any previously indexed state
+      await rebuildEmbeddings()
+      expect(db.prepare('SELECT COUNT(*) FROM vec_messages').pluck().get()).toBe(3)
+
+      // Force-clear so all 3 messages are unindexed before the failing run
+      await rebuildEmbeddings(undefined, true)
+
+      // Now inject a failure: the first embed call throws, rest succeed
+      let callCount = 0
+      const originalEmbed = embeddings.embed
+      const spy = vi.spyOn(embeddings, 'embed').mockImplementation(async (...args) => {
+        callCount++
+        if (callCount === 1) throw new Error('simulated per-record embed failure')
+        return originalEmbed(...args)
+      })
+
+      try {
+        // Must complete without throwing despite the first record failing
+        await expect(rebuildEmbeddings(undefined, true)).resolves.toBeUndefined()
+      } finally {
+        spy.mockRestore()
+      }
+
+      // The failing message was skipped, but remaining messages were still indexed.
+      // With 3 messages and the first embed call failing, at least 2 should be indexed.
+      const indexed = db.prepare('SELECT COUNT(*) FROM vec_messages').pluck().get() as number
+      expect(indexed).toBeGreaterThanOrEqual(2)
+      expect(indexed).toBeLessThan(3)
+    })
   })
 })

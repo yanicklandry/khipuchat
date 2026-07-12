@@ -26,6 +26,7 @@ import {
   parseTemporalFilters,
 } from './mcp'
 import { listArchiveAccounts } from './query-handlers'
+import { rebuildEmbeddings } from './index-embeddings'
 
 // ── Pure helpers (exported for testing) ───────────────────────────────────────
 
@@ -58,6 +59,33 @@ export function formatPlatformLabel(platform: string, account: string, isMultiAc
   return isMultiAccount ? `${platform}/${account}` : platform
 }
 
+/**
+ * Parse --force from an args array.
+ * Returns true if --force is present, false otherwise.
+ */
+export function parseForceArg(args: readonly string[]): boolean {
+  return args.includes('--force')
+}
+
+/**
+ * Returns the CLI usage/help text.
+ * Exported for testing.
+ */
+export function getUsageText(): string {
+  return `Usage: npm run cli <tool> [query]
+
+Tools:
+  semantic-search <query>     Semantic search across all messages
+  semantic-contacts <query>   Find contacts by meaning
+  search <query>              Keyword search across messages
+  list-chats                  List all chats
+  find-chat <name>            Find chats by name
+  messages <chat_id>          List recent messages in a chat
+  summary <chat_id>           Get chat summary
+  index [--force]             Embed all messages/chats (incremental by default; --force clears and rebuilds from scratch)
+`
+}
+
 // ── Script entry ──────────────────────────────────────────────────────────────
 
 initDb(path.join(__dirname, '..', 'khipuchat.db'))
@@ -84,17 +112,7 @@ function ts(t: number) {
 
 async function main() {
   if (!tool) {
-    console.log(`Usage: npm run cli <tool> [query]
-
-Tools:
-  semantic-search <query>     Semantic search across all messages
-  semantic-contacts <query>   Find contacts by meaning
-  search <query>              Keyword search across messages
-  list-chats                  List all chats
-  find-chat <name>            Find chats by name
-  messages <chat_id>          List recent messages in a chat
-  summary <chat_id>           Get chat summary
-`)
+    console.log(getUsageText())
     process.exit(0)
   }
 
@@ -212,6 +230,12 @@ Tools:
       console.log('\nRecent messages:')
       for (const t of s.last_5_texts) console.log(`  "${t.slice(0, 100)}"`)
       break
+    }
+
+    case 'index': {
+      const force = parseForceArg(rawRest)
+      await rebuildEmbeddings(undefined, force)
+      process.exit(0)
     }
 
     default:

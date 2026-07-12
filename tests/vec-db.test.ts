@@ -9,6 +9,8 @@ import {
   getUnindexedChats,
   semanticFindContacts,
   semanticSearchMessages,
+  clearMessageVectors,
+  clearChatVectors,
 } from '../src/vec-db'
 
 /** Build a deterministic 384-dim vector with a given base value */
@@ -184,5 +186,84 @@ describe('vec-db', () => {
     const results = semanticSearchMessages(makeVec(0.8), {})
     const accounts = new Set(results.map(r => r.account))
     expect(accounts.size).toBeGreaterThan(1)
+  })
+
+  describe('clearMessageVectors', () => {
+    beforeEach(() => {
+      // Seed messages 1-4 with vectors: 1,2 on telegram; 3 on imessage; 4 on telegram
+      upsertMessageVector(1, makeVec(0.1))
+      upsertMessageVector(2, makeVec(0.2))
+      upsertMessageVector(3, makeVec(0.3))
+      upsertMessageVector(4, makeVec(0.4))
+    })
+
+    it('global clear removes all rows from vec_messages', () => {
+      clearMessageVectors()
+      const count = getDb()
+        .prepare('SELECT COUNT(*) AS n FROM vec_messages')
+        .pluck()
+        .get() as number
+      expect(count).toBe(0)
+    })
+
+    it('platform-scoped clear removes only that platform\'s vectors', () => {
+      // messages 1,2,4 are telegram; message 3 is imessage
+      clearMessageVectors('telegram')
+      const remaining = getDb()
+        .prepare('SELECT rowid FROM vec_messages ORDER BY rowid')
+        .pluck()
+        .all() as bigint[]
+      // Only message 3 (imessage) should remain
+      expect(remaining.map(Number)).toEqual([3])
+    })
+
+    it('platform-scoped clear leaves other platforms untouched', () => {
+      clearMessageVectors('imessage')
+      const remaining = getDb()
+        .prepare('SELECT rowid FROM vec_messages ORDER BY rowid')
+        .pluck()
+        .all() as bigint[]
+      // Messages 1, 2, 4 (telegram) should remain; message 3 (imessage) gone
+      expect(remaining.map(Number)).toEqual([1, 2, 4])
+    })
+  })
+
+  describe('clearChatVectors', () => {
+    beforeEach(() => {
+      // Seed chats 1,3 on telegram; chat 2 on imessage
+      upsertChatVector(1, makeVec(0.1))
+      upsertChatVector(2, makeVec(0.2))
+      upsertChatVector(3, makeVec(0.3))
+    })
+
+    it('global clear removes all rows from vec_chats', () => {
+      clearChatVectors()
+      const count = getDb()
+        .prepare('SELECT COUNT(*) AS n FROM vec_chats')
+        .pluck()
+        .get() as number
+      expect(count).toBe(0)
+    })
+
+    it('platform-scoped clear removes only that platform\'s chat vectors', () => {
+      // chats 1,3 are telegram; chat 2 is imessage
+      clearChatVectors('telegram')
+      const remaining = getDb()
+        .prepare('SELECT rowid FROM vec_chats ORDER BY rowid')
+        .pluck()
+        .all() as bigint[]
+      // Only chat 2 (imessage) should remain
+      expect(remaining.map(Number)).toEqual([2])
+    })
+
+    it('platform-scoped clear leaves other platforms untouched', () => {
+      clearChatVectors('imessage')
+      const remaining = getDb()
+        .prepare('SELECT rowid FROM vec_chats ORDER BY rowid')
+        .pluck()
+        .all() as bigint[]
+      // Chats 1, 3 (telegram) should remain; chat 2 (imessage) gone
+      expect(remaining.map(Number)).toEqual([1, 3])
+    })
   })
 })

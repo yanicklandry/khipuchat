@@ -185,7 +185,7 @@ describe('runPlatformSync', () => {
 
     expect(rebuildFtsIndex).toHaveBeenCalledOnce()
     expect(rebuildEmbeddings).toHaveBeenCalledOnce()
-    expect(rebuildEmbeddings).toHaveBeenCalledWith('telegram')
+    expect(rebuildEmbeddings).toHaveBeenCalledWith('telegram', true)
   })
 
   it('does NOT call rebuildFtsIndex or rebuildEmbeddings without --force', async () => {

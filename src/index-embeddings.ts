@@ -7,6 +7,8 @@ import {
   upsertChatVector,
   upsertEmbeddingMeta,
   isIndexed,
+  clearMessageVectors,
+  clearChatVectors,
 } from './vec-db'
 import type { Platform } from './platforms/types'
 
@@ -134,8 +136,14 @@ function getUnindexedChatsByPlatform(platform: Platform): Array<{ id: number; na
  * Embed all unindexed messages and chats.
  * With no argument: whole-database sweep (preserves `npm run index:embeddings` behaviour).
  * With a platform: restrict the sweep to that platform's chats and messages only.
+ * With force=true: clear all in-scope vectors first, making every row "unindexed",
+ *   then run the normal incremental sweep so everything is re-embedded from scratch.
  */
-export async function rebuildEmbeddings(platform?: Platform): Promise<void> {
+export async function rebuildEmbeddings(platform?: Platform, force?: boolean): Promise<void> {
+  if (force) {
+    clearMessageVectors(platform)
+    clearChatVectors(platform)
+  }
   // ── Index messages ──────────────────────────────────────────────────────────
   const msgCount = platform
     ? (getDb()
@@ -226,7 +234,30 @@ export async function rebuildEmbeddings(platform?: Platform): Promise<void> {
   if (chatCount > 0) process.stdout.write('\n')
   upsertEmbeddingMeta('chats', Date.now())
 
-  console.log(`Done. Indexed ${msgTotal.toLocaleString()} messages, ${chatTotal.toLocaleString()} chats.`)
+  // Report DB totals (rows present in vec_messages/vec_chats for the scope), not just this run's count
+  const dbMsgCount = platform
+    ? (getDb()
+        .prepare(`
+          SELECT COUNT(*) FROM vec_messages
+          WHERE rowid IN (
+            SELECT m.id FROM messages m JOIN chats c ON c.id = m.chat_id WHERE c.platform = ?
+          )
+        `)
+        .pluck()
+        .get(platform) as number)
+    : (getDb().prepare('SELECT COUNT(*) FROM vec_messages').pluck().get() as number)
+
+  const dbChatCount = platform
+    ? (getDb()
+        .prepare(`
+          SELECT COUNT(*) FROM vec_chats
+          WHERE rowid IN (SELECT id FROM chats WHERE platform = ?)
+        `)
+        .pluck()
+        .get(platform) as number)
+    : (getDb().prepare('SELECT COUNT(*) FROM vec_chats').pluck().get() as number)
+
+  console.log(`Done. Indexed ${dbMsgCount.toLocaleString()} messages, ${dbChatCount.toLocaleString()} chats.`)
 }
 
 // ── CLI entry point ────────────────────────────────────────────────────────────
