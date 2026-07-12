@@ -2,7 +2,8 @@
   "specName": "security-hardening",
   "completedPhases": [
     "steering",
-    "discovery"
+    "discovery",
+    "init"
   ],
   "done": false,
   "completedQueueSpecs": [
