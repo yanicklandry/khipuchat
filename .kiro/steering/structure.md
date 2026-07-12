@@ -33,6 +33,17 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 - `src/khipu-list.ts` — runnable entry point for `khipu list`; delegates to `query-handlers.ts` to list chats, messages, or accounts
 - `src/khipu-sync-status.ts` — runnable entry point for `khipu sync` (status view); reads `sync_state` and prints per-platform/account sync timestamps
 
+### Media Infrastructure
+**Location**: `src/` (shared) + `src/platforms/<name>/image-sync.ts` (platform-specific download)
+**Purpose**: Shared image storage, OCR, and MCP retrieval established by telegram-image-sync; reusable by future platforms
+**Key files**:
+- `src/media-storage.ts` — file path convention (`<MEDIA_DIR>/<platform>/<chatId>/<externalId>.<ext>`) + `storeMedia()`; idempotent, no DB contact
+- `src/ocr.ts` — tesseract.js singleton worker; `extractText(Buffer|string)` never throws (returns null on failure); `terminateOcr()` for process shutdown
+- `src/image-handlers.ts` — MCP `get_image` tool handler; reads `media_file_path` + `ocr_text` from DB, returns base64 content
+- `src/platforms/telegram/image-sync.ts` — Telegram-specific: downloads photo messages via GramJS `client.downloadMedia()`, stores via `storeMedia`, runs OCR, writes `media_file_path` + `ocr_text` back to DB
+
+**Pattern**: Platform adapters implement `image-sync.ts` for platform-specific download logic. Shared infrastructure (`media-storage.ts`, `ocr.ts`, `image-handlers.ts`) is reused across all platforms.
+
 ### Sync Infrastructure
 **Location**: `src/`
 **Purpose**: Shared sync orchestration used by all platform adapters

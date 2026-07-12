@@ -25,6 +25,7 @@ Single Node.js process per role (MCP server, web server, sync scripts). All pers
 | `telegram` | Telegram MTProto client |
 | `whatsapp-web.js` | WhatsApp QR-code session client |
 | `imapflow` | IMAP email sync |
+| `tesseract.js` | Local OCR for image messages (singleton worker, never throws to caller) |
 | _(none)_ | Slack and Discord adapters call REST APIs directly via `globalThis.fetch`; no third-party SDK needed |
 
 ## Development Standards
