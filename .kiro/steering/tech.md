@@ -40,35 +40,38 @@ Vitest. Tests use `:memory:` SQLite database (real DB, not mocked). Test files l
 
 ## Common Commands
 
+After `npm link` (or `npm install -g .`), the `khipu` binary is the primary entry point:
+
 ```bash
 # Run MCP server
-npm run mcp
+khipu mcp
 
 # Sync all platforms (serial)
-npm run sync               # incremental by default; pass --force for full re-read + reindex
+khipu sync                 # incremental by default; pass --force for full re-read + reindex
 
 # Sync a single platform
-npm run sync:telegram
-npm run sync:imessage
-# (same pattern for discord, slack, email, wechat, whatsapp)
+khipu sync telegram
+khipu sync imessage
+# (same pattern: discord, slack, email, wechat, whatsapp)
 
 # Rebuild embeddings index
-npm run index:embeddings
+khipu index
 
 # Web UI
-npm run web
+khipu web
 
-# CLI
-npm run cli -- <args>
+# Query (forwarded to src/cli.ts)
+khipu <cli-args>
 
 # Setup
-npm run setup-claude       # configure Claude Desktop MCP entry
-npm run setup-sync         # install macOS LaunchAgent for automatic background sync
-npm run setup:wechat       # WeChat-specific setup script
+khipu setup-claude         # configure Claude Desktop MCP entry
+khipu setup-sync           # install macOS LaunchAgent for automatic background sync
 
 # Tests
 npm test
 ```
+
+`npm run <script>` equivalents remain available for development (e.g. `npm run sync`, `npm run mcp`); `khipu` is preferred for production/Docker use.
 
 ## Key Technical Decisions
 

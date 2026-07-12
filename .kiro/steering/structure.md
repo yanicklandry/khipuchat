@@ -28,6 +28,7 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 - `src/vec-db.ts` — sqlite-vec schema and vector search queries
 - `src/config.ts` — environment and configuration loading
 - `src/setup-claude.ts` — writes the MCP entry into Claude Desktop's config JSON; entry point for `npm run setup-claude`
+- `src/khipu.ts` — command router for the `khipu` global binary; maps subcommands (`sync`, `mcp`, `web`, `index`, `setup-claude`, `setup-sync`) to the appropriate `tsx` script, and forwards query subcommands to `src/cli.ts`; exports `resolveCommand` for unit testing
 
 ### Sync Infrastructure
 **Location**: `src/`
