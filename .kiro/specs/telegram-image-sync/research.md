@@ -321,3 +321,44 @@ The live listener runs the same download + OCR inline (one message at a time, so
 | `.gitignore` | Modify | Add `media/` |
 | `README.md` | Modify | Document `get_image` MCP tool |
 | `package.json` | Modify | Add `tesseract.js` dependency |
+
+---
+
+# Design-Phase Discovery Refinements (2026-07-12)
+
+The gap analysis above was verified against the current source. Three seams were refined:
+
+### FTS is external-content, rebuilt at every startup
+- `messages_fts` is declared `USING fts5(text, content='messages', content_rowid='id')` — external-content, index-only.
+- `initDb()` runs `INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')` **unconditionally after `runMigrations()`** (db.ts:96).
+- **Implication**: The migration only needs to DROP the stale 1-column FTS table + its two triggers and recreate the 2-column schema. Repopulation is automatic on the same startup — no manual reindex step, no data loss.
+
+### createSchema runs before runMigrations
+- `initDb()` calls `createSchema()` (line 93) then `runMigrations()` (line 94). `createSchema` uses `CREATE VIRTUAL TABLE IF NOT EXISTS`, so on an existing DB the old 1-column FTS survives and the new definition is skipped.
+- **Implication**: The FTS DDL must be recreated *inside the migration* (createSchema already passed). To prevent drift between the two call sites, extract the FTS table + trigger DDL into one shared helper `applyFtsSchema(db)` used by both `createSchema` and the migration.
+
+### insertMessage does not return the row id; msg objects are needed for download
+- `insertMessage()` runs `ON CONFLICT DO UPDATE SET is_sender=...` and returns void. The GramJS raw message object (needed for `client.downloadMedia`) is only in scope inside the sync insert loop.
+- **Implication**: Download inline-after-loop by retaining image `msg` objects per chat, resolving the DB id via a `getMessageIdByExternalId(chatId, externalId)` lookup rather than re-fetching messages from Telegram.
+
+## Design Decisions
+
+### Decision: Hybrid post-loop image pass (not pure post-sync DB pass)
+- **Alternatives**: (A) inline download during insert loop; (B) post-sync DB pass querying `media_file_path IS NULL` then re-fetching msg objects from Telegram; (C) hybrid — collect image `msg` objects during the insert loop, process them (download → OCR → update) after the per-chat loop, before `embedNewMessages`.
+- **Selected**: C. Keeps the insert loop fast, retains msg objects (no Telegram re-fetch), isolates the rate-limit delay to one slot per image, and lets the existing `embedNewMessages([chatId])` call pick up freshly-OCR'd rows in the same run.
+- **Trade-offs**: Image `msg` objects held in memory per chat (bounded by page size). Acceptable.
+
+### Decision: Combined text+ocr_text embedding via a single shared predicate
+- The unindexed-message filter is duplicated across 5 SQL sites in `index-embeddings.ts` (`countUnindexed`, `embedNewMessages`, `getUnindexedMessagesByPlatform`, and two inline queries in `rebuildEmbeddings`).
+- **Selected**: Extend all sites to `(text non-empty OR ocr_text non-empty)` and build embedding input as `[text, ocr_text].filter(Boolean).join(' ')`. Consolidate the WHERE predicate + SELECT columns into shared constants to avoid drift.
+- **Rationale**: Satisfies 5.1/5.3; idempotency (5.4) is preserved by the existing `id NOT IN (SELECT rowid FROM vec_messages)` guard.
+
+### Decision: New files to respect the 200-line limit
+- `src/platforms/telegram/sync.ts` is already 363 lines and `src/query-handlers.ts` is 258 — both over the steering 200-line limit.
+- **Selected**: Put the Telegram image pass in a new `src/platforms/telegram/image-sync.ts`, and the `get_image` MCP handler in a new `src/image-handlers.ts`. Platform-agnostic `media-storage.ts` and `ocr.ts` are new top-level modules.
+
+## Risks & Mitigations
+- FTS drop+recreate destroys index data — mitigated: startup `rebuild` repopulates from `messages` unconditionally.
+- `tesseract.js` WASM worker init latency (~500ms) — mitigated: lazy singleton worker, terminated at process end.
+- GramJS `downloadMedia` type surface — mitigated: cast the raw msg through `unknown`; buffer output via `{ }` default return.
+- Large base64 image over MCP stdio — accepted: required by 6.1; typical 100 KB–2 MB.
