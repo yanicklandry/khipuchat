@@ -1,7 +1,8 @@
 {
   "specName": "signal-platform",
   "completedPhases": [
-    "steering"
+    "steering",
+    "discovery"
   ],
   "done": false,
   "completedQueueSpecs": [
