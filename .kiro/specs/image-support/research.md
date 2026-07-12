@@ -130,3 +130,63 @@ The design document should:
 5. Document Signal image sync research findings as deferred (per requirements boundary context) — no implementation needed.
 
 The existing infrastructure does not need to be redesigned; the design phase is gap-closure specification only.
+
+---
+
+## Design Discovery & Synthesis
+
+_Date: 2026-07-12 — appended during `/kiro-spec-design`_
+
+### Discovery Scope
+Extension (brownfield). Light, integration-focused discovery. Source files read to specify the four gaps precisely: `src/image-handlers.ts`, `src/db.ts`, `src/cli.ts`, `src/mcp.ts`, `src/query-handlers.ts`, `src/vec-db.ts`. No external research required — no new dependencies.
+
+### Synthesis Outcomes
+
+**Generalization**: The four gaps collapse into two shared themes rather than four independent fixes:
+- **Theme A — surface `type` in read models**: Gap 2 (`SearchResult`) and Gap 3 (`handleGetImage` type validation) both stem from the same root: the `messages.type` column exists but is not selected into the read model. Fixing both means adding `m.type` to the relevant SELECTs.
+- **Theme B — `get_image` structured partial result**: Gap 4 (preserve `ocr_text` when file missing) plus Req 3.2 (informative unavailability indication) require `handleGetImage` to return a discriminated result rather than always throwing.
+
+**Build vs. Adopt**: No new components or libraries. All work is edits to existing files using in-place patterns (`better-sqlite3` prepared statements, existing CLI `switch` structure, existing MCP JSON passthrough). Adopt existing conventions.
+
+**Simplification**: No new files, no new abstraction layers. The only new type shape is the `GetImageResult` discriminated union. Keep everything else as targeted edits.
+
+### New Finding Beyond Gap Analysis (Req 4.3 scope correction)
+
+The gap analysis scoped the missing `type` field (Req 4.3) to `SearchResult` only. However, `SemanticMessageResult` (`src/vec-db.ts:19`) also omits `type`, and Req 4.2 guarantees image messages are returned by `semantic_search_messages` with no default filtering. Req 4.3 states generically that "a search result corresponding to a message of type `'image'`" must include the message type so callers can distinguish it. Therefore full Req 4.3 coverage requires adding `type` to **both** `SearchResult` and `SemanticMessageResult` (and their SELECTs). This design corrects the gap analysis under-scope.
+
+## Architecture Pattern Evaluation
+
+| Option | Description | Strengths | Risks / Limitations | Notes |
+|--------|-------------|-----------|---------------------|-------|
+| Targeted in-place edits (chosen) | Modify existing handlers/queries only | Minimal surface, no migration, preserves existing patterns | Requires touching read-model types shared across MCP/CLI | Aligns with brownfield gap-closure scope |
+| New image-query module | Extract image retrieval into a dedicated service layer | Cleaner separation | Over-engineering for 4 localized gaps; new indirection with single caller | Rejected by Simplification lens |
+
+## Design Decisions
+
+### Decision: `get_image` returns a discriminated `GetImageResult` (Gap 4 / Req 3.2, 3.3)
+- **Context**: Req 3.2 requires an informative unavailability indication when the file is missing; Req 3.3 requires `ocr_text` still be returned in that case. A thrown `Error` string cannot carry `ocr_text`.
+- **Alternatives Considered**:
+  1. Option A — partial result object with `file_available: false` and `ocr_text` retained.
+  2. Option B — custom `Error` subclass carrying `ocr_text` (callers must `instanceof`-check).
+- **Selected Approach**: Option A. `GetImageResult` becomes a union discriminated on `file_available`. When the message is an image but the file is absent (never downloaded, or `ENOENT` on read), return `{ file_available: false, error, ocr_text, ... }`. When present, return `{ file_available: true, file_path, content_base64, ocr_text }`.
+- **Rationale**: Structured data flows cleanly to both MCP (JSON) and CLI consumers; agent-native (a caller reasoning over the result sees `ocr_text` even when the binary is gone). Consistent with the existing sync-friendly return type.
+- **Trade-offs**: MCP/CLI callers check `file_available` instead of catching. Acceptable and explicit.
+- **Boundary of throwing vs returning**: Hard errors still throw — message-not-found (bad ID) and non-image type (Req 3.4, wrong tool). These have no `ocr_text` to preserve and represent caller error, not partial availability. Only the image-file-unavailable case returns the partial object.
+
+### Decision: Add `type` to both search read models (Req 4.3)
+- **Context**: See "New Finding" above.
+- **Selected Approach**: Add `type: MessageType` to `SearchResult` and `SemanticMessageResult`; add `m.type` to `searchMessages` SQL and the semantic result assembly in `vec-db.ts`.
+- **Rationale**: Full Req 4.3 coverage across both search surfaces the requirement's objective targets.
+- **Trade-offs**: Slightly wider blast radius than the gap analysis anticipated (one extra file, `vec-db.ts`), but required for correctness.
+
+## Risks & Mitigations
+- **Read-model type change ripples to callers/tests** — `SearchResult`/`SemanticMessageResult` are consumed by MCP, CLI, and tests. Mitigation: `type` is additive (new required field on internal interfaces); update the SELECTs and the test fixtures/assertions in the same task.
+- **CLI `get_image` output for base64** — printing full base64 to a terminal is noisy. Mitigation: CLI prints `file_path`, `ocr_text`, `file_available`, and a base64 length/summary rather than the full blob (full content still available via MCP).
+- **Signal image sync (deferred)** — out of scope this wave; only research findings are recorded (below). No implementation risk this spec.
+
+## Signal Image Sync — Deferred Research Note
+Per the requirements Boundary Context, Signal ingestion is deferred to a follow-on spec. Findings retained for that spec: Signal media in KhipuChat arrives via the Beeper Desktop bridge (not native Signal protocol), so image retrieval would follow the same `storeMedia()` / `processImageMessages()` shared convention already built for Telegram; the open question for the follow-on spec is how Beeper exposes Signal attachment blobs/URLs versus GramJS's `downloadMedia()`. No implementation in this spec.
+
+## References
+- `src/image-handlers.ts`, `src/db.ts`, `src/cli.ts`, `src/mcp.ts`, `src/query-handlers.ts`, `src/vec-db.ts` — source of truth for gap specification.
+- Requirements Boundary Context (`requirements.md`) — Signal deferral, multi-account path isolation assumption.
