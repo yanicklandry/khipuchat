@@ -1350,5 +1350,13 @@
     "actualDurationMs": 74137,
     "idleDurationMs": 0,
     "estimatedTokens": 50000
+  },
+  {
+    "phase": "discovery",
+    "timestamp": "2026-07-12T21:38:12.562Z",
+    "estimatedDurationMs": 87191.11764705883,
+    "actualDurationMs": 86351,
+    "idleDurationMs": 0,
+    "estimatedTokens": 80000
   }
 ]
