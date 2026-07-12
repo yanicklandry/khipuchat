@@ -16,6 +16,7 @@ import {
   handleSearchMessages,
   listArchiveAccounts,
 } from '../src/query-handlers'
+import { parseQueryFilters } from '../src/cli-filters'
 import { rebuildEmbeddings } from '../src/index-embeddings'
 
 vi.mock('../src/index-embeddings', () => ({
@@ -128,7 +129,7 @@ describe('multi-account detection via listArchiveAccounts', () => {
   })
 
   it('handleListChats filtered by account=work returns only work chats', () => {
-    const results = handleListChats(undefined, 'work')
+    const results = handleListChats({ account: 'work' })
     expect(results.every(r => r.account === 'work')).toBe(true)
     expect(results.some(r => r.name === 'Bob')).toBe(true)
     expect(results.some(r => r.name === 'Alice')).toBe(false)
@@ -142,7 +143,7 @@ describe('multi-account detection via listArchiveAccounts', () => {
   })
 
   it('handleSearchMessages filtered by account=personal returns only personal results', () => {
-    const results = handleSearchMessages('hello', undefined, undefined, 'personal')
+    const results = handleSearchMessages('hello', { account: 'personal' })
     expect(results.every(r => r.account === 'personal')).toBe(true)
     expect(results.some(r => r.chat_name === 'Alice')).toBe(true)
     expect(results.some(r => r.chat_name === 'Bob')).toBe(false)
@@ -158,7 +159,7 @@ describe('multi-account detection via listArchiveAccounts', () => {
     initDb(':memory:')
     upsertChat({ external_id: '1', account: 'default', name: 'Chat1', type: 'user', username: null, platform: 'telegram' })
     rebuildFtsIndex()
-    const results = handleListChats(undefined, 'work')
+    const results = handleListChats({ account: 'work' })
     expect(results).toEqual([])
   })
 })
@@ -231,5 +232,75 @@ describe('index command dispatch', () => {
     await rebuildEmbeddings(undefined, force)
     const [platform] = vi.mocked(rebuildEmbeddings).mock.calls[0]
     expect(platform).toBeUndefined()
+  })
+})
+
+// ── search case: parseQueryFilters integration ────────────────────────────────
+// Requirements 8.1–8.9: CLI search uses shared filter parser
+
+describe('search case uses parseQueryFilters', () => {
+  it('parseQueryFilters with --platform telegram produces filters accepted by handleSearchMessages', () => {
+    // Simulates: parseQueryFilters(['--platform', 'telegram', 'hello'])
+    const result = parseQueryFilters(['--platform', 'telegram', 'hello'])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.filters.platform).toBe('telegram')
+    expect(result.rest).toEqual(['hello'])
+    // handleSearchMessages accepts it
+    const rows = handleSearchMessages('hello', result.filters)
+    expect(Array.isArray(rows)).toBe(true)
+  })
+
+  it('parseQueryFilters with --platform bogus returns ok:false with error message', () => {
+    const result = parseQueryFilters(['--platform', 'bogus', 'hello'])
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/invalid platform/i)
+    expect(result.error).toMatch(/bogus/)
+  })
+
+  it('parseQueryFilters with --limit 5 produces filters with limit:5', () => {
+    const result = parseQueryFilters(['--limit', '5', 'foo'])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.filters.limit).toBe(5)
+    expect(result.rest).toEqual(['foo'])
+  })
+
+  it('parseQueryFilters with --account personal passes account filter to handleSearchMessages', () => {
+    const result = parseQueryFilters(['--account', 'personal', 'hello'])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.filters.account).toBe('personal')
+    const rows = handleSearchMessages('hello', result.filters)
+    expect(rows.every(r => r.account === 'personal')).toBe(true)
+  })
+
+  it('search with no query (empty rest after flag parsing) should use empty string guard', () => {
+    // parseQueryFilters(['--platform', 'telegram']) => rest=[], first element undefined
+    const result = parseQueryFilters(['--platform', 'telegram'])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const searchQuery = result.rest[0] ?? ''
+    expect(searchQuery).toBe('')
+  })
+
+  it('parseQueryFilters with --platform telegram and --limit 5 returns rows equal to unfiltered search', () => {
+    // Seed has telegram messages; filtered search by platform should include them
+    const result = parseQueryFilters(['--platform', 'telegram', '--limit', '5', 'hello'])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const rows = handleSearchMessages('hello', result.filters)
+    const allRows = handleSearchMessages('hello', { platform: 'telegram', limit: 5 })
+    expect(rows).toEqual(allRows)
+  })
+
+  it('empty results case: handleSearchMessages returns empty array when no matches', () => {
+    const result = parseQueryFilters(['nonexistentxyz123'])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const searchQuery = result.rest[0] ?? ''
+    const rows = handleSearchMessages(searchQuery, result.filters)
+    expect(rows).toEqual([])
   })
 })

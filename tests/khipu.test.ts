@@ -45,16 +45,32 @@ describe('resolveCommand — operational subcommands', () => {
 // ── sync subcommand ────────────────────────────────────────────────────────────
 
 describe('resolveCommand — sync subcommand', () => {
-  it("resolveCommand(['sync']) resolves to sync-all.ts", () => {
+  it("resolveCommand(['sync']) resolves to khipu-sync-status.ts", () => {
     const result = resolveCommand(['sync'])
     expect(result.kind).toBe('run')
-    expect(result.script).toBe(script('sync-all.ts'))
+    expect(result.script).toBe(script('khipu-sync-status.ts'))
+    expect(result.args).toEqual([])
   })
 
-  it("resolveCommand(['sync', 'all']) resolves to sync-all.ts", () => {
+  it("resolveCommand(['sync', 'all']) resolves to watch.ts", () => {
     const result = resolveCommand(['sync', 'all'])
     expect(result.kind).toBe('run')
-    expect(result.script).toBe(script('sync-all.ts'))
+    expect(result.script).toBe(script('watch.ts'))
+    expect(result.args).toEqual([])
+  })
+
+  it("resolveCommand(['sync', 'all', '--once']) resolves to watch.ts with args ['--once']", () => {
+    const result = resolveCommand(['sync', 'all', '--once'])
+    expect(result.kind).toBe('run')
+    expect(result.script).toBe(script('watch.ts'))
+    expect(result.args).toEqual(['--once'])
+  })
+
+  it("resolveCommand(['sync', 'all', '--force']) resolves to watch.ts with args ['--force']", () => {
+    const result = resolveCommand(['sync', 'all', '--force'])
+    expect(result.kind).toBe('run')
+    expect(result.script).toBe(script('watch.ts'))
+    expect(result.args).toEqual(['--force'])
   })
 
   it("resolveCommand(['sync', 'telegram']) resolves to platforms/telegram/sync.ts", () => {
@@ -73,6 +89,40 @@ describe('resolveCommand — sync subcommand', () => {
     const result = resolveCommand(['sync', 'bogus'])
     expect(result.kind).toBe('error')
     expect(result.exitCode).toBe(1)
+  })
+
+  it("resolveCommand(['sync', 'bogus']) error message lists valid platform names", async () => {
+    const { PLATFORMS } = await import('../src/sync-all')
+    const result = resolveCommand(['sync', 'bogus'])
+    expect(result.kind).toBe('error')
+    for (const platform of PLATFORMS) {
+      expect(result.message).toContain(platform)
+    }
+  })
+})
+
+// ── list subcommand ────────────────────────────────────────────────────────────
+
+describe('resolveCommand — list subcommand', () => {
+  it("resolveCommand(['list']) resolves to khipu-list.ts with args []", () => {
+    const result = resolveCommand(['list'])
+    expect(result.kind).toBe('run')
+    expect(result.script).toBe(script('khipu-list.ts'))
+    expect(result.args).toEqual([])
+  })
+
+  it("resolveCommand(['list', 'chats']) resolves to khipu-list.ts with args ['chats']", () => {
+    const result = resolveCommand(['list', 'chats'])
+    expect(result.kind).toBe('run')
+    expect(result.script).toBe(script('khipu-list.ts'))
+    expect(result.args).toEqual(['chats'])
+  })
+
+  it("resolveCommand(['list', 'messages', '--type', 'text']) resolves with correct args", () => {
+    const result = resolveCommand(['list', 'messages', '--type', 'text'])
+    expect(result.kind).toBe('run')
+    expect(result.script).toBe(script('khipu-list.ts'))
+    expect(result.args).toEqual(['messages', '--type', 'text'])
   })
 })
 
@@ -128,6 +178,43 @@ describe('platform-list parity', () => {
   })
 })
 
+// ── sync <platform>@<account> parsing ────────────────────────────────────────
+
+describe('resolveCommand — sync <platform>@<account>', () => {
+  it("resolveCommand(['sync', 'telegram@myaccount'], { listAccounts: () => ['myaccount'] }) => run with args ['--account', 'myaccount']", () => {
+    const result = resolveCommand(['sync', 'telegram@myaccount'], { listAccounts: () => ['myaccount'] })
+    expect(result.kind).toBe('run')
+    expect(result.script).toBe(script('platforms/telegram/sync.ts'))
+    expect(result.args).toEqual(['--account', 'myaccount'])
+  })
+
+  it("resolveCommand(['sync', 'telegram@myaccount', '--force'], ...) => args ['--account', 'myaccount', '--force']", () => {
+    const result = resolveCommand(['sync', 'telegram@myaccount', '--force'], { listAccounts: () => ['myaccount'] })
+    expect(result.kind).toBe('run')
+    expect(result.script).toBe(script('platforms/telegram/sync.ts'))
+    expect(result.args).toEqual(['--account', 'myaccount', '--force'])
+  })
+
+  it("resolveCommand(['sync', 'telegram@unknown'], ...) => error with exitCode 1 mentioning the account", () => {
+    const result = resolveCommand(['sync', 'telegram@unknown'], { listAccounts: () => ['myaccount'] })
+    expect(result.kind).toBe('error')
+    expect(result.exitCode).toBe(1)
+    expect(result.message).toContain('unknown')
+  })
+
+  it("resolveCommand(['sync', 'bogus@myaccount'], ...) => error with exitCode 1 for invalid platform", () => {
+    const result = resolveCommand(['sync', 'bogus@myaccount'], { listAccounts: () => ['myaccount'] })
+    expect(result.kind).toBe('error')
+    expect(result.exitCode).toBe(1)
+  })
+
+  it("resolveCommand(['sync', 'telegram@myaccount'], { listAccounts: () => [] }) => error with exitCode 1 (no accounts configured)", () => {
+    const result = resolveCommand(['sync', 'telegram@myaccount'], { listAccounts: () => [] })
+    expect(result.kind).toBe('error')
+    expect(result.exitCode).toBe(1)
+  })
+})
+
 // ── Integration: router known-platform set equals PLATFORMS ───────────────────
 
 describe('integration: router platform set equals PLATFORMS from sync-all', () => {
@@ -153,6 +240,62 @@ describe('integration: router platform set equals PLATFORMS from sync-all', () =
     // The accepted set must match PLATFORMS exactly (same length, same members)
     expect(routerAccepted).toHaveLength(PLATFORMS.length)
     expect(new Set(routerAccepted)).toEqual(new Set(PLATFORMS))
+  })
+})
+
+// ── Per-subcommand --help ─────────────────────────────────────────────────────
+
+describe('resolveCommand — per-subcommand --help', () => {
+  it("resolveCommand(['search', '--help']) returns kind: help with exitCode 0", () => {
+    const result = resolveCommand(['search', '--help'])
+    expect(result.kind).toBe('help')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it("resolveCommand(['search', '--help']) message contains 'search'", () => {
+    const result = resolveCommand(['search', '--help'])
+    expect(result.message).toContain('search')
+  })
+
+  it("resolveCommand(['list', '--help']) returns kind: help with exitCode 0", () => {
+    const result = resolveCommand(['list', '--help'])
+    expect(result.kind).toBe('help')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it("resolveCommand(['list', '--help']) message contains 'list'", () => {
+    const result = resolveCommand(['list', '--help'])
+    expect(result.message).toContain('list')
+  })
+
+  it("resolveCommand(['sync', '--help']) returns kind: help with exitCode 0", () => {
+    const result = resolveCommand(['sync', '--help'])
+    expect(result.kind).toBe('help')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it("resolveCommand(['sync', '--help']) message contains 'sync'", () => {
+    const result = resolveCommand(['sync', '--help'])
+    expect(result.message).toContain('sync')
+  })
+
+  it("resolveCommand(['--help']) returns kind: help with exitCode 0 and message contains 'khipu'", () => {
+    const result = resolveCommand(['--help'])
+    expect(result.kind).toBe('help')
+    expect(result.exitCode).toBe(0)
+    expect(result.message).toContain('khipu')
+  })
+
+  it("resolveCommand(['search', '-h']) returns kind: help with exitCode 0 (short flag works)", () => {
+    const result = resolveCommand(['search', '-h'])
+    expect(result.kind).toBe('help')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it("resolveCommand(['unknowncmd']) still returns kind: error with exitCode 1", () => {
+    const result = resolveCommand(['unknowncmd'])
+    expect(result.kind).toBe('error')
+    expect(result.exitCode).toBe(1)
   })
 })
 

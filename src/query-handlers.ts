@@ -1,4 +1,4 @@
-import { getDb, searchMessages, type Platform } from './db'
+import { getDb, searchMessages, listArchiveMessages, type Platform } from './db'
 import {
   isIndexed,
   semanticFindContacts,
@@ -37,6 +37,17 @@ export function parseTemporalFilters(query: string): Pick<MessageFilters, 'after
   return {}
 }
 
+// ── Shared filter type ────────────────────────────────────────────────────────
+
+export interface QueryFilters {
+  platform?: Platform
+  account?: string
+  since?: number
+  until?: number
+  type?: string
+  limit?: number
+}
+
 // ── Result types ──────────────────────────────────────────────────────────────
 
 export interface ChatResult {
@@ -73,12 +84,18 @@ export interface SummaryResult {
 
 // ── Tool handlers (exported for testing) ─────────────────────────────────────
 
-export function handleListChats(platform?: Platform, account?: string, limit = 200): ChatResult[] {
-  const conditions: string[] = []
+export function handleListChats(filters?: QueryFilters): ChatResult[] {
+  const { platform, account, since, until, type, limit = 200 } = filters ?? {}
+  const whereConditions: string[] = []
+  const havingConditions: string[] = []
   const args: unknown[] = []
-  if (platform !== undefined) { conditions.push('c.platform = ?'); args.push(platform) }
-  if (account !== undefined) { conditions.push('c.account = ?'); args.push(account) }
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+  if (platform !== undefined) { whereConditions.push('c.platform = ?'); args.push(platform) }
+  if (account !== undefined) { whereConditions.push('c.account = ?'); args.push(account) }
+  if (type !== undefined) { whereConditions.push('c.type = ?'); args.push(type) }
+  const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''
+  if (since !== undefined) { havingConditions.push('MAX(m.timestamp) >= ?'); args.push(since) }
+  if (until !== undefined) { havingConditions.push('MAX(m.timestamp) <= ?'); args.push(until) }
+  const havingClause = havingConditions.length > 0 ? `HAVING ${havingConditions.join(' AND ')}` : ''
   args.push(limit)
   return getDb().prepare(`
     SELECT c.id AS chat_id, c.name, c.type, c.username, c.platform, c.account,
@@ -87,6 +104,7 @@ export function handleListChats(platform?: Platform, account?: string, limit = 2
     LEFT JOIN messages m ON m.chat_id = c.id
     ${whereClause}
     GROUP BY c.id
+    ${havingClause}
     ORDER BY MAX(m.timestamp) DESC NULLS LAST
     LIMIT ?
   `).all(...args) as ChatResult[]
@@ -155,8 +173,26 @@ export function handleListMessages(
   }
 }
 
-export function handleSearchMessages(query: string, chatId?: number, platform?: Platform, account?: string) {
-  return searchMessages(query, chatId, platform, account)
+export function handleSearchMessages(query: string, filters?: QueryFilters): ReturnType<typeof searchMessages> {
+  return searchMessages(query, {
+    platform: filters?.platform,
+    account: filters?.account,
+    since: filters?.since,
+    until: filters?.until,
+    type: filters?.type as import('./db').MessageType | undefined,
+    limit: filters?.limit,
+  })
+}
+
+export function handleListArchiveMessages(filters?: QueryFilters): { messages: import('./db').MessageResult[]; has_more: boolean } {
+  return listArchiveMessages({
+    platform: filters?.platform,
+    account: filters?.account,
+    since: filters?.since,
+    until: filters?.until,
+    type: filters?.type as import('./db').MessageType | undefined,
+    limit: filters?.limit,
+  })
 }
 
 export function handleGetChatSummary(chatId: number): SummaryResult {

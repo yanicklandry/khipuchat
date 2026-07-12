@@ -86,19 +86,19 @@ describe('handleListChats', () => {
   })
 
   it('filters by platform', () => {
-    const tg = handleListChats('telegram')
+    const tg = handleListChats({ platform: 'telegram' })
     expect(tg.every(r => r.platform === 'telegram')).toBe(true)
-    const im = handleListChats('imessage')
+    const im = handleListChats({ platform: 'imessage' })
     expect(im).toHaveLength(1)
     expect(im[0].platform).toBe('imessage')
   })
 
   it('respects limit parameter', () => {
-    expect(handleListChats(undefined, undefined, 2)).toHaveLength(2)
+    expect(handleListChats({ limit: 2 })).toHaveLength(2)
   })
 
   it('result shape includes chat_id, name, type, username, message_count, platform', () => {
-    const results = handleListChats('telegram')
+    const results = handleListChats({ platform: 'telegram' })
     const tony = results.find(r => r.name === 'Tony Lin')
     expect(tony).toBeDefined()
     expect(tony).toMatchObject({ chat_id: seedIds.tony, name: 'Tony Lin', type: 'user', username: 'tonylin1115', platform: 'telegram' })
@@ -284,12 +284,6 @@ describe('handleSearchMessages', () => {
     expect(results[0].text).toBe('meeting at 3')
   })
 
-  it('filters to a specific chat when chat_id is provided', () => {
-    const results = handleSearchMessages('hello', seedIds.tony)
-    expect(results).toHaveLength(1)
-    expect(results[0].chat_id).toBe(seedIds.tony)
-  })
-
   it('finds messages after rebuildFtsIndex restores search', () => {
     getDb().exec("DELETE FROM messages_fts")
     expect(handleSearchMessages('meeting')).toHaveLength(0)
@@ -311,12 +305,12 @@ describe('handleSearchMessages', () => {
   })
 
   it('platform filter returns only telegram messages', () => {
-    const results = handleSearchMessages('hey', undefined, 'telegram')
+    const results = handleSearchMessages('hey', { platform: 'telegram' })
     expect(results).toHaveLength(0) // 'hey' only in imessage chat
   })
 
   it('platform filter returns only imessage messages', () => {
-    const results = handleSearchMessages('hey', undefined, 'imessage')
+    const results = handleSearchMessages('hey', { platform: 'imessage' })
     expect(results).toHaveLength(1)
     expect(results[0].platform).toBe('imessage')
   })
@@ -554,6 +548,15 @@ async function listTools(): Promise<ListToolsResult> {
   return handler({ method: 'tools/list', params: {} })
 }
 
+describe('search_messages inputSchema', () => {
+  it('does not advertise chat_id (search is cross-archive only)', async () => {
+    const { tools } = await listTools()
+    const tool = tools.find(t => t.name === 'search_messages') as { inputSchema: { properties: Record<string, unknown> } } | undefined
+    expect(tool).toBeDefined()
+    expect(tool!.inputSchema.properties).not.toHaveProperty('chat_id')
+  })
+})
+
 describe('MCP tool descriptions reference khipu index', () => {
   it('semantic_find_contacts description mentions khipu index', async () => {
     const { tools } = await listTools()
@@ -567,5 +570,65 @@ describe('MCP tool descriptions reference khipu index', () => {
     const tool = tools.find(t => t.name === 'semantic_search_messages')
     expect(tool).toBeDefined()
     expect(tool!.description).toContain('khipu index')
+  })
+})
+
+// ── Task 2.1: MCP filter extensions ──────────────────────────────────────────
+
+describe('list_messages via MCP without chat_id routes to archive handler', () => {
+  it('returns archive-wide messages when chat_id is omitted', async () => {
+    const result = await callTool('list_messages', {}) as { messages: unknown[]; has_more: boolean }
+    expect(result).toHaveProperty('messages')
+    expect(Array.isArray(result.messages)).toBe(true)
+    expect(result).toHaveProperty('has_more')
+  })
+
+  it('filters by since/until when chat_id is omitted', async () => {
+    const result = await callTool('list_messages', { since: T + 5, until: T + 15 }) as { messages: { timestamp: number }[] }
+    expect(result.messages.every(m => m.timestamp >= T + 5 && m.timestamp <= T + 15)).toBe(true)
+  })
+
+  it('filters by platform when chat_id is omitted', async () => {
+    const result = await callTool('list_messages', { platform: 'imessage' }) as { messages: { platform: string }[] }
+    expect(result.messages.every(m => m.platform === 'imessage')).toBe(true)
+    expect(result.messages.length).toBeGreaterThan(0)
+  })
+
+  it('with chat_id still routes to per-chat handler (backward compat)', async () => {
+    const result = await callTool('list_messages', { chat_id: seedIds.tony }) as { messages: { text: string }[] }
+    expect(result).toHaveProperty('messages')
+    expect(result.messages.some(m => m.text === 'hello there')).toBe(true)
+  })
+})
+
+describe('search_messages via MCP with since/until/type/limit filters', () => {
+  it('passes since to handleSearchMessages', async () => {
+    // 'hey' is in imessage chat at T+20; 'hello' is in telegram at T+1
+    // since=T+15 should only return the imessage message
+    const filtered = await callTool('search_messages', { query: 'hey', since: T + 15 }) as { timestamp: number }[]
+    expect(filtered.every(m => m.timestamp >= T + 15)).toBe(true)
+    expect(filtered.length).toBeGreaterThan(0)
+  })
+
+  it('passes limit to handleSearchMessages', async () => {
+    // seed has messages for 'hello', 'how', 'doing', 'meeting', 'sounds', 'hey' — use broad term
+    const resultNoLimit = await callTool('search_messages', { query: 'meeting' }) as { text: string }[]
+    const resultWithLimit = await callTool('search_messages', { query: 'meeting', limit: 1 }) as { text: string }[]
+    expect(resultWithLimit.length).toBeLessThanOrEqual(resultNoLimit.length)
+  })
+})
+
+describe('list_chats via MCP with since/until/type/limit filters', () => {
+  it('passes since filter to handleListChats', async () => {
+    // iMsg Friend has latest message at T+20; tony at T+6, work at T+11
+    // since=T+15 should only include chats with max(message.timestamp) >= T+15
+    const result = await callTool('list_chats', { since: T + 15 }) as { name: string }[]
+    expect(result.find(c => c.name === 'iMsg Friend')).toBeDefined()
+    expect(result.find(c => c.name === 'Tony Lin')).toBeUndefined()
+  })
+
+  it('passes limit filter to handleListChats', async () => {
+    const result = await callTool('list_chats', { limit: 1 }) as unknown[]
+    expect(result).toHaveLength(1)
   })
 })

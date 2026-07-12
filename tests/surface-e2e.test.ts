@@ -45,7 +45,7 @@ beforeEach(() => {
 
 describe('MCP handleListChats', () => {
   it('with account="work" returns only work chats, each with account field', () => {
-    const results = handleListChats(undefined, 'work')
+    const results = handleListChats({ account: 'work' })
     expect(results.length).toBeGreaterThan(0)
     expect(results.every(r => r.account === 'work')).toBe(true)
     expect(results.some(r => r.name === 'Work Chat')).toBe(true)
@@ -66,7 +66,7 @@ describe('MCP handleListChats', () => {
 
 describe('MCP handleSearchMessages', () => {
   it('with account="work" returns only work messages, each with account field', () => {
-    const results = handleSearchMessages('deploy', undefined, undefined, 'work')
+    const results = handleSearchMessages('deploy', { account: 'work' })
     expect(results.length).toBeGreaterThan(0)
     expect(results.every(r => r.account === 'work')).toBe(true)
     expect(results.some(r => r.chat_name === 'Work Chat')).toBe(true)
@@ -80,7 +80,7 @@ describe('MCP handleSearchMessages', () => {
   })
 
   it('with account="personal" returns personal messages and excludes work messages', () => {
-    const results = handleSearchMessages('done', undefined, undefined, 'personal')
+    const results = handleSearchMessages('done', { account: 'personal' })
     expect(results.length).toBeGreaterThan(0)
     expect(results.every(r => r.account === 'personal')).toBe(true)
   })

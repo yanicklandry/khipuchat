@@ -48,6 +48,28 @@ export interface SearchResult {
   account: string
 }
 
+export interface DbSearchFilters {
+  chatId?: number
+  platform?: Platform
+  account?: string
+  since?: number
+  until?: number
+  type?: MessageType
+  limit?: number
+}
+
+export interface MessageResult {
+  id: number
+  chat_id: number
+  sender_name: string | null
+  text: string | null
+  type: string
+  timestamp: number
+  is_sender: number
+  platform: Platform
+  account: string
+}
+
 let _db: Database.Database | null = null
 
 function db(): Database.Database {
@@ -200,20 +222,50 @@ export function getMessages(chatId: number, limit: number, beforeTimestamp?: num
   `).all(chatId, limit) as MessageRow[]
 }
 
-export function searchMessages(query: string, chatId?: number, platform?: Platform, account?: string): SearchResult[] {
+export function searchMessages(query: string, filters?: DbSearchFilters): SearchResult[] {
+  const { chatId, platform, account, since, until, type, limit = 100 } = filters ?? {}
   const args: unknown[] = [query]
   let extra = ''
   if (chatId !== undefined) { extra += ' AND m.chat_id = ?'; args.push(chatId) }
   if (platform !== undefined) { extra += ' AND m.platform = ?'; args.push(platform) }
   if (account !== undefined) { extra += ' AND c.account = ?'; args.push(account) }
+  if (since !== undefined) { extra += ' AND m.timestamp >= ?'; args.push(since) }
+  if (until !== undefined) { extra += ' AND m.timestamp <= ?'; args.push(until) }
+  if (type !== undefined) { extra += ' AND m.type = ?'; args.push(type) }
+  args.push(limit)
   return db().prepare(`
     SELECT m.chat_id, c.name AS chat_name, m.sender_name, m.text, m.timestamp, m.platform, c.account
     FROM messages_fts f
     JOIN messages m ON m.id = f.rowid
     JOIN chats c ON c.id = m.chat_id
     WHERE messages_fts MATCH ?${extra}
-    ORDER BY m.timestamp ASC LIMIT 100
+    ORDER BY m.timestamp ASC LIMIT ?
   `).all(...args) as SearchResult[]
+}
+
+export function listArchiveMessages(filters?: DbSearchFilters): { messages: MessageResult[], has_more: boolean } {
+  const { platform, account, since, until, type = 'text', limit = 50 } = filters ?? {}
+  const cap = Math.min(limit, 200)
+  const fetchCount = cap + 1
+  const args: unknown[] = []
+  const conditions: string[] = ['m.type = ?']
+  args.push(type)
+  if (platform !== undefined) { conditions.push('m.platform = ?'); args.push(platform) }
+  if (account !== undefined) { conditions.push('c.account = ?'); args.push(account) }
+  if (since !== undefined) { conditions.push('m.timestamp >= ?'); args.push(since) }
+  if (until !== undefined) { conditions.push('m.timestamp <= ?'); args.push(until) }
+  args.push(fetchCount)
+  const where = conditions.join(' AND ')
+  const rows = db().prepare(`
+    SELECT m.id, m.chat_id, m.sender_name, m.text, m.type, m.timestamp, m.is_sender, m.platform, c.account
+    FROM messages m
+    JOIN chats c ON c.id = m.chat_id
+    WHERE ${where}
+    ORDER BY m.timestamp DESC LIMIT ?
+  `).all(...args) as MessageResult[]
+  const has_more = rows.length > cap
+  const messages = has_more ? rows.slice(0, cap) : rows
+  return { messages, has_more }
 }
 
 export function setLastSyncedAt(chatId: number, timestamp: number): void {

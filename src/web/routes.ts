@@ -19,7 +19,7 @@ router.get('/api/chats', (req: Request, res: Response) => {
   try {
     const accountParam = req.query['account']
     const account = typeof accountParam === 'string' ? accountParam : undefined
-    res.json(handleListChats(undefined, account))
+    res.json(handleListChats({ account }))
   } catch (err) {
     res.status(500).json({ error: (err as Error).message })
   }
@@ -34,7 +34,7 @@ router.get('/api/search', (req: Request, res: Response) => {
     }
     const accountParam = req.query['account']
     const account = typeof accountParam === 'string' ? accountParam : undefined
-    res.json(handleSearchMessages(q, undefined, undefined, account))
+    res.json(handleSearchMessages(q, { account }))
   } catch (err) {
     res.status(500).json({ error: (err as Error).message })
   }

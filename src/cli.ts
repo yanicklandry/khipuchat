@@ -26,6 +26,7 @@ import {
   parseTemporalFilters,
 } from './mcp'
 import { listArchiveAccounts } from './query-handlers'
+import { parseQueryFilters } from './cli-filters'
 import { rebuildEmbeddings } from './index-embeddings'
 
 // ── Pure helpers (exported for testing) ───────────────────────────────────────
@@ -173,9 +174,19 @@ async function main() {
     }
 
     case 'search': {
-      if (!query) { console.error('Usage: npm run cli search "your query"'); process.exit(1) }
-      console.log(`\nKeyword search: "${query}"\n`)
-      const results = handleSearchMessages(query, undefined, undefined, accountArg)
+      const parseResult = parseQueryFilters(rawRest)
+      if (!parseResult.ok) {
+        console.error(parseResult.error)
+        process.exit(1)
+      }
+      const { filters, rest: searchRest } = parseResult
+      const searchQuery = searchRest[0] ?? ''
+      if (!searchQuery) {
+        console.error('Usage: khipu search <query> [--platform <p>] [--account <a>] [--since <date>] [--until <date>] [--type <t>] [--limit <n>]')
+        process.exit(1)
+      }
+      console.log(`\nKeyword search: "${searchQuery}"\n`)
+      const results = handleSearchMessages(searchQuery, filters)
       if (results.length === 0) { console.log('No results found.'); break }
       for (const r of results) {
         const platformLabel = formatPlatformLabel(r.platform, r.account, isMultiAccount)
@@ -188,7 +199,7 @@ async function main() {
     }
 
     case 'list-chats': {
-      const chats = handleListChats(undefined, accountArg)
+      const chats = handleListChats({ account: accountArg })
       for (const c of chats.slice(0, 30)) {
         const platformLabel = formatPlatformLabel(c.platform, c.account, isMultiAccount)
         console.log(`[${c.chat_id}] ${c.name} (${platformLabel}, ${c.type}, ${c.message_count} msgs)`)

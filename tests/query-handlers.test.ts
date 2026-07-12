@@ -5,7 +5,9 @@ import {
   handleFindChatByName,
   handleListMessages,
   handleSearchMessages,
+  handleListArchiveMessages,
   listArchiveAccounts,
+  type QueryFilters,
 } from '../src/query-handlers'
 
 const T = 1700000000
@@ -70,7 +72,7 @@ describe('handleListChats account filter', () => {
   })
 
   it('filtering by account=personal returns only personal chats', () => {
-    const results = handleListChats(undefined, 'personal')
+    const results = handleListChats({ account: 'personal' })
     expect(results.length).toBeGreaterThanOrEqual(1)
     expect(results.every(r => r.account === 'personal')).toBe(true)
     expect(results.some(r => r.name === 'Alice')).toBe(true)
@@ -78,7 +80,7 @@ describe('handleListChats account filter', () => {
   })
 
   it('filtering by account=work returns only work chats', () => {
-    const results = handleListChats(undefined, 'work')
+    const results = handleListChats({ account: 'work' })
     expect(results.every(r => r.account === 'work')).toBe(true)
     expect(results.some(r => r.name === 'Bob')).toBe(true)
     expect(results.some(r => r.name === 'Alice')).toBe(false)
@@ -144,17 +146,108 @@ describe('handleSearchMessages account filter', () => {
   })
 
   it('filtering by account=personal returns only personal results', () => {
-    const results = handleSearchMessages('hello', undefined, undefined, 'personal')
+    const results = handleSearchMessages('hello', { account: 'personal' })
     expect(results.every(r => r.account === 'personal')).toBe(true)
     expect(results.some(r => r.chat_name === 'Alice')).toBe(true)
     expect(results.some(r => r.chat_name === 'Bob')).toBe(false)
   })
 
   it('filtering by account=work returns only work results', () => {
-    const results = handleSearchMessages('hello', undefined, undefined, 'work')
+    const results = handleSearchMessages('hello', { account: 'work' })
     expect(results.every(r => r.account === 'work')).toBe(true)
     expect(results.some(r => r.chat_name === 'Bob')).toBe(true)
     expect(results.some(r => r.chat_name === 'Alice')).toBe(false)
+  })
+})
+
+// ── QueryFilters: handleListChats with object filters ────────────────────────
+
+describe('handleListChats with QueryFilters', () => {
+  it('accepts no args (backward compat)', () => {
+    const results = handleListChats()
+    expect(results.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('filters by platform=telegram', () => {
+    const results = handleListChats({ platform: 'telegram' })
+    expect(results.length).toBeGreaterThanOrEqual(1)
+    expect(results.every(r => r.platform === 'telegram')).toBe(true)
+    expect(results.some(r => r.name === 'Carol')).toBe(false)
+  })
+
+  it('filters by platform=imessage', () => {
+    const results = handleListChats({ platform: 'imessage' })
+    expect(results.every(r => r.platform === 'imessage')).toBe(true)
+    expect(results.some(r => r.name === 'Carol')).toBe(true)
+  })
+
+  it('respects limit', () => {
+    const results = handleListChats({ limit: 1 })
+    expect(results.length).toBe(1)
+  })
+
+  it('filters by account', () => {
+    const results = handleListChats({ account: 'personal' })
+    expect(results.every(r => r.account === 'personal')).toBe(true)
+  })
+})
+
+// ── QueryFilters: handleSearchMessages with object filters ───────────────────
+
+describe('handleSearchMessages with QueryFilters', () => {
+  it('accepts no filters (backward compat)', () => {
+    const results = handleSearchMessages('hello')
+    expect(results.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('filters by platform=telegram', () => {
+    const results = handleSearchMessages('hello', { platform: 'telegram' })
+    expect(results.every(r => r.platform === 'telegram')).toBe(true)
+  })
+
+  it('filters by account', () => {
+    const results = handleSearchMessages('hello', { account: 'personal' })
+    expect(results.every(r => r.account === 'personal')).toBe(true)
+    expect(results.some(r => r.chat_name === 'Alice')).toBe(true)
+    expect(results.some(r => r.chat_name === 'Bob')).toBe(false)
+  })
+
+  it('filters by since (timestamp lower bound)', () => {
+    // T+1 is personal, T+2 is work, T+3 is imsg
+    const results = handleSearchMessages('hello', { since: T + 2 })
+    expect(results.every(r => r.timestamp >= T + 2)).toBe(true)
+    expect(results.some(r => r.chat_name === 'Alice')).toBe(false)
+  })
+
+  it('respects limit', () => {
+    const results = handleSearchMessages('hello', { limit: 1 })
+    expect(results.length).toBe(1)
+  })
+})
+
+// ── handleListArchiveMessages ─────────────────────────────────────────────────
+
+describe('handleListArchiveMessages', () => {
+  it('returns text messages by default', () => {
+    const { messages, has_more } = handleListArchiveMessages()
+    expect(messages.length).toBeGreaterThanOrEqual(1)
+    expect(messages.every(m => m.type === 'text')).toBe(true)
+    expect(typeof has_more).toBe('boolean')
+  })
+
+  it('respects limit', () => {
+    const { messages } = handleListArchiveMessages({ limit: 1 })
+    expect(messages.length).toBe(1)
+  })
+
+  it('filters by platform', () => {
+    const { messages } = handleListArchiveMessages({ platform: 'telegram' })
+    expect(messages.every(m => m.platform === 'telegram')).toBe(true)
+  })
+
+  it('filters by account', () => {
+    const { messages } = handleListArchiveMessages({ account: 'personal' })
+    expect(messages.every(m => m.account === 'personal')).toBe(true)
   })
 })
 

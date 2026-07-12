@@ -6,6 +6,7 @@ import {
   getChats,
   getMessages,
   searchMessages,
+  listArchiveMessages,
   getLastSyncedId,
   getPlatformLastSyncedAt,
   setPlatformLastSyncedAt,
@@ -273,7 +274,7 @@ describe('searchMessages', () => {
   })
 
   it('filters to a single chat when chatId is provided', () => {
-    const results = searchMessages('hello', chatId1)
+    const results = searchMessages('hello', { chatId: chatId1 })
     expect(results).toHaveLength(1)
     expect(results[0].chat_id).toBe(chatId1)
   })
@@ -283,7 +284,7 @@ describe('searchMessages', () => {
   })
 
   it('result shape includes chat_id, chat_name, sender_name, text, timestamp, platform', () => {
-    const [r] = searchMessages('hello', chatId1)
+    const [r] = searchMessages('hello', { chatId: chatId1 })
     expect(r).toMatchObject({
       chat_id: chatId1, chat_name: 'Tony Lin', sender_name: 'Tony',
       text: 'hello world', timestamp: T + 1, platform: 'telegram',
@@ -291,19 +292,19 @@ describe('searchMessages', () => {
   })
 
   it('platform filter returns only matching platform messages', () => {
-    const results = searchMessages('hello', undefined, 'telegram')
+    const results = searchMessages('hello', { platform: 'telegram' })
     expect(results).toHaveLength(1)
     expect(results[0].platform).toBe('telegram')
   })
 
   it('platform filter with chatId returns intersection', () => {
-    const results = searchMessages('hello', chatId2, 'imessage')
+    const results = searchMessages('hello', { chatId: chatId2, platform: 'imessage' })
     expect(results).toHaveLength(1)
     expect(results[0].platform).toBe('imessage')
   })
 
   it('result shape includes account field derived from chats join', () => {
-    const [r] = searchMessages('hello', chatId1)
+    const [r] = searchMessages('hello', { chatId: chatId1 })
     expect(r).toMatchObject({ account: 'default' })
   })
 
@@ -316,7 +317,7 @@ describe('searchMessages', () => {
       text: 'hello from work', type: 'text', timestamp: T + 10, is_sender: 0,
       reply_to_external_id: null, platform: 'telegram',
     })
-    const results = searchMessages('hello', undefined, undefined, 'work')
+    const results = searchMessages('hello', { account: 'work' })
     expect(results).toHaveLength(1)
     expect(results[0].account).toBe('work')
     expect(results[0].chat_name).toBe('Work Chat')
@@ -335,7 +336,7 @@ describe('searchMessages', () => {
       text: 'hello work', type: 'text', timestamp: T + 30, is_sender: 0,
       reply_to_external_id: null, platform: 'telegram',
     })
-    const results = searchMessages('hello', undefined, undefined, 'personal')
+    const results = searchMessages('hello', { account: 'personal' })
     expect(results).toHaveLength(1)
     expect(results[0].account).toBe('personal')
   })
@@ -350,6 +351,152 @@ describe('searchMessages', () => {
     // beforeEach already inserts 2 'hello' messages (chatId1 + chatId2) + now 1 more
     const results = searchMessages('hello')
     expect(results.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('since filter returns only messages at or after that timestamp', () => {
+    // beforeEach: chatId1 has 'hello world' at T+1, chatId2 has 'hello there' at T+2
+    const results = searchMessages('hello', { since: T + 2 })
+    expect(results).toHaveLength(1)
+    expect(results[0].timestamp).toBe(T + 2)
+  })
+
+  it('until filter returns only messages at or before that timestamp', () => {
+    const results = searchMessages('hello', { until: T + 1 })
+    expect(results).toHaveLength(1)
+    expect(results[0].timestamp).toBe(T + 1)
+  })
+
+  it('since and until together constrain the timestamp range', () => {
+    // Insert extra message at T+10
+    insertMessage({
+      external_id: '10', chat_id: chatId1, sender_id: '1', sender_name: 'Tony',
+      text: 'hello late', type: 'text', timestamp: T + 10, is_sender: 0,
+      reply_to_external_id: null, platform: 'telegram',
+    })
+    const results = searchMessages('hello', { since: T + 2, until: T + 5 })
+    // only T+2 falls in [T+2, T+5]
+    expect(results).toHaveLength(1)
+    expect(results[0].timestamp).toBe(T + 2)
+  })
+
+  it('type filter returns only messages of the given type', () => {
+    // beforeEach inserts text messages; insert an image message with matching text
+    insertMessage({
+      external_id: '99', chat_id: chatId1, sender_id: '1', sender_name: 'Tony',
+      text: 'hello image', type: 'image', timestamp: T + 5, is_sender: 0,
+      reply_to_external_id: null, platform: 'telegram',
+    })
+    const results = searchMessages('hello', { type: 'image' })
+    expect(results).toHaveLength(1)
+    expect(results[0].text).toBe('hello image')
+  })
+
+  it('limit filter caps result count', () => {
+    const results = searchMessages('hello', { limit: 1 })
+    expect(results).toHaveLength(1)
+  })
+})
+
+// ── listArchiveMessages ───────────────────────────────────────────────────────
+
+describe('listArchiveMessages', () => {
+  let chatId1: number
+  let chatId2: number
+
+  beforeEach(() => {
+    chatId1 = upsertChat({ external_id: '1', account: 'default', name: 'Chat 1', type: 'user', username: null, platform: 'telegram' })
+    chatId2 = upsertChat({ external_id: '2', account: 'work', name: 'Chat 2', type: 'group', username: null, platform: 'imessage' })
+    // Insert text messages
+    for (let i = 1; i <= 3; i++) {
+      insertMessage({
+        external_id: `t${i}`, chat_id: chatId1, sender_id: '1', sender_name: 'Alice',
+        text: `text msg ${i}`, type: 'text', timestamp: T + i, is_sender: 0,
+        reply_to_external_id: null, platform: 'telegram',
+      })
+    }
+    // Insert an image message
+    insertMessage({
+      external_id: 'img1', chat_id: chatId1, sender_id: '1', sender_name: 'Alice',
+      text: null, type: 'image', timestamp: T + 10, is_sender: 0,
+      reply_to_external_id: null, platform: 'telegram',
+    })
+    // Insert a text message in chat2
+    insertMessage({
+      external_id: 'c2t1', chat_id: chatId2, sender_id: '2', sender_name: 'Bob',
+      text: 'work text', type: 'text', timestamp: T + 5, is_sender: 0,
+      reply_to_external_id: null, platform: 'imessage',
+    })
+  })
+
+  it('returns only text messages by default (type defaults to text)', () => {
+    const { messages } = listArchiveMessages()
+    expect(messages.every(m => m.type === 'text')).toBe(true)
+  })
+
+  it('returns messages across all chats when no filters', () => {
+    const { messages } = listArchiveMessages()
+    // 3 text in chatId1 + 1 text in chatId2 = 4
+    expect(messages).toHaveLength(4)
+  })
+
+  it('returns messages ordered by timestamp DESC', () => {
+    const { messages } = listArchiveMessages()
+    const timestamps = messages.map(m => m.timestamp)
+    expect(timestamps).toEqual([...timestamps].sort((a, b) => b - a))
+  })
+
+  it('result includes account field from chats join', () => {
+    const { messages } = listArchiveMessages({ account: 'work' })
+    expect(messages).toHaveLength(1)
+    expect(messages[0].account).toBe('work')
+  })
+
+  it('platform filter limits to given platform', () => {
+    const { messages } = listArchiveMessages({ platform: 'imessage' })
+    expect(messages).toHaveLength(1)
+    expect(messages[0].platform).toBe('imessage')
+  })
+
+  it('since filter returns only messages at or after timestamp', () => {
+    const { messages } = listArchiveMessages({ since: T + 3 })
+    // T+3, T+5 are text; image at T+10 is excluded by default type=text
+    expect(messages.every(m => m.timestamp >= T + 3)).toBe(true)
+  })
+
+  it('until filter returns only messages at or before timestamp', () => {
+    const { messages } = listArchiveMessages({ until: T + 2 })
+    expect(messages.every(m => m.timestamp <= T + 2)).toBe(true)
+  })
+
+  it('type override to image returns image messages', () => {
+    const { messages } = listArchiveMessages({ type: 'image' })
+    expect(messages).toHaveLength(1)
+    expect(messages[0].type).toBe('image')
+  })
+
+  it('limit caps returned messages and has_more is true when more exist', () => {
+    const { messages, has_more } = listArchiveMessages({ limit: 2 })
+    expect(messages).toHaveLength(2)
+    expect(has_more).toBe(true)
+  })
+
+  it('has_more is false when total results fit within limit', () => {
+    const { messages, has_more } = listArchiveMessages({ limit: 10 })
+    expect(messages).toHaveLength(4)
+    expect(has_more).toBe(false)
+  })
+
+  it('result rows include id, chat_id, sender_name, text, type, timestamp, is_sender, platform, account', () => {
+    const { messages } = listArchiveMessages({ account: 'default', limit: 1 })
+    expect(messages[0]).toMatchObject({
+      chat_id: chatId1,
+      sender_name: 'Alice',
+      type: 'text',
+      platform: 'telegram',
+      account: 'default',
+    })
+    expect(typeof messages[0].id).toBe('number')
+    expect(typeof messages[0].timestamp).toBe('number')
   })
 })
 
