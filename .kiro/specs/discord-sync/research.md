@@ -66,3 +66,15 @@ Tests provide a mock implementation returning fixture data.
 ## Next Steps
 
 The implementation is complete. Proceed to `/kiro-validate-impl discord-sync` to run the full validation suite, or to `/kiro-spec-design discord-sync` if the design document needs updating to reflect the as-built architecture.
+
+---
+
+# Design Reconciliation
+
+**Date**: 2026-07-12
+
+`design.md` was rewritten to match the as-built code (documentation reconciliation of shipped code; approval/phase state preserved). Drift corrected:
+
+- **Added**: incremental sync (`runIncrementalImpl`, `dateToDiscordSnowflake`, `after` cursor on `getMessages`), the adapter/multi-account architecture (`createDiscordAdapter(account, credentials)`, `AccountCredentials`, `runPlatformSync` orchestration, `startListener` no-op), and embeddings integration (`isIndexed`, `embedNewMessages`, `embedNewChats`).
+- **Corrected `mapChat`**: returns `{ external_id, account, name, type: 'group'|'private', username: null, platform }` where `isGroup = type 0 || 3`. Prior design's `id: hashStr(...)` and `type === 0 ? 'user'` were inaccurate.
+- **Noted**: `hashStr` is exported/tested but unused by the runners; 429 retry is single-shot; rate limiting is reactive only.
