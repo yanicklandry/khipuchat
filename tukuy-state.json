@@ -1,5 +1,6 @@
 {
-  "specName": "sync-watcher",
+  "specName": "wechat-sync",
   "completedPhases": [],
-  "done": false
+  "done": false,
+  "completedQueueSpecs": []
 }
