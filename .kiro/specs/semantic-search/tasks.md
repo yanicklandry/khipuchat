@@ -133,3 +133,95 @@
   - Assert: exit code 0; stdout contains `Done. Indexed`; `embedding_meta` table has rows for both 'messages' and 'chats'
   - Run again on same DB; assert second run prints `Done. Indexed 0 messages, 0 chats.` (incremental skip)
   - _Requirements: 1.3, 1.4, 1.6_
+
+- [ ] 7. (P) Add force-clear helpers to the vector store
+  - Add `clearMessageVectors(platform?)`: when no platform is given, delete all rows from `vec_messages`; when platform is set, collect matching rowids from `messages` where platform matches, then delete each from `vec_messages` per rowid (the proven per-rowid DELETE idiom, not a subquery on `vec0`)
+  - Add `clearChatVectors(platform?)`: identical pattern for `chats` / `vec_chats`
+  - After `clearMessageVectors()`, `SELECT COUNT(*) FROM vec_messages` returns 0; after a platform-scoped clear, only that platform's vectors are removed and all others remain
+  - _Requirements: 1.5_
+  - _Boundary: VecStore (vec-db.ts)_
+
+- [ ] 8. (P) Log model download on cache miss in the embedding module
+  - Before the `pipeline()` call, check whether the model's own subdirectory under `env.cacheDir` exists and is non-empty
+  - If absent or incomplete, emit a log line indicating a download is occurring before loading begins
+  - If the cache is valid, load silently (no log line emitted)
+  - Keep the `KHIPUCHAT_EMBED_MOCK` test hook intact so existing unit tests are unaffected
+  - On a simulated-missing-cache run, exactly one download-notice log line appears; on a cache-present run, no line appears
+  - _Requirements: 5.5_
+  - _Boundary: Embeddings (embeddings.ts)_
+
+- [ ] 9. (P) Update not-built error messages and MCP tool descriptions to reference `khipu index`
+  - Change `INDEX_NOT_BUILT_MSG` in `query-handlers.ts` to instruct operators to run `khipu index` instead of the old npm script reference
+  - Update both `semantic_find_contacts` and `semantic_search_messages` tool descriptions in `mcp.ts` to reference `khipu index`
+  - Both MCP tools return an error string containing the text `khipu index` when the embedding index is absent
+  - _Requirements: 3.7, 4.8_
+  - _Boundary: SemanticTools (query-handlers.ts, mcp.ts)_
+
+- [ ] 10. Add force-rebuild path and total-count reporting to the indexing pipeline
+  - Extend `rebuildEmbeddings(platform?, force?)` to accept an optional `force` boolean
+  - When `force` is true, call `clearMessageVectors(platform)` and `clearChatVectors(platform)` before running the incremental sweep, making all in-scope rows "unindexed" without a separate full-scan branch
+  - After both message and chat phases complete, read row counts from `vec_messages` and `vec_chats` (scoped to platform when set) and print the completion line reporting those DB totals
+  - Preserve per-record failure isolation: a failed embed is caught, logged to stderr, and skipped; the sweep does not abort
+  - `rebuildEmbeddings(undefined, true)` on a seeded, previously-indexed DB completes with a completion line reporting the expected DB-total row counts; incremental behavior is unchanged when `force` is omitted
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.4, 2.5_
+  - _Depends: 7_
+  - _Boundary: IndexPipeline (index-embeddings.ts)_
+
+- [ ] 11. Add `khipu index [--force]` CLI subcommand
+  - Add `case 'index'` to the existing dispatch switch in `cli.ts`
+  - Parse `--force` from `process.argv` within this case
+  - Call `rebuildEmbeddings(undefined, force)` and exit with code 0 on success
+  - Extend the CLI usage/help text to include the `index [--force]` command
+  - `khipu index` triggers an incremental whole-DB sweep; `khipu index --force` triggers a clear-then-rebuild; the usage text lists the `index` command
+  - _Requirements: 1.1, 1.3, 1.4, 1.5_
+  - _Depends: 10_
+  - _Boundary: IndexCli (cli.ts)_
+
+- [ ] 12. (P) Wire sync `--force` through to the embedding pipeline
+  - In `sync-runner.ts`, pass the already-parsed `force` flag into `rebuildEmbeddings(adapter.platform, force)`
+  - A `sync --force` run calls `rebuildEmbeddings` with both the platform identifier and `force=true`, causing already-indexed messages for that platform to be re-embedded from scratch
+  - _Requirements: 2.3_
+  - _Depends: 10_
+  - _Boundary: SyncEmbedHook (sync-runner.ts)_
+
+- [ ] 13. Tests for gap-closure changes
+- [ ] 13.1 (P) Unit tests for force-clear helpers
+  - Global `clearMessageVectors()` empties `vec_messages`; platform-scoped clear removes only that platform's vectors and leaves others intact
+  - Same coverage for `clearChatVectors`
+  - _Requirements: 1.5_
+  - _Boundary: VecStore (vec-db.ts)_
+
+- [ ] 13.2 (P) Unit tests for `rebuildEmbeddings` force path and count reporting
+  - Seed the DB, index once, force-rebuild: row counts in `vec_messages`/`vec_chats` match the original seed count
+  - Completion line reports DB totals, not only rows embedded in the current run
+  - A deliberate per-record embed failure leaves the sweep running for remaining records
+  - _Requirements: 1.1, 1.2, 1.3, 1.5, 2.5_
+  - _Depends: 10_
+  - _Boundary: IndexPipeline (index-embeddings.ts)_
+
+- [ ] 13.3 (P) Unit tests for model-download logging
+  - Simulated-missing-cache run emits exactly one download-notice log line; cache-present run emits none
+  - Existing `KHIPUCHAT_EMBED_MOCK`-guarded tests remain unaffected
+  - _Requirements: 5.5_
+  - _Depends: 8_
+  - _Boundary: Embeddings (embeddings.ts)_
+
+- [ ] 13.4 (P) Integration tests for the `khipu index` CLI subcommand
+  - `khipu index` triggers an incremental whole-DB sweep and exits 0
+  - `khipu index --force` triggers a clear-then-rebuild
+  - Usage/help output lists the `index` command
+  - _Requirements: 1.1, 1.3, 1.4, 1.5_
+  - _Depends: 11_
+  - _Boundary: IndexCli (cli.ts)_
+
+- [ ] 13.5 (P) Integration tests for the sync `--force` embedding path
+  - `sync --force` calls `rebuildEmbeddings(platform, true)` so already-indexed messages for that platform are re-embedded
+  - _Requirements: 2.3_
+  - _Depends: 12_
+  - _Boundary: SyncEmbedHook (sync-runner.ts)_
+
+- [ ] 13.6 (P) Integration tests for updated MCP not-built message text
+  - Both `semantic_find_contacts` and `semantic_search_messages` return an error string containing `khipu index` when the index is absent
+  - _Requirements: 3.7, 4.8_
+  - _Depends: 9_
+  - _Boundary: SemanticTools (query-handlers.ts, mcp.ts)_
