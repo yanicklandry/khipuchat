@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
+  "bin": {
+    "khipu": "bin/khipu"
+  },
   "scripts": {
     "sync": "tsx src/sync-all.ts",
     "sync:telegram": "tsx src/platforms/telegram/sync.ts",

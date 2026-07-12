@@ -1,0 +1,20 @@
+#!/usr/bin/env node
+
+'use strict'
+
+const { spawn } = require('child_process')
+const path = require('path')
+
+const PROJECT_ROOT = path.join(__dirname, '..')
+const TSX_BIN = path.join(PROJECT_ROOT, 'node_modules', '.bin', 'tsx')
+const ROUTER_SCRIPT = path.join(PROJECT_ROOT, 'src', 'khipu.ts')
+
+const child = spawn(
+  process.execPath,
+  [TSX_BIN, ROUTER_SCRIPT, ...process.argv.slice(2)],
+  { stdio: 'inherit' }
+)
+
+child.on('close', (code) => {
+  process.exit(code ?? 1)
+})

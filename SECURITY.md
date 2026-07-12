@@ -13,7 +13,7 @@ Please **do not** open a public GitHub issue for security vulnerabilities.
 
 Instead, report them privately by email to:
 
-**security@khipuchat.example.com**
+**yanick.landry@gmail.com**
 
 Include in your report:
 - A description of the vulnerability

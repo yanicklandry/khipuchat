@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. Implement khipu command router
-- [ ] 1.1 Implement `src/khipu.ts` command router
+- [x] 1.1 Implement `src/khipu.ts` command router
   - Implement `resolveCommand(argv: readonly string[]): CommandResolution` as a pure function with no I/O: map operational subcommands (`mcp`, `web`, `setup-claude`, `setup-sync`, `index`) to their role scripts; map `sync all` / `sync` (no arg) to `src/sync-all.ts`; map `sync <platform>` to `src/platforms/<platform>/sync.ts` for known platforms; forward all query subcommands (`search`, `semantic-search`, `semantic-contacts`, `list-chats`, `find-chat`, `messages`, `summary`) to `src/cli.ts` with argv unchanged; return `kind: 'error'` for unknown subcommands or unknown platforms; return `kind: 'help'` for empty argv.
   - Import `PLATFORMS` from `src/sync-all.ts` as the single source of truth for platform names; do not hardcode a separate list in this file.
   - Implement `main(argv)`: call `resolveCommand`, then spawn the resolved script via `node_modules/.bin/tsx` with `{ stdio: 'inherit' }`; propagate the child exit code as the function return value.
@@ -10,7 +10,7 @@
   - `resolveCommand(['mcp'])` returns `{ kind: 'run' }` pointing at the correct script; `resolveCommand([])` returns `{ kind: 'help', exitCode: 0 }`; `resolveCommand(['sync', 'bogus'])` returns `{ kind: 'error', exitCode: 1 }`.
   - _Requirements: 1.3, 1.4, 5.1, 5.3_
 
-- [ ] 1.2 Create `bin/khipu` shim and register it in `package.json`
+- [x] 1.2 Create `bin/khipu` shim and register it in `package.json`
   - Write `bin/khipu` as an executable Node.js script (`#!/usr/bin/env node`) that resolves `node_modules/.bin/tsx` and `src/khipu.ts` relative to `__dirname`, spawns them with `{ stdio: 'inherit' }`, and exits with the child's exit status; mirror the resolution pattern from `src/sync-all.ts`.
   - Mark `bin/khipu` executable (`chmod +x`).
   - Add `"bin": { "khipu": "bin/khipu" }` to `package.json` (existing scripts entries remain unchanged).
@@ -18,7 +18,7 @@
   - _Requirements: 5.1_
 
 - [ ] 2. Write khipu router tests
-- [ ] 2.1 Unit tests for `resolveCommand`
+- [x] 2.1 Unit tests for `resolveCommand`
   - Test each operational subcommand (`mcp`, `web`, `setup-claude`, `setup-sync`, `index`) resolves to the correct script path with `kind: 'run'`.
   - Test `resolveCommand(['sync', 'all'])` and `resolveCommand(['sync'])` both resolve to `src/sync-all.ts`.
   - Test `resolveCommand(['sync', '<known-platform>'])` (e.g. `telegram`) resolves to the correct platform sync script.
@@ -30,7 +30,7 @@
   - _Requirements: 5.1, 5.3_
   - _Depends: 1.1_
 
-- [ ] 2.2 Integration tests for platform parity and exit-code propagation
+- [x] 2.2 Integration tests for platform parity and exit-code propagation
   - Assert the router's known-platform set equals `PLATFORMS` exported from `src/sync-all.ts` (guards against router and sync diverging as platforms are added).
   - Assert `main()` propagates a non-zero child exit code: use a fast, side-effect-free target script that exits with a known non-zero code and verify the propagated value matches.
   - `npm test` passes with both integration tests green.
@@ -38,7 +38,7 @@
   - _Depends: 1.1, 1.2_
 
 - [ ] 3. Update packaging, policy, and documentation
-- [ ] 3.1 (P) Update `Dockerfile` to install and use the `khipu` command
+- [x] 3.1 (P) Update `Dockerfile` to install and use the `khipu` command
   - Retain the existing multi-stage build structure (`builder` stage + runtime stage on `node:20-alpine`).
   - Add `ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true` before `npm ci` in the builder stage to prevent Chromium download failure on Alpine.
   - Add `ENV HF_HOME=/app/.cache/huggingface` in the runtime stage so the ONNX model download is cached to a predictable path.
@@ -49,7 +49,7 @@
   - _Boundary: Dockerfile_
   - _Depends: 1.2_
 
-- [ ] 3.2 (P) Update `docker-compose.yml` to start web and sync services with persisted storage
+- [x] 3.2 (P) Update `docker-compose.yml` to start web and sync services with persisted storage
   - Add a `web` service: `command: khipu web`; publish `127.0.0.1:3333:3333`; mount `db-data` at `/app/khipuchat.db` and `hf-cache` at the `HF_HOME` path.
   - Add a `sync` service: `command: sh -c "while true; do khipu sync all; sleep ${SYNC_INTERVAL:-3600}; done"`; mount the same `db-data` and `hf-cache` volumes. This makes the sync service long-running as required.
   - Fix the `db-data` volume mount target from `/app/telegram.db` to `/app/khipuchat.db`; declare both `db-data` and `hf-cache` in the top-level `volumes:` block.
@@ -60,13 +60,13 @@
   - _Boundary: docker-compose.yml_
   - _Depends: 1.2_
 
-- [ ] 3.3 (P) Replace placeholder email in `SECURITY.md`
+- [x] 3.3 (P) Replace placeholder email in `SECURITY.md`
   - Replace the placeholder disclosure email (e.g. `security@khipuchat.example.com`) with `yanick.landry@gmail.com`.
   - `SECURITY.md` exists at the repo root; it includes private vulnerability reporting instructions and the updated contact email.
   - _Requirements: 4.1, 4.2_
   - _Boundary: SECURITY.md_
 
-- [ ] 3.4 (P) Update `README.md` to reference `khipu` commands and add missing sections
+- [x] 3.4 (P) Update `README.md` to reference `khipu` commands and add missing sections
   - Replace all `npm run sync*`, `npx tsx src/...`, and `npm run setup-*` references in the README with the corresponding `khipu <subcommand>` equivalents (e.g. `khipu sync all`, `khipu sync telegram`, `khipu setup-claude`).
   - Add an `npm link` contributor workflow section: `git clone` → `npm install` → `npm link` → `khipu` is now on PATH.
   - Add a `khipu.config.json` multi-account section documenting the config file format; include the incremental-sync note stating that iMessage reads the local `chat.db` and always performs a full scan (cannot filter server-side), while other platforms filter incrementally.
@@ -77,7 +77,7 @@
   - _Boundary: README.md_
 
 - [ ] 4. Verify existing CI and release workflows meet requirements
-- [ ] 4.1 Audit `.github/workflows/ci.yml` and `.github/workflows/release.yml`
+- [x] 4.1 Audit `.github/workflows/ci.yml` and `.github/workflows/release.yml`
   - Read `ci.yml` and confirm: trigger covers `push` and `pull_request` to `main`; job runs on `ubuntu-latest`; uses Node 20; runs `npm ci` then `npm test`; a test failure will mark the check failed.
   - Read `release.yml` and confirm: trigger is `push: tags: ['v*']`; uses QEMU and Buildx for multi-arch; authenticates to `ghcr.io` using `GITHUB_TOKEN` only (no manually created secrets); builds and pushes `linux/amd64,linux/arm64`; tags the image with the git tag version and `latest`.
   - If either workflow is missing a required element, apply the minimum correction needed to satisfy the requirements.
