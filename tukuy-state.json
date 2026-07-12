@@ -1,18 +1,7 @@
 {
-  "specName": "khipu-cli",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl",
-    "validate-impl"
-  ],
-  "done": true,
+  "specName": "telegram-image-sync",
+  "completedPhases": [],
+  "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
     "wechat-image-sync",
