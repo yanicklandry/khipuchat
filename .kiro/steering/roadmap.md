@@ -41,10 +41,10 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 - [x] wechat-image-sync -- Extract and map image messages from WeChat database, store file references. Dependencies: wechat-sync
 - [ ] semantic-search -- Local ONNX embeddings (all-MiniLM-L6-v2) + sqlite-vec; new MCP tools semantic_find_contacts and semantic_search_messages; incremental indexing pipeline. Dependencies: platform-abstraction
 - [ ] web-ui -- Express + plain HTML search UI served at localhost:3333, chat list sidebar, message thread view, platform badges. Dependencies: platform-abstraction, imessage-sync
-- [ ] discord-sync -- Discord bot token, sync DMs and non-broadcast channels, npm run sync:discord. Dependencies: platform-abstraction
-- [ ] email-sync -- IMAP via imapflow, sync sent+received threads as messages, npm run sync:email. Dependencies: platform-abstraction
-- [ ] slack-sync -- Personal Slack app OAuth, sync DMs and channels, npm run sync:slack. Dependencies: platform-abstraction
-- [ ] whatsapp-sync -- whatsapp-web.js QR-code session, sync DMs, npm run sync:whatsapp. Dependencies: platform-abstraction
+- [x] discord-sync -- Discord bot token, sync DMs and non-broadcast channels, npm run sync:discord. Dependencies: platform-abstraction
+- [x] email-sync -- IMAP via imapflow, sync sent+received threads as messages, npm run sync:email. Dependencies: platform-abstraction
+- [x] slack-sync -- Personal Slack app OAuth, sync DMs and channels, npm run sync:slack. Dependencies: platform-abstraction
+- [x] whatsapp-sync -- whatsapp-web.js QR-code session, sync DMs, npm run sync:whatsapp. Dependencies: platform-abstraction
 - [ ] security-hardening -- SQLCipher encryption, web UI basic-auth, MCP bearer token, localhost-only binding. Dependencies: web-ui
 - [ ] release -- Dockerfile + docker-compose, GitHub Actions CI/publish, SECURITY.md, demo GIF. Dependencies: web-ui, wechat-sync, discord-sync, email-sync, slack-sync, whatsapp-sync, security-hardening
 - [x] incremental-sync -- Extend PlatformAdapter with lastSyncAt tracking; sync_state table; all sync scripts fetch only messages newer than last successful sync. `--force` full re-read + reindex; per-account sync_state. Dependencies: platform-abstraction.

@@ -1,19 +1,10 @@
 {
-  "specName": "semantic-search",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "web-ui",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
-    "wechat-image-sync"
+    "wechat-image-sync",
+    "semantic-search"
   ]
 }
