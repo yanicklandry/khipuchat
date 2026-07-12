@@ -1,16 +1,6 @@
 {
-  "specName": "sync-watcher",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "khipu-cli",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
@@ -21,6 +11,7 @@
     "email-sync",
     "slack-sync",
     "security-hardening",
-    "release"
+    "release",
+    "sync-watcher"
   ]
 }

@@ -37,6 +37,7 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 - `src/sync-runner.ts` — exports `runPlatformSync(adapter, db, argv)` and `parseSyncArgs(argv)`; handles `sync_state` tracking, incremental vs full-backfill mode selection, FTS + embedding rebuild after sync
 - `src/sync-all.ts` — serial orchestrator that spawns every platform's `sync.ts` in order; forwards `--force`/`--backfill` flags; entry point for `npm run sync`
 - `src/setup-sync.ts` — installs/uninstalls a macOS LaunchAgent (`com.khipuchat.sync`) that runs `sync-all` on a schedule; entry point for `npm run setup-sync`
+- `src/watch.ts` — continuous-poll daemon; iterates all configured platforms in a loop (sync => index => wait); per-platform interval configurable via `WATCH_INTERVAL_<PLATFORM>_MS` env var (default 5 min); skips platforms whose credentials are absent; used by `khipu sync all`
 
 **Pattern**: Every platform adapter calls `runPlatformSync` from `sync-runner.ts` rather than implementing sync state logic directly. Incremental mode reads `sync_state` (keyed by platform) to fetch only messages newer than last sync. `--force` flag triggers a full re-read + FTS + embeddings rebuild.
 
