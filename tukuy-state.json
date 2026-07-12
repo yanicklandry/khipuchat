@@ -1,6 +1,8 @@
 {
   "specName": "wechat-image-sync",
-  "completedPhases": [],
+  "completedPhases": [
+    "steering"
+  ],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync"
