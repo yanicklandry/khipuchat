@@ -1,20 +1,11 @@
 {
-  "specName": "web-ui",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "discord-sync",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
     "wechat-image-sync",
-    "semantic-search"
+    "semantic-search",
+    "web-ui"
   ]
 }
