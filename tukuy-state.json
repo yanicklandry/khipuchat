@@ -1,16 +1,6 @@
 {
-  "specName": "signal-platform",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "signal-image-sync",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
@@ -25,6 +15,7 @@
     "sync-watcher",
     "khipu-cli",
     "telegram-image-sync",
-    "image-support"
+    "image-support",
+    "signal-platform"
   ]
 }
