@@ -34,3 +34,82 @@ Tests provide a mock returning fixture `RawEmailMessage` objects — no real IMA
 - **Sent folder name varies** (Sent, Sent Items, Sent Messages): try common names; fall back to listing mailboxes and finding a folder with `\Sent` special-use flag.
 - **Large mailboxes**: batch of 200 messages; memory is bounded.
 - **Message-ID absent**: rare but possible; skip the message and log a warning.
+
+---
+
+# Implementation Gap Analysis
+
+**Date**: 2026-07-12
+**Method**: Codebase inspection across `src/platforms/email/`, `src/platforms/types.ts`, `src/account-registry.ts`, `src/sync-all.ts`, `src/sync-runner.ts`, `tests/email.test.ts`, `package.json`.
+
+## Executive Summary
+
+The email-sync feature is **substantially complete**. Both implementation files exist and all 20 unit tests pass. The one remaining gap is a **credential key name mismatch** in the legacy env-var registry path — a one-line fix in `account-registry.ts` plus removal of the unused `IMAP_PORT` entry.
+
+## What Already Exists
+
+| Component | File | Status |
+|---|---|---|
+| IMAP client | `src/platforms/email/client.ts` | Complete |
+| Sync adapter | `src/platforms/email/sync.ts` | Complete |
+| Platform union | `src/platforms/types.ts` line 4 | `'email'` present |
+| npm script | `package.json` | `sync:email` registered |
+| sync-all inclusion | `src/sync-all.ts` | `email` in `PLATFORMS` |
+| Unit tests | `tests/email.test.ts` | 20/20 passing |
+| imapflow dep | `package.json` | `^1.3.3` installed |
+
+The implementation covers: batched folder fetching (200 per batch), `listSpecialFolder('\\Sent')` with fallback names, thread resolution via in-memory Map, `is_sender` from case-insensitive From match, incremental sync with IMAP SEARCH `since`, and mocked-client test suite.
+
+## Gap: LEGACY_ENV_VARS Key Name Mismatch
+
+### Location
+`src/account-registry.ts` line 36:
+
+```typescript
+email: ['IMAP_HOST', 'IMAP_PORT', 'IMAP_USER', 'IMAP_PASS'],
+```
+
+### Problem
+`createEmailAdapter` reads `credentials.fields['EMAIL_IMAP_HOST']`, `credentials.fields['EMAIL_IMAP_USER']`, `credentials.fields['EMAIL_IMAP_PASS']`. The requirements mandate these exact names. The legacy registry maps different keys (`IMAP_HOST` etc.), so `runAllAccountsSync('email', createEmailAdapter, ...)` in a no-config-file environment would silently pass empty credentials and exit with "missing variables".
+
+`IMAP_PORT` is also dead: `client.ts` hardcodes port 993 and never reads it from credentials.
+
+### Impact scope
+- `npm run sync:email` and `npm run sync` are **not affected** (both bypass the registry by reading env vars directly or spawning subprocesses).
+- Only `runAllAccountsSync` in a legacy-registry context is affected.
+
+### Fix
+```typescript
+// account-registry.ts line 36 — change:
+email: ['IMAP_HOST', 'IMAP_PORT', 'IMAP_USER', 'IMAP_PASS'],
+// to:
+email: ['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'],
+```
+
+Also update `tests/account-registry.test.ts` lines 65-70 to use the corrected env var names.
+
+## Requirements Coverage
+
+| Requirement | Implemented |
+|---|---|
+| `EMAIL_IMAP_HOST/USER/PASS` only | Yes (sync.ts reads these directly) |
+| Exit on missing vars with list | Yes (process.exit(1)) |
+| INBOX sync | Yes |
+| Sent folder sync | Yes |
+| Batch 200 messages | Yes |
+| `Message-ID` as `external_id` | Yes |
+| Display name from `From` | Yes |
+| Plain-text only; skip if absent | Yes |
+| `In-Reply-To` as `reply_to_external_id` | Yes |
+| `platform = 'email'` | Yes |
+| `is_sender` from `EMAIL_IMAP_USER` | Yes (case-insensitive) |
+| One chat per thread root | Yes |
+| All replies under same `chat_id` | Yes |
+| Chat name from subject | Yes |
+| `npm run sync:email` | Yes |
+| Idempotency | Yes (upsert on `external_id`) |
+| Tests with mocked IMAP client | Yes (20 tests) |
+
+## Recommendation
+
+Single fix needed: align `LEGACY_ENV_VARS.email` in `account-registry.ts` and its test. All other work is complete. Proceed to `/kiro-validate-impl email-sync` after applying the fix.
