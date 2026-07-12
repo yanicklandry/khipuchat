@@ -45,3 +45,55 @@
 - **Port conflict** — server exits with clear message (Req 1.4).
 - **NaN chatId** — routes.ts validates `:chatId` and returns 400 on parse failure.
 - **DB not initialized** — server.ts calls `initDb` before mounting routes; any early request will return 500 with a readable message.
+
+---
+
+# Gap Analysis (2026-07-12)
+
+**Spec phase at analysis time:** tasks-generated / ready_for_implementation
+**Finding:** Implementation already present in `src/web/` — this analysis documents coverage and residual gaps.
+
+## Summary
+
+- All six requirements are satisfied by the existing code. The task checklist in `tasks.md` is out of sync with actual code state.
+- Implementation exceeds spec scope in two additive areas: `/api/semantic-search` route and per-account `?account=` filtering on chats and search.
+- `routes.ts` imports handler functions from `../mcp`, which re-exports them from `query-handlers.ts`. `src/mcp.ts` is not modified — boundary constraint satisfied.
+- No missing capabilities. Effort: **S**. Risk: **Low**.
+
+## Requirement-to-Asset Map
+
+| Requirement | Status | Asset |
+|---|---|---|
+| 1.1 `npm run web` script | DONE | `package.json` "web" script |
+| 1.2 Bind to 127.0.0.1 only | DONE | `server.ts` `app.listen(3333, '127.0.0.1', ...)` |
+| 1.3 Full HTML page on GET / | DONE | `ui.ts` `buildHtmlPage()` |
+| 1.4 EADDRINUSE exit with message | DONE | `server.ts` `server.on('error', ...)` |
+| 1.5 2 s response time | DONE (by design) | Synchronous SQLite queries, no blocking I/O |
+| 2.1–2.3 Chat sidebar | DONE | `ui.ts` client JS `renderChatList()` |
+| 2.4 GET /api/chats | DONE | `routes.ts` — also supports `?account=` |
+| 3.1–3.3 Cross-platform search results | DONE | `ui.ts` `doSearch()` |
+| 3.4 Empty query guard | DONE | `routes.ts` whitespace trim + early return |
+| 3.5 GET /api/search?q= | DONE | `routes.ts` |
+| 4.1–4.3 Thread view, chronological, sent/received | DONE | `ui.ts` `buildMsgEl()`, `openThread()` |
+| 4.4 Media placeholder `[media]` | DONE | `buildMsgEl`: renders `[type]` when text is falsy |
+| 4.5 GET /api/messages/:chatId | DONE | `routes.ts` — also supports `?before` and `?limit` pagination |
+| 5.1–5.3 Platform badge (raw DB value, no mapping) | DONE | `icons.ts` SVG map, fallback to first letter |
+| 6.1 No external URLs | DONE | Verified by test stripping SVG xmlns |
+| 6.2 No build step | DONE | Template literal in `ui.ts`, `tsx` direct run |
+| 6.3 Plain HTML/CSS/vanilla JS | DONE | No framework, no bundler |
+
+## Beyond-Spec Additions (Non-Breaking)
+
+1. **`GET /api/semantic-search`** — ONNX vector search with graceful fallback when index absent. Covered by tests.
+2. **`?account=` filter** — Server-side and UI `<select>` dropdown for multi-account installs. Covered by tests.
+
+## Residual Gaps
+
+| Gap | Severity |
+|---|---|
+| `tasks.md` all checkboxes show unchecked — out of sync with code reality | Cosmetic |
+
+## Recommendations
+
+- Mark all tasks in `tasks.md` as complete.
+- Run `/kiro-validate-impl web-ui` to formally validate the existing implementation against the spec.
