@@ -9,9 +9,10 @@
     "design",
     "validate-design",
     "tasks",
-    "impl"
+    "impl",
+    "validate-impl"
   ],
-  "done": false,
+  "done": true,
   "completedQueueSpecs": [
     "wechat-sync",
     "wechat-image-sync",
@@ -22,6 +23,7 @@
     "slack-sync",
     "security-hardening",
     "release",
-    "sync-watcher"
+    "sync-watcher",
+    "khipu-cli"
   ]
 }
