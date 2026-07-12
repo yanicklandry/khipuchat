@@ -230,3 +230,25 @@ Trade-offs:
 1. **Fix Req 3.3** with Option C: thread `senderName: string | null` into `mapMessage` via `MessageMapOpts`. For `is_sender=0` messages in both V3 and V4, set `sender_name` to the resolved contact display name. Update `runBackfillImpl` and `runIncrementalImpl` callers. Add assertions to existing tests.
 2. **Update tasks.md** to mark all implemented tasks complete and add a new task for the Req 3.3 sender_name fix.
 3. **No new runtime dependencies** needed. All patterns already exist in the codebase.
+
+---
+
+# Synthesis — Design Regeneration 2026-07-11
+
+The May-6 `design.md` described only the WeChat 3.x `Chat_<contactId>.db` layout and a "skip encrypted DBs" posture. The as-built implementation is broader. `design.md` has been re-derived to match the code, with one planned delta (Req 3.3). Synthesis outcomes:
+
+### Generalization
+- **Schema-version abstraction**: WeChat 3.x and 4.x diverge in file layout, table naming, column names, direction detection, and text encoding. `buildSchemaInfo(db, tableName)` inspects `PRAGMA table_info` and emits a normalized `SELECT` column list (aliasing V3 `msgSvrID/CreateTime/Message/Des/Type` and V4 `server_id/create_time/message_content/real_sender_id/local_type`) plus the incremental `timeCol`. A single `mapMessage` consumes the normalized `WechatMessageRow`, branching on presence of V4 fields. This keeps one mapping path instead of two parallel adapters.
+- **Contact-schema abstraction**: `buildWechatContactMap` probes an ordered table list (`contact`, `WCContact`, `Contact`, `Friend`) and resolves `username/nick_name` (V4) or `m_nsUsrName/m_nsNickName` (legacy), with `remark`→nickname preference. One resolver covers both formats.
+
+### Build vs. Adopt
+- **SQLCipher**: adopt `better-sqlite3-multiple-ciphers` (already the project driver) with raw-key PRAGMAs (`cipher='sqlcipher'`, `legacy=4`, `key="x'...'"`). No new dependency.
+- **Key extraction**: the earlier design rejected in-process key derivation. The as-built solution externalizes extraction to `scripts/setup-wechat.sh` (`npm run setup:wechat`, Frida-based), which writes a salt→key map to `.wechat-keys.json`. The sync process only *reads* that local file and matches keys by the 16-byte DB salt (`resolveHexKey`). This satisfies Req 5.1 (local-only, no network) while keeping the injection tooling out of the sync path.
+- **Incremental orchestration**: adopt the shared `runPlatformSync`/`parseSyncArgs` from `src/sync-runner.ts` and the `syncIncremental` adapter hook rather than a bespoke loop.
+
+### Simplification
+- One `openWechatDb(filePath, hexKey)` handles plaintext and encrypted opens; a `user_version` probe surfaces wrong-key/`SQLITE_NOTADB` uniformly. No per-version opener classes.
+- Idempotency and incrementality reuse existing seams: `INSERT OR IGNORE` in `insertMessage` and per-chat `last_synced_at` via `setLastSyncedAt`. No new state table.
+
+### Planned Delta (the one remaining gap)
+- **Req 3.3**: `mapMessage` currently returns `sender_name: null` unconditionally. The design targets Option C: for received messages (`is_sender = 0`), set `sender_name` to the resolved counterparty display name; for sent messages keep `null`. `MessageMapOpts` gains a resolved-name input; callers already hold `contactMap`, `displayName`, and (V4) `senderIdMap`, so plumbing is minimal. Backfilling stored rows requires a `--force` re-sync.
