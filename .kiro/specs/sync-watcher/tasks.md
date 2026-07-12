@@ -61,7 +61,7 @@
   - _Requirements: 1.1, 1.2, 2.6_
   - _Boundary: watch.ts_
 
-- [ ] 3.2 Schedule polling intervals and trigger immediate first poll
+- [x] 3.2 Schedule polling intervals and trigger immediate first poll
   - For each configured platform/account pair, call `pollCycle(adapter, db)` once immediately (do not await; fire-and-forget to avoid blocking startup).
   - Set up `setInterval(() => pollCycle(adapter, db), intervalMs)` for each configured pair and store the timer handle.
   - All configured platforms begin their first poll immediately on startup without waiting for the first interval.
@@ -69,7 +69,7 @@
   - _Boundary: watch.ts_
 
 - [ ] 4. Implement graceful shutdown handler
-- [ ] 4.1 Register SIGINT/SIGTERM handlers with drain-and-exit logic
+- [x] 4.1 Register SIGINT/SIGTERM handlers with drain-and-exit logic
   - Register `process.on('SIGINT', shutdown)` and `process.on('SIGTERM', shutdown)` handlers.
   - `shutdown()` sets a `shutdownRequested` flag, calls `clearInterval` for all stored timer handles, and logs `Watch daemon shutting down...`.
   - Wait for `inFlight` to reach 0, polling every 100ms; after 30 seconds, proceed regardless.
@@ -79,7 +79,7 @@
   - _Boundary: watch.ts_
 
 - [ ] 5. Implement single-pass mode (`--once`)
-- [ ] 5.1 Detect `--once` flag and run one sync+index pass then exit
+- [x] 5.1 Detect `--once` flag and run one sync+index pass then exit
   - Detect `process.argv.includes('--once')` at startup before any interval scheduling.
   - When `--once` is set, skip `setInterval` scheduling and instead run one `pollCycle` call per configured platform/account pair using `Promise.all`.
   - Wrap each call in its own try/catch within the single-pass loop; log errors and continue with remaining platforms rather than aborting.
@@ -90,7 +90,7 @@
   - _Depends: 3.1, 2.3, 2.4_
 
 - [ ] 6. Write unit and integration tests
-- [ ] 6.1 (P) Unit test `getIntervalMs`
+- [x] 6.1 (P) Unit test `getIntervalMs`
   - Test: returns 300000 when env var is absent.
   - Test: returns parsed integer when env var is a valid positive integer string.
   - Test: returns 300000 when env var is set to a non-numeric string.
@@ -98,7 +98,7 @@
   - _Requirements: 5.1, 5.2, 5.3_
   - _Boundary: watch.test.ts_
 
-- [ ] 6.2 (P) Unit test `pollCycle` routing, indexing, and error isolation
+- [x] 6.2 (P) Unit test `pollCycle` routing, indexing, and error isolation
   - Test: when adapter has `syncIncremental` and `getPlatformLastSyncedAt` returns a number, `syncIncremental` is called.
   - Test: when adapter lacks `syncIncremental`, `runBackfill` is called.
   - Test: when `syncIncremental` throws, the error is caught, logged, and `pollCycle` resolves without rethrowing.
@@ -109,7 +109,7 @@
   - _Requirements: 2.4, 2.5, 3.1, 6.1, 6.2, 6.3_
   - _Boundary: watch.test.ts_
 
-- [ ] 6.3 (P) Integration test startup, error isolation, and single-pass mode
+- [x] 6.3 (P) Integration test startup, error isolation, and single-pass mode
   - Test: with a mock registry of one configured and one unconfigured adapter, the configured adapter's `pollCycle` is called immediately and the unconfigured adapter is skipped with a log message.
   - Test: if one adapter's `pollCycle` throws on every invocation, a second adapter's poll cycles still execute normally.
   - Test: running with `--once` executes one pass over all configured platforms and exits without scheduling intervals.

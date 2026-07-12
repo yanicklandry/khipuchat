@@ -23,7 +23,8 @@
     "index:embeddings": "tsx src/index-embeddings.ts",
     "cli": "tsx src/cli.ts",
     "web": "tsx src/web/server.ts",
-    "setup:wechat": "bash scripts/setup-wechat.sh"
+    "setup:wechat": "bash scripts/setup-wechat.sh",
+    "watch": "tsx src/watch.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.0.0",
