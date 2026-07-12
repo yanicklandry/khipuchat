@@ -175,3 +175,75 @@ Not recommended at this stage; revisit when `signal-image-sync` is designed.
 - Signal-only filter parameter in Beeper tools (High — prevents ingesting non-Signal platforms)
 - `is_sender` field identification (Medium — needed for R5.2)
 - Incremental cursor support (Medium — needed for R4 efficiency)
+
+---
+
+## 6. Design-Phase Resolutions (2026-07-12)
+
+All open items from §5 were resolved by directly probing the running Beeper Desktop instance and the official SDK. Evidence captured below.
+
+### 6.1 Transport — RESOLVED: local HTTP REST API (Path A)
+
+Beeper Desktop runs a local HTTP server (Express) bound to `127.0.0.1:23373` (`lsof` confirmed process `Beeper 72063` LISTEN). `GET /` redirects to `/v1/info`, which reports:
+
+- `app.version: 4.2.972`, `server.status: running`, `server.mcp_enabled: true`, `server.remote_access: false`
+- REST base `http://127.0.0.1:23373/v1`, OpenAPI spec at `/v1/spec` (title "Beeper Client API", version **5.0.0**)
+- MCP endpoint at `/v0/mcp`; WebSocket events at `/v1/ws`
+
+**Decision**: use the local REST API (Path A), **not** the MCP client transports (Path B/C from the gap analysis). Path A is the lowest-complexity option, needs no stdio subprocess or MCP session handshake, and is the surface the official SDK targets. `/v1/ws` is noted for a future real-time listener but is out of this spec's scope.
+
+### 6.2 Build vs adopt — RESOLVED: adopt `@beeper/desktop-api` v5.0.0
+
+The official TypeScript SDK exists on npm, version-matched to the API (5.0.0), with **zero runtime dependencies** (`npm pack` inspection: `dependencies: {}`). Client construction and auth:
+
+```ts
+const client = new BeeperDesktop({ accessToken: process.env['BEEPER_ACCESS_TOKEN'] })
+await client.accounts.list()
+await client.chats.search({ accountIDs: [...] })
+```
+
+**Decision**: adopt the SDK for the client layer rather than hand-rolling `globalThis.fetch`. Rationale: (a) zero transitive dependencies keeps the local-only, self-hosted footprint intact; (b) it provides the exact `Account`/`Chat`/`Message` types, removing hand-maintained response typings; (c) it uses a plain static `accessToken`, mapping cleanly to the existing credential pattern; (d) it is version-locked to the API surface probed here. This is the one new npm dependency; all other work is additive. `@modelcontextprotocol/sdk` is **not** needed for Signal.
+
+### 6.3 Auth — RESOLVED: static Bearer access token
+
+The OpenAPI `securitySchemes` expose both `bearerAuth` (HTTP bearer) and `oauth2` (authorization_code + PKCE, `token_endpoint_auth_method: none`, scopes `read`/`write`). Unauthenticated requests return `401 Unauthorized` with `WWW-Authenticate: Bearer`. Dynamic client registration at `/oauth/register` succeeds without prior auth.
+
+**Decision**: the adapter consumes a **static access token** supplied as credential `BEEPER_ACCESS_TOKEN` (account-registry field or env var), exactly like `SLACK_USER_TOKEN` / `DISCORD_TOKEN`. Obtaining the token (via Beeper Desktop's OAuth flow) is a one-time **operator setup step**, out of the adapter's runtime scope. The adapter treats a missing/invalid token as a fatal, human-readable startup error (R2.3 / R7).
+
+### 6.4 Signal-only scoping — RESOLVED: filter by account network
+
+`Account` has a `network: string` field; `Chat` and message/chat search accept an `accountIDs` filter (confirmed in `/v1/spec` params). There is no single "signal" network filter parameter, but scoping is exact via account:
+
+1. `client.accounts.list()` → select accounts where `network === 'signal'` → collect their `accountID`s.
+2. Pass `accountIDs: <signalAccountIDs>` to every `chats.search` / `messages.search` call.
+
+**Decision**: this guarantees only Signal chats/messages are ingested (R2.2), preventing dual-sourcing of other Beeper-bridged platforms. If no Signal account is connected, the adapter reports a clear no-op and exits cleanly.
+
+### 6.5 Message field mapping — RESOLVED (from `/v1/spec` component schemas)
+
+`Message`: `id`, `chatID`, `accountID`, `senderID`, `senderName?`, `timestamp` (ISO string), `type` (enum `TEXT|NOTICE|IMAGE|VIDEO|VOICE|AUDIO|FILE|...`), `text?`, `isSender?` (boolean), `linkedMessageID?`, `attachments[]`, `isDeleted?`, `isHidden?`.
+
+| Beeper field | KhipuChat `Message` | Notes |
+|---|---|---|
+| `id` | `external_id` | |
+| `chatID` | (resolve to numeric `chat_id` via `upsertChat`) | |
+| `senderID` | `sender_id` | |
+| `senderName` | `sender_name` | nullable |
+| `timestamp` (ISO) | `timestamp` (unix seconds) | `Math.floor(Date.parse(t)/1000)` |
+| `isSender` | `is_sender` (0/1) | resolves R5.2 |
+| `linkedMessageID` | `reply_to_external_id` | reply reference, resolves R5.4 |
+| `type === 'TEXT'` | `type='text'`, else `'other'` | |
+| `text` | `text` (nullable) | only field carrying content |
+| `attachments` | **omitted** | never populate `media_*`; deferred to `signal-image-sync` |
+
+`Chat`: `id → external_id`, `title → name`, `network` (confirm `'signal'`), `type` (`'single' → 'private'`, `'group' → 'group'`).
+
+### 6.6 Incremental cursor — RESOLVED: `dateAfter` + `getLastSyncedId`
+
+`messages.search` accepts `dateAfter` (ISO), `chatIDs`, and `accountIDs` (confirmed params). The shared `sync-runner` already computes platform-level `since` and calls `syncIncremental(db, since)`.
+
+**Decision**: incremental sync iterates Signal chats; for each, if the existing helper `getLastSyncedId(chatId)` returns `null` (no prior messages → first-time chat, R4.3) it fetches full history, otherwise it fetches `messages.search({ chatIDs:[id], accountIDs, dateAfter: since })`. Uses only existing DB read helpers — no `db.ts` API changes.
+
+### 6.7 `startListener` — RESOLVED: no-op
+
+Beeper exposes `/v1/ws`, but real-time ingestion is out of scope for this spec (requirements Boundary Context). `startListener` is implemented as a no-op, consistent with the Discord and Slack adapters.
