@@ -182,3 +182,26 @@ The test pattern from `tests/telegram-image-sync.test.ts` (mocking `media-storag
 2. **Expose `fetchAttachmentBuffer` on the client interface**: Keep `BeeperDesktop` instance private; the test double for `BeeperSignalClient` can mock this method without importing the SDK.
 3. **Return `{ stored, failed }` from `processSignalImageMessages`**: Enables Req 6.4 reporting without global mutable state.
 4. **mapMessage IMAGE => 'image'**: This is a behaviour change to an existing function with tests; update the existing test case that asserts `type === 'other'` for IMAGE messages.
+
+---
+
+## Design Synthesis (2026-07-12)
+
+_Recorded during `/kiro-spec-design`. Confirms discovery against actual source and SDK type definitions._
+
+### Confirmed facts (verified against source, not inferred)
+
+- `Attachment` (`node_modules/@beeper/desktop-api/resources/shared.d.ts:2`): `type: 'unknown' | 'img' | 'video' | 'audio'`; optional `id` (mxc:// identifier), `srcURL` ("Public URL or local file path... may be temporary or local-only"), `size.{width,height}`, `mimeType`, `fileName`.
+- `beeper.assets.serve({ url })` (`resources/assets.d.ts:34`): accepts `mxc://`, `localmxc://`, or `file://`; "Downloads first if not cached"; returns `APIPromise<Response>`. Buffer via `Buffer.from(await response.arrayBuffer())`.
+- Telegram wiring pattern (`src/platforms/telegram/sync.ts:180,187`): image messages are collected into a per-chat `imageMsgs` array during the insert loop, then `processImageMessages(client, chatId, imageMsgs)` runs once per chat after insertion. Signal mirrors this.
+- Shared infra is platform-agnostic: `storeMedia`/`mediaPathFor` (`src/media-storage.ts`) take `platform` as a plain string; `extractText` (`src/ocr.ts`) never throws; `updateMessageMedia`/`getMessageIdByExternalId` (`src/db.ts:209,218`) are ready; `handleGetImage` (`src/image-handlers.ts:34`) reads `media_file_path` regardless of writer. Zero changes needed to any of these.
+
+### Design decisions (finalized)
+
+1. **Fetch order follows requirements, not the micro-optimization.** Req 2.1/2.2 mandate Beeper Desktop first, local filesystem fallback second. The design orders `assets.serve()` (via `fetchAttachmentBuffer`) first, then a `file://` disk read second. The gap-analysis note about reading `file://` first to skip a round-trip is rejected to keep traceability to 2.1/2.2 clean and behavior deterministic.
+2. **`fetchAttachmentBuffer(url)` on `BeeperSignalClient`** wraps `assets.serve` and returns `Buffer | null`, isolating both the SDK type and network errors at the client boundary. The test double mocks this method without importing the SDK.
+3. **`processSignalImageMessages` returns `{ stored: number; failed: number }`** (unlike Telegram's `void`) to satisfy Req 6.4 reporting without global mutable state.
+4. **`failed` counts only fetch-attempted messages.** An `IMAGE` message with no usable `img` attachment (no `srcURL` and no `id`) is skipped-and-logged, not counted as `failed`. `failed` means "had a fetchable reference but both strategies failed."
+5. **File extension derived from `mimeType`** with a small map (`image/png`=>`png`, `image/gif`=>`gif`, `image/webp`=>`webp`, default `jpg`). Deterministic per message, keeping `mediaPathFor` idempotency stable.
+6. **Idempotency reuses the Telegram guard**: skip when the DB row already has `media_file_path` (Req 1.3, 3.3); skip OCR when `ocr_text` already present (Req 4.4). `storeMedia` overwrites idempotently on a deterministic path, so a partial prior run is safe to re-run.
+7. **Primary design-time unknown remains** the concrete `srcURL` scheme Beeper emits for Signal attachments (`mxc://` vs `file://`). The two-strategy fetch is specifically structured so either scheme resolves: `serve()` handles all three schemes; the disk fallback handles the `file://` case when `serve()` is unavailable (e.g., Beeper down).
