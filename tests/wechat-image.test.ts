@@ -269,7 +269,7 @@ describe('WeChat Image Message Detection', () => {
         { Type: 43, description: 'Image type in WeChat' },
         { Type: 49, description: 'Media type in WeChat' },
       ]
-      
+
       for (const { Type, description } of imageTypes) {
         const row: WechatMessageRow = {
           msgSvrID: 6000 + Type,
@@ -278,11 +278,80 @@ describe('WeChat Image Message Detection', () => {
           Type,
           Des: 1,
         }
-        
+
         const message = mapMessage(row, 1)
         expect(message.type).toBe('image', description)
         expect(message.text).toBe('')
       }
+    })
+  })
+
+  // Image meta enrichment tests (Task 3)
+  describe('Image meta enrichment', () => {
+    it('legacy image row with XML content returns non-null media_url', () => {
+      const xml = '<msg><img cdnthumburl="https://cdn.example.com/thumb/abc" cdnthumbwidth="1024" cdnthumbheight="768"/></msg>'
+      const row: WechatMessageRow = {
+        msgSvrID: 7001,
+        CreateTime: 1700000060,
+        Message: xml,
+        Type: 4, // Image type
+        Des: 1,
+      }
+      const message = mapMessage(row, 1)
+      expect(message.type).toBe('image')
+      expect(message.media_url).toBe('https://cdn.example.com/thumb/abc')
+      expect(message.media_width).toBe(1024)
+      expect(message.media_height).toBe(768)
+    })
+
+    it('v4 image row with XML content returns non-null media_url', () => {
+      const xml = '<msg><img cdnthumburl="https://cdn.example.com/thumb/xyz" cdnthumbwidth="640" cdnthumbheight="480"/></msg>'
+      const row: WechatMessageRow = {
+        server_id: 7002,
+        create_time: 1700000061,
+        message_content: xml,
+        WCDB_CT_message_content: 0,
+        real_sender_id: 1,
+        local_type: 4, // Image type in V4
+      }
+      const message = mapMessage(row, 1)
+      expect(message.type).toBe('image')
+      expect(message.media_url).toBe('https://cdn.example.com/thumb/xyz')
+      expect(message.media_width).toBe(640)
+      expect(message.media_height).toBe(480)
+    })
+
+    it('non-image row does not have media fields spread', () => {
+      const row: WechatMessageRow = {
+        msgSvrID: 7003,
+        CreateTime: 1700000062,
+        Message: 'Hello world',
+        Type: 1, // Text type
+        Des: 1,
+      }
+      const message = mapMessage(row, 1)
+      expect(message.type).toBe('text')
+      expect(message.text).toBe('Hello world')
+      // media fields should not be present (undefined) for non-image rows
+      expect(message.media_url).toBeUndefined()
+      expect(message.media_file_path).toBeUndefined()
+      expect(message.media_width).toBeUndefined()
+      expect(message.media_height).toBeUndefined()
+    })
+
+    it('image row with null content returns null media fields (no crash)', () => {
+      const row: WechatMessageRow = {
+        msgSvrID: 7004,
+        CreateTime: 1700000063,
+        Message: null,
+        Type: 43, // Image type
+        Des: 1,
+      }
+      const message = mapMessage(row, 1)
+      expect(message.type).toBe('image')
+      // extractImageMeta returns all-null when content is null
+      expect(message.media_url).toBeNull()
+      expect(message.media_file_path).toBeNull()
     })
   })
 })

@@ -213,6 +213,28 @@ describe('runMigrations — account and external_id on chats', () => {
   })
 })
 
+// ── media columns forward migration (task 1.2) ───────────────────────────────
+
+describe('runMigrations — media columns on messages', () => {
+  it('adds all four media columns to a pre-feature schema (missing columns)', () => {
+    const db = makeDb()
+    createCurrentSchema(db)
+    runMigrations(db)
+    const cols = (db.pragma('table_info(messages)') as { name: string }[]).map(r => r.name)
+    expect(cols).toContain('media_file_path')
+    expect(cols).toContain('media_url')
+    expect(cols).toContain('media_width')
+    expect(cols).toContain('media_height')
+  })
+
+  it('is idempotent — running twice with columns already present does not throw', () => {
+    const db = makeDb()
+    createCurrentSchema(db)
+    runMigrations(db)
+    expect(() => runMigrations(db)).not.toThrow()
+  })
+})
+
 // ── sync_state rebuild to (platform, account) PK ─────────────────────────────
 
 describe('runMigrations — sync_state rebuild', () => {

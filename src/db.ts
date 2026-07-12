@@ -30,6 +30,10 @@ export interface Message {
   is_sender: 0 | 1
   reply_to_external_id: string | null
   platform: Platform
+  media_file_path?: string | null
+  media_url?: string | null
+  media_width?: number | null
+  media_height?: number | null
 }
 
 export interface MessageRow extends Message { id: number }
@@ -95,6 +99,10 @@ function createSchema(database: Database.Database): void {
       is_sender            INTEGER NOT NULL,
       reply_to_external_id TEXT,
       platform             TEXT    NOT NULL DEFAULT 'telegram',
+      media_file_path      TEXT,
+      media_url            TEXT,
+      media_width          INTEGER,
+      media_height         INTEGER,
       UNIQUE(external_id, chat_id)
     );
 
@@ -150,13 +158,30 @@ export function insertMessage(msg: Message): void {
   db().prepare(`
     INSERT INTO messages
       (external_id, chat_id, sender_id, sender_name, text, type, timestamp,
-       is_sender, reply_to_external_id, platform)
+       is_sender, reply_to_external_id, platform,
+       media_file_path, media_url, media_width, media_height)
     VALUES
       (@external_id, @chat_id, @sender_id, @sender_name, @text, @type, @timestamp,
-       @is_sender, @reply_to_external_id, @platform)
+       @is_sender, @reply_to_external_id, @platform,
+       @media_file_path, @media_url, @media_width, @media_height)
     ON CONFLICT(external_id, chat_id) DO UPDATE SET
       is_sender = CASE WHEN excluded.is_sender = 1 THEN 1 ELSE messages.is_sender END
-  `).run(msg)
+  `).run({
+    external_id: msg.external_id,
+    chat_id: msg.chat_id,
+    sender_id: msg.sender_id,
+    sender_name: msg.sender_name,
+    text: msg.text,
+    type: msg.type,
+    timestamp: msg.timestamp,
+    is_sender: msg.is_sender,
+    reply_to_external_id: msg.reply_to_external_id,
+    platform: msg.platform,
+    media_file_path: msg.media_file_path ?? null,
+    media_url: msg.media_url ?? null,
+    media_width: msg.media_width ?? null,
+    media_height: msg.media_height ?? null,
+  })
 }
 
 export function getChats(): Chat[] {

@@ -1,13 +1,13 @@
 # Implementation Plan
 
 - [ ] 1. Foundation: DB schema and persistence seam
-- [ ] 1.1 Extend the Message interface and messages DDL with four nullable media columns
+- [x] 1.1 Extend the Message interface and messages DDL with four nullable media columns
   - Add four optional fields (`media_file_path?: string | null`, `media_url?: string | null`, `media_width?: number | null`, `media_height?: number | null`) to the `Message` interface in `src/db.ts`
   - Add the matching TEXT/INTEGER NULL columns to the `messages` CREATE TABLE statement
   - Fresh-DB test: `initDb()` succeeds and `pragma table_info(messages)` lists all four new columns
   - _Requirements: 2.1, 2.2, 2.3_
 
-- [ ] 1.2 Update insertMessage to bind media fields with null-coalescing defaults and add the forward migration
+- [x] 1.2 Update insertMessage to bind media fields with null-coalescing defaults and add the forward migration
   - Extend the INSERT SQL in `insertMessage` to include all four media columns
   - Bind each as `msg.media_file_path ?? null` (and equivalently for the others) so any adapter that never sets media keys inserts without throwing and without touching the ON CONFLICT behaviour
   - In `src/db-migrations.ts`, add four `columnExists`-guarded `ALTER TABLE messages ADD COLUMN` statements to `runMigrations`
@@ -15,7 +15,7 @@
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 4.1, 4.2_
   - _Depends: 1.1_
 
-- [ ] 2. Image metadata extraction helper
+- [x] 2. Image metadata extraction helper
   - Create `src/platforms/wechat/image-meta.ts` exporting `ImageMeta` interface and `extractImageMeta(row, isV4): ImageMeta`
   - Use `isV4` flag to select the correct content column (`message_content` vs `strContent`/`Message`) from the row
   - Parse `media_file_path` from a bare non-XML path string or from the `<Image>` element via regex; parse `media_url` from `cdnthumburl` / `cdnmidimgurl` attributes; parse `media_width` / `media_height` from `cdnthumbwidth` / `cdnthumbheight` as finite integers
@@ -26,7 +26,7 @@
   - _Boundary: WeChat Adapter (image-meta.ts)_
   - _Depends: 1.1_
 
-- [ ] 3. Integration: wire extraction into WeChat mapMessage
+- [x] 3. Integration: wire extraction into WeChat mapMessage
   - In `src/platforms/wechat/sync.ts`, import `extractImageMeta` from `image-meta.ts`
   - After the existing `isImageMessage` guard in `mapMessage`, call `extractImageMeta(row, isV4)` and spread its fields into the returned `Message` for image rows only
   - Leave non-image rows untouched: no media fields spread, no change to classification, `text`, or any other field
@@ -35,7 +35,7 @@
   - _Depends: 2._
 
 - [ ] 4. Validation: tests
-- [ ] 4.1 Unit tests for extractImageMeta in `tests/wechat-image-meta.test.ts`
+- [x] 4.1 Unit tests for extractImageMeta in `tests/wechat-image-meta.test.ts`
   - Test: legacy XML row with a path string returns correct `media_file_path` (2.1)
   - Test: XML containing `cdnthumburl` / `cdnmidimgurl` returns correct `media_url` (2.2)
   - Test: XML containing `cdnthumbwidth` / `cdnthumbheight` returns integer `media_width` and `media_height` (2.3)
@@ -44,7 +44,7 @@
   - Observable: all five test groups pass with `npm test`
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3_
 
-- [ ] 4.2 DB integration tests and regression check in `tests/wechat-image-meta.test.ts`
+- [x] 4.2 DB integration tests and regression check in `tests/wechat-image-meta.test.ts`
   - Test: `insertMessage` with a WeChat image `Message` carrying all four populated media fields persists them; `getMessages` returns the same values (confirms 2.1–2.3 and downstream SELECT * parity)
   - Test: `insertMessage` with a non-WeChat `Message` that has no media keys inserts successfully with the four columns NULL — regression guard for the named-parameter seam (4.1, 4.2)
   - Test: `runMigrations` on a pre-feature schema (without the four columns) adds all four; re-running on an already-migrated schema is a no-op (migration idempotency)

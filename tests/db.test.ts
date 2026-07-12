@@ -71,6 +71,15 @@ describe('schema', () => {
     expect(cols).toContain('external_id')
     expect(cols).not.toContain('telegram_id')
   })
+
+  it('messages table has four media columns (task 1.1)', () => {
+    const db = initDb(':memory:')
+    const cols = (db.pragma('table_info(messages)') as { name: string }[]).map(r => r.name)
+    expect(cols).toContain('media_file_path')
+    expect(cols).toContain('media_url')
+    expect(cols).toContain('media_width')
+    expect(cols).toContain('media_height')
+  })
 })
 
 // ── upsertChat ────────────────────────────────────────────────────────────────
@@ -380,6 +389,65 @@ describe('getLastSyncedId', () => {
       reply_to_external_id: null, platform: 'telegram',
     })
     expect(getLastSyncedId(chatId1)).toBeNull()
+  })
+})
+
+// ── insertMessage media fields (task 1.2) ─────────────────────────────────────
+
+describe('insertMessage — media fields', () => {
+  let chatId: number
+
+  beforeEach(() => {
+    chatId = upsertChat({ external_id: '1', account: 'default', name: 'WeChat User', type: 'user', username: null, platform: 'wechat' })
+  })
+
+  it('persists all four media fields when provided', () => {
+    insertMessage({
+      external_id: 'img-1',
+      chat_id: chatId,
+      sender_id: 'user1',
+      sender_name: 'Alice',
+      text: null,
+      type: 'image',
+      timestamp: T + 1,
+      is_sender: 0,
+      reply_to_external_id: null,
+      platform: 'wechat',
+      media_file_path: '/tmp/img.jpg',
+      media_url: 'https://cdn.example.com/img.jpg',
+      media_width: 1920,
+      media_height: 1080,
+    })
+    const msgs = getMessages(chatId, 10)
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0]).toMatchObject({
+      media_file_path: '/tmp/img.jpg',
+      media_url: 'https://cdn.example.com/img.jpg',
+      media_width: 1920,
+      media_height: 1080,
+    })
+  })
+
+  it('does not throw when a non-image Message has no media keys set', () => {
+    const msg = {
+      external_id: 'txt-1',
+      chat_id: chatId,
+      sender_id: 'user1',
+      sender_name: 'Alice',
+      text: 'Hello',
+      type: 'text' as const,
+      timestamp: T + 1,
+      is_sender: 0 as const,
+      reply_to_external_id: null,
+      platform: 'telegram' as const,
+    }
+    expect(() => insertMessage(msg)).not.toThrow()
+    const msgs = getMessages(chatId, 10)
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].media_file_path).toBeNull()
+    expect(msgs[0].media_url).toBeNull()
+    expect(msgs[0].media_width).toBeNull()
+    expect(msgs[0].media_height).toBeNull()
   })
 })
 

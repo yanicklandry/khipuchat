@@ -44,6 +44,16 @@ export function runMigrations(database: Database.Database): void {
   if (!indexExists(database, 'ux_chats_identity'))
     database.exec('CREATE UNIQUE INDEX IF NOT EXISTS ux_chats_identity ON chats(platform, account, external_id)')
 
+  // Add media columns to messages (wechat-image-sync)
+  if (!columnExists(database, 'messages', 'media_file_path'))
+    database.exec('ALTER TABLE messages ADD COLUMN media_file_path TEXT')
+  if (!columnExists(database, 'messages', 'media_url'))
+    database.exec('ALTER TABLE messages ADD COLUMN media_url TEXT')
+  if (!columnExists(database, 'messages', 'media_width'))
+    database.exec('ALTER TABLE messages ADD COLUMN media_width INTEGER')
+  if (!columnExists(database, 'messages', 'media_height'))
+    database.exec('ALTER TABLE messages ADD COLUMN media_height INTEGER')
+
   // Rebuild sync_state to composite PK (platform, account) if not already done
   if (!syncStateHasAccountPk(database)) {
     database.transaction(() => {

@@ -10,6 +10,7 @@ import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
 import { buildWechatContactMap, type ContactMap } from './contacts'
+import { extractImageMeta } from './image-meta'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -164,6 +165,8 @@ export function mapMessage(row: WechatMessageRow, chatId: number, opts?: Message
     (isV4 && row.local_type === 4) || // Image type in v4 schema
     (!isV4 && row.Type === 4); // Image type in legacy schema
   
+  const imageMeta = isImageMessage ? extractImageMeta(row, isV4) : undefined
+
   return {
     external_id: externalId,
     chat_id: chatId,
@@ -175,6 +178,7 @@ export function mapMessage(row: WechatMessageRow, chatId: number, opts?: Message
     is_sender: isSend,
     reply_to_external_id: null,
     platform: 'wechat' as Platform,
+    ...(imageMeta !== undefined ? imageMeta : {}),
   }
 }
 
