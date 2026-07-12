@@ -1,40 +1,23 @@
 # Implementation Plan
 
-- [ ] 1. Replace better-sqlite3 with better-sqlite3-multiple-ciphers
-  - Replace `"better-sqlite3"` with `"better-sqlite3-multiple-ciphers"` in `package.json` dependencies; update `@types/better-sqlite3` if version differs
-  - Update the import in `src/db.ts` to use `better-sqlite3-multiple-ciphers` (same API)
-  - `npm test` passes with no changes (unencrypted path unchanged)
-  - _Requirements: 1.2_
+- [ ] 1. Verify existing security layers
+  - Run the existing `tests/security.test.ts` suite without any modification
+  - Confirm all DB encryption, Web Basic Auth, and MCP bearer token tests pass
+  - All existing security tests are green before any code changes are made
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 3.1, 3.2_
 
-- [ ] 2. Implement DB encryption opt-in (parallel with 3, 4)
-- [ ] 2.1 (P) Add DB_KEY cipher support to initDb
-  - In `src/db.ts` `initDb`: after opening the DB, if `DB_KEY` is set AND the path is not `:memory:`, apply `PRAGMA key` using the env var value
-  - If the key is wrong (SQLite throws `SQLITE_NOTADB`): catch and rethrow with "DB_KEY is set but the database could not be opened — key may be incorrect"
-  - `:memory:` databases skip key application in all cases
-  - Tests using `initDb(':memory:')` pass whether `DB_KEY` is set in environment or not
-  - _Requirements: 1.1, 1.2, 1.3, 1.4_
-  - _Boundary: src/db.ts_
+- [ ] 2. Extract `startServer` helper from the web server entry point
+  - Extract the `app.listen(port, host, cb)` call from `main()` into an exported `startServer(app, host?, port?)` function with default `host = '127.0.0.1'` and default `port = 3333`
+  - Reattach or move the `EADDRINUSE` error handler so it remains active on the returned `http.Server`
+  - `main()` delegates entirely to `startServer(createApp())`; no production behaviour changes (same bind address, same port, same error handling)
+  - Running the server still binds on `127.0.0.1:3333` and the EADDRINUSE path still works
+  - _Requirements: 4.1_
 
-- [ ] 3. (P) Add HTTP Basic Auth to web API routes
-  - Install `express-basic-auth` runtime dependency
-  - In `src/web/routes.ts`: if both `WEB_USER` and `WEB_PASS` are set, mount `expressBasicAuth` middleware at the top of the router before all API routes
-  - `GET /` (served from `server.ts`, not the router) must remain unauthenticated
-  - `GET /api/chats` without credentials returns 401 when env vars set; returns 200 when not set
-  - _Requirements: 2.1, 2.2, 2.3_
-  - _Boundary: src/web/routes.ts_
-
-- [ ] 4. (P) Add MCP bearer token check
-  - In `src/mcp.ts` `CallToolRequestSchema` handler: if `MCP_SECRET` is set, extract `Authorization` from `request.params._meta`; if missing or not matching `Bearer ${MCP_SECRET}`, return `{ error: { code: -32001, message: 'Unauthorized' } }`
-  - When `MCP_SECRET` is not set, all requests are handled as before
-  - _Requirements: 3.1, 3.2_
-  - _Boundary: src/mcp.ts_
-
-- [ ] 5. Tests
-- [ ] 5.1 Security layer tests
-  - Create `tests/security.test.ts`
-  - DB encryption: `initDb` with `DB_KEY` set → opening resulting file without key throws; `:memory:` works without key
-  - Web auth: supertest `GET /api/chats` without credentials returns 401 (env set); with credentials returns 200; `GET /` always 200
-  - MCP bearer: mock request with correct token dispatches; without token returns Unauthorized error
-  - Localhost binding: assert `server.listen(...)` then `server.address().address === '127.0.0.1'` (can be added to `tests/web.test.ts`)
-  - All tests pass with `npm test`
-  - _Requirements: 1.1, 1.4, 2.1, 2.3, 3.1, 4.1_
+- [ ] 3. Add localhost-binding test to the security test suite
+  - Import `startServer` and `createApp` in `tests/security.test.ts`
+  - Call `startServer(createApp(), undefined, 0)` to bind on an ephemeral port using the function's default host
+  - Assert `server.address().address === '127.0.0.1'`
+  - Close the server in cleanup (afterEach or within the test) so the port is released
+  - The new test passes, confirming the default bind address is `127.0.0.1` and that a future change to `main()` broadening the host would fail this test
+  - _Requirements: 4.1_
+  - _Depends: 2_
