@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { initDb, getChats } from '../src/db'
 import {
   hashStr,
@@ -7,7 +7,9 @@ import {
   runBackfillImpl,
   runIncrementalImpl,
   dateToDiscordSnowflake,
+  createDiscordAdapter,
 } from '../src/platforms/discord/sync'
+import { createDiscordClient } from '../src/platforms/discord/client'
 import type { DiscordClient, DiscordChannel, DiscordMessage } from '../src/platforms/discord/client'
 
 // ── Mock client factory ───────────────────────────────────────────────────────
@@ -222,5 +224,72 @@ describe('runIncrementalImpl', () => {
     const client = makeMockClient([dm], [], [], [makeMsg({ id: 'inc-msg-1' })])
     await runIncrementalImpl(client, new Date('2024-01-01T00:00:00.000Z'))
     expect(getChats()).toHaveLength(1)
+  })
+})
+
+// ── Rate-limit handling ───────────────────────────────────────────────────────
+
+describe('rate-limit handling (429 with Retry-After)', () => {
+  beforeEach(() => { initDb(':memory:') })
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('retries once on 429 and inserts the message on success', async () => {
+    const dm = makeChannel({ id: 'dm-rl-1', type: 1, name: null })
+    const msg = makeMsg({ id: 'rl-msg-1' })
+    const okResponse = new Response(JSON.stringify([msg]), { status: 200 })
+
+    let callCount = 0
+    vi.stubGlobal('fetch', async (_url: string) => {
+      callCount++
+      if (callCount === 1) {
+        return new Response(JSON.stringify({ message: 'rate limited' }), {
+          status: 429,
+          headers: { 'Retry-After': '0.01' },
+        })
+      }
+      return okResponse.clone()
+    })
+
+    const client = createDiscordClient('fake-token')
+    // getDirectMessageChannels is the first real fetch call; stub just enough
+    vi.stubGlobal('fetch', async (url: string) => {
+      const urlStr = String(url)
+      if (urlStr.includes('/users/@me/channels')) {
+        if (callCount === 0) {
+          callCount++
+          return new Response(JSON.stringify({ message: 'rate limited' }), {
+            status: 429,
+            headers: { 'Retry-After': '0.01' },
+          })
+        }
+        callCount++
+        return new Response(JSON.stringify([dm]), { status: 200 })
+      }
+      if (urlStr.includes('/users/@me/guilds')) return new Response(JSON.stringify([]), { status: 200 })
+      if (urlStr.includes('/messages')) return new Response(JSON.stringify([msg]), { status: 200 })
+      return new Response('{}', { status: 200 })
+    })
+
+    await runBackfillImpl(client)
+    expect(getChats()).toHaveLength(1)
+  })
+})
+
+// ── Missing token adapter exit ────────────────────────────────────────────────
+
+describe('createDiscordAdapter — missing token', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('exits with code 1 and writes to stderr when DISCORD_TOKEN is absent', async () => {
+    const db = initDb(':memory:')
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number) => { throw new Error('process.exit') })
+
+    const adapter = createDiscordAdapter('default', { name: 'default', fields: { DISCORD_TOKEN: '' } })
+
+    await expect(adapter.runBackfill(db)).rejects.toThrow('process.exit')
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    const stderr = stderrSpy.mock.calls.map(c => String(c[0])).join('')
+    expect(stderr).toContain('DISCORD_TOKEN')
   })
 })
