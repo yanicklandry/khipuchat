@@ -27,6 +27,7 @@
     "watch": "tsx src/watch.ts"
   },
   "dependencies": {
+    "@beeper/desktop-api": "^5.0.0",
     "@huggingface/transformers": "^3.0.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3-multiple-ciphers": "^11.10.0",

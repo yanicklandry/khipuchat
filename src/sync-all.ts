@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
 import * as path from 'path'
 
-export const PLATFORMS = ['telegram', 'imessage', 'wechat', 'discord', 'slack', 'email', 'whatsapp'] as const
+export const PLATFORMS = ['telegram', 'imessage', 'wechat', 'discord', 'slack', 'email', 'whatsapp', 'signal'] as const
 
 const PROJECT_ROOT = path.join(__dirname, '..')
 const TSX_BIN = path.join(PROJECT_ROOT, 'node_modules', '.bin', 'tsx')

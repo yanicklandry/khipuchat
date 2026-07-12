@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3-multiple-ciphers'
 import type { AccountCredentials } from '../account-registry'
 
-export type Platform = 'telegram' | 'imessage' | 'discord' | 'slack' | 'whatsapp' | 'wechat' | 'email'
+export type Platform = 'telegram' | 'imessage' | 'discord' | 'slack' | 'whatsapp' | 'wechat' | 'email' | 'signal'
 
 export interface PlatformAdapter {
   readonly platform: Platform
