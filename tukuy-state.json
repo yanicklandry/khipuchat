@@ -1,10 +1,6 @@
 {
-  "specName": "whatsapp-sync",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init"
-  ],
+  "specName": "security-hardening",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
