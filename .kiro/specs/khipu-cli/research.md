@@ -1,214 +1,90 @@
-# Gap Analysis: khipu-cli
+# Research & Design Decisions: khipu-cli
 
-## Requirement-to-Asset Map
+## Summary
+- **Feature**: `khipu-cli`
+- **Discovery Scope**: Extension (existing TypeScript/tsx codebase; light discovery + code verification)
+- **Key Findings**:
+  - The parity requirement (Req 10) is satisfiable structurally: `src/query-handlers.ts` is already the single shared seam behind both `src/mcp.ts` and `src/cli.ts`. Making both surfaces translate into one canonical `QueryFilters` object and call the same handlers guarantees parity by construction rather than by convention.
+  - Several requirements are already met by existing assets: `bin` is registered (`package.json` → `bin/khipu`), `index-embeddings.ts` emits a progress bar (Req 5.3), `web/server.ts` logs its URL at startup (Req 7.1), and both `MessageType` and chat `type` columns exist (Req 10 `--type` needs no schema change).
+  - Every per-platform `sync.ts` entrypoint constructs a single hard-coded adapter with `account = 'default'` and calls `runPlatformSync`; none read `--account` or iterate configured accounts. Honoring `@account` inside sync scripts is therefore genuinely out of this spec's boundary (owned by `multi-account`). This spec's testable responsibility is limited to parsing, validating, and forwarding the account.
 
-### Req 1: CLI Binary and Subcommand Router
+## Research Log
 
-| Acceptance Criterion | Status | Existing Asset |
-|---|---|---|
-| `bin` field in package.json | **EXISTS** | `"khipu": "bin/khipu"` in package.json |
-| `khipu` / `khipu --help` shows subcommands | **EXISTS** | `resolveCommand` in `src/khipu.ts` handles empty args → USAGE |
-| `khipu <sub> --help` shows subcommand usage | **MISSING** | Router forwards all args; subcommand-scoped help not implemented |
-| Unknown subcommand prints error + exits non-zero | **EXISTS** | `resolveCommand` returns `kind: 'error'` with message and `exitCode: 1` |
-| Works via `npm link` / tsx, no build step | **EXISTS** | `bin/khipu` spawns `node tsx src/khipu.ts`, no dist/ needed |
+### Router topology and the `sync` reroute
+- **Context**: Req 2 (bare `sync` = status) and Req 3 (`sync all` = daemon) both currently resolve incorrectly.
+- **Sources Consulted**: `src/khipu.ts` (`resolveCommand`), `src/sync-all.ts` (`runAllPlatforms`), `src/watch.ts` (daemon).
+- **Findings**:
+  - Bare `khipu sync` currently routes to `sync-all.ts` (a destructive one-shot sync), not a status display.
+  - `khipu sync all` also routes to `sync-all.ts`, but the continuous daemon with `--once`, SIGINT/SIGTERM drain, and per-platform intervals lives in `src/watch.ts`, which is not wired to the CLI.
+  - `watch.ts` already satisfies Req 3.1/3.2/3.4 (daemon loop, `--once` single pass with exit 0, graceful shutdown). `--force` handling in the daemon path depends on `incremental-sync`/`sync-watcher` and is out of boundary.
+- **Implications**: The router must reroute `sync all` → `watch.ts` and bare `sync` → a new status entry. `sync-all.ts`'s `runAllPlatforms` becomes unreferenced by the CLI but is retained (it exports `PLATFORMS`, consumed by `khipu.ts` and `watch.ts`); its removal is out of scope.
 
-**Gap**: Per-subcommand `--help` is not handled. `khipu search --help` would forward `--help` to `cli.ts` where it is not specially handled.
+### Query filter parity seam
+- **Context**: Req 8/9/10 require `--platform/--account/--since/--until/--type/--limit` on `search`, `list chats`, `list messages`, with identical results to MCP.
+- **Sources Consulted**: `src/query-handlers.ts`, `src/db.ts` (`searchMessages`), `src/mcp.ts` (tool `inputSchema` definitions + `CallToolRequest` dispatch), `src/cli.ts`.
+- **Findings**:
+  - `handleSearchMessages` / `searchMessages` support only `chatId/platform/account` today; `since/until/type/limit` are absent from both CLI and MCP.
+  - `handleListChats` supports `platform/account/limit` but not `since/until/type`.
+  - MCP `list_messages` requires `chat_id` (per-chat), whereas CLI `list messages` must list across the whole archive with filters — these are different operations.
+  - `--type` is polysemous: for `list chats` it means chat type (`user`/`group`); for `search`/`list messages` it means `MessageType` (`text`/`voice`/…).
+- **Implications**: Introduce a canonical `QueryFilters` contract in `query-handlers.ts`. Extend the three handlers plus the underlying DB queries to honor it. Make MCP `list_messages.chat_id` optional so an omitted `chat_id` triggers cross-chat filtered listing, mirroring the CLI. MCP schemas are updated first (reference implementation), then CLI mirrors.
 
----
+### `@account` parsing, validation, and forwarding
+- **Context**: Req 4.2/4.5 require `khipu sync <platform>@<account>` targeting and a non-zero error for an unconfigured account.
+- **Sources Consulted**: All `src/platforms/*/sync.ts` entrypoints, `src/sync-runner.ts` (`runPlatformSync`, `runAllAccountsSync`), `src/account-registry.ts` (`loadRegistry`).
+- **Findings**:
+  - Entry scripts call `runPlatformSync(singletonAdapter, db, process.argv)` with `account='default'`; they ignore `--account`.
+  - `runAllAccountsSync` exists but is not wired into the entrypoints (that wiring is `multi-account`'s responsibility).
+  - `loadRegistry().listAccounts(platform)` already enumerates configured accounts and is an allowed, already-built dependency.
+- **Implications**: The router parses `<platform>@<account>`, validates the account against `loadRegistry().listAccounts(platform)`, and forwards `--account <name>` to the platform child. Whether the child honors `--account` is out of boundary. To keep `resolveCommand` pure and testable, the configured-account lookup is injected as a dependency (default backed by `loadRegistry`).
 
-### Req 2: Sync Status Listing (`khipu sync` with no args)
+## Architecture Pattern Evaluation
 
-| Acceptance Criterion | Status | Existing Asset |
-|---|---|---|
-| Show each configured platform, accounts, last sync timestamp | **MISSING** | `khipu sync` (no arg) currently routes to `sync-all.ts` which actually runs all platform syncs |
-| Omit platforms with no configured accounts | **MISSING** | No status-listing logic exists |
-| Show "never" when account has not been synced | **MISSING** | N/A |
+| Option | Description | Strengths | Risks / Limitations | Notes |
+|--------|-------------|-----------|---------------------|-------|
+| A: Inline everything in `khipu.ts` + `cli.ts` | Add list routing, sync-status, and all filter parsing directly into the two existing files | Fewest new files | Pushes `cli.ts` (250 lines) and the pure router well past the 200-line guideline; mixes DB access into the pure resolver | Rejected |
+| B: Dedicated entry scripts + shared filter parser | New `khipu-sync-status.ts`, `khipu-list.ts`, `cli-filters.ts`; router stays a pure spawner | Files stay small; router stays pure and testable; parity parser shared by CLI surfaces | Two extra child-process entrypoints to navigate | **Selected** |
+| C: Hybrid (inline sync-status into router) | Same as B but sync-status printed directly inside `khipu.ts` | Avoids one child spawn | Forces DB + registry imports into the currently pure resolver, breaking its testability and spawn-only design | Rejected: purity of the router outweighs one saved spawn |
 
-**Available primitives**:
-- `loadRegistry()` in `src/account-registry.ts` enumerates configured platforms/accounts
-- `getPlatformLastSyncedAt(platform, account)` in `src/db.ts` returns the last sync timestamp
-- These two can be composed into a status table - no new DB schema needed
+## Design Decisions
 
-**Gap**: The status display command does not exist. The router sends bare `khipu sync` to `sync-all.ts` which is a destructive operation. The router must distinguish between no-arg (status) and `all` (daemon).
+### Decision: Canonical `QueryFilters` seam guarantees CLI/MCP parity
+- **Context**: Req 10.4 forbids capability drift in either direction.
+- **Alternatives Considered**:
+  1. Duplicate filter logic in each surface and rely on tests to catch drift.
+  2. Route both surfaces through one shared handler layer with a single filter type.
+- **Selected Approach**: Define `QueryFilters { platform?, account?, since?, until?, type?, limit? }` in `query-handlers.ts`. `mcp.ts` and the CLI parsers both build this object and call the same `handleSearchMessages` / `handleListChats` / `handleListArchiveMessages`. Parity becomes a structural property.
+- **Rationale**: The shared seam already exists; formalizing the filter contract removes the drift surface entirely.
+- **Trade-offs**: Both surfaces must be updated together; slightly larger handler signatures.
+- **Follow-up**: Add a parity integration test asserting identical results for equivalent CLI and MCP invocations.
 
----
+### Decision: Make MCP `list_messages.chat_id` optional for cross-chat parity
+- **Context**: CLI `list messages` lists across the archive; MCP `list_messages` is per-chat.
+- **Selected Approach**: When `chat_id` is supplied, preserve existing per-chat behavior. When omitted, dispatch to `handleListArchiveMessages(filters)` (new cross-chat handler). This is additive and backward compatible.
+- **Rationale**: Satisfies parity without adding a second MCP tool name.
+- **Trade-offs**: `list_messages` now has two modes; documented in the tool description.
+- **Follow-up**: Confirm existing Claude Desktop callers (which always pass `chat_id`) are unaffected.
 
-### Req 3: Sync Daemon (`khipu sync all`)
+### Decision: `--since/--until` accept ISO dates on the CLI, unix seconds at the seam
+- **Context**: Req 8.4 requires date-range filtering.
+- **Selected Approach**: A `parseDateArg` helper converts CLI `--since 2025-01-01` to unix seconds; MCP receives unix seconds directly (agents compute timestamps). Both converge on unix seconds in `QueryFilters`, so results match.
+- **Rationale**: Terminal users type dates; agents pass timestamps. Converging at the handler preserves "same results".
+- **Trade-offs**: Two input formats, one internal representation.
+- **Follow-up**: Invalid date strings must error with a non-zero exit (Req 10.3).
 
-| Acceptance Criterion | Status | Existing Asset |
-|---|---|---|
-| Continuous daemon iterating all accounts | **MISMATCH** | `khipu sync all` routes to `sync-all.ts` which runs once and exits. The daemon is in `src/watch.ts` but is not wired. |
-| `--once` flag performs single pass and exits | **PARTIAL** | `watch.ts` has `--once` mode; `sync-all.ts` does not |
-| `--force` threads through | **PARTIAL** | `sync-all.ts` forwards `--force`; `watch.ts` reads `process.argv.includes('--force')` but effect depends on `sync-runner.ts` (out-of-spec) |
-| SIGINT/SIGTERM clean exit with code 0 | **EXISTS (wrong target)** | `watch.ts` has graceful shutdown; `sync-all.ts` does not |
+### Decision: Eager `@account` validation in the router via injected lookup
+- **Context**: Req 4.5 needs a non-zero error for an unconfigured account, and no sync child validates accounts today.
+- **Selected Approach**: `resolveCommand(argv, deps)` receives an injected `listAccounts(platform)` (default backed by `loadRegistry`). The router validates the parsed account and returns `kind: 'error'` when it is not configured.
+- **Rationale**: Places the required validation where it can actually run, using an allowed existing dependency, while keeping `resolveCommand` pure for tests.
+- **Trade-offs**: The router gains an injected dependency; still pure given the injection.
+- **Follow-up**: Forwarding `--account` is honored by sync children only after `multi-account` wires `runAllAccountsSync` — a documented revalidation trigger.
 
-**Gap**: Router must point `khipu sync all` to `src/watch.ts`, not `src/sync-all.ts`. `watch.ts` already handles `--once`, SIGINT/SIGTERM, and per-platform intervals.
+## Risks & Mitigations
+- MCP `inputSchema` changes touch a live Claude Desktop integration — keep all additions optional and backward compatible; cover with a parity test.
+- Rerouting bare `sync` away from the destructive `sync-all.ts` changes existing muscle memory — surface the new status behavior in help text and the subcommand `--help`.
+- `--force` on `sync all` is forwarded but not honored by the daemon within this spec — document as an adjacent dependency on `incremental-sync`/`sync-watcher` to avoid a false parity claim.
 
----
-
-### Req 4: Single-Platform One-Shot Sync (`khipu sync <platform>`)
-
-| Acceptance Criterion | Status | Existing Asset |
-|---|---|---|
-| `khipu sync <platform>` runs that platform's sync | **EXISTS** | Router resolves to `src/platforms/<platform>/sync.ts` |
-| `khipu sync <platform>@<account>` targets specific account | **MISSING** | `@account` syntax not parsed; `resolveCommand` splits only on space |
-| `--force` threads through | **EXISTS** | `args` slice is forwarded to spawned script |
-| Unknown platform → error with list | **EXISTS** | `resolveCommand` returns `kind: 'error'` |
-| Unknown `@account` → error | **MISSING** | No account validation in router |
-
-**Gap**: `@account` notation must be parsed out of the platform arg in `resolveCommand`. The account can be forwarded as a flag (e.g., `--account <name>`) to the per-platform sync script, or the router must validate it against `loadRegistry()` before spawning.
-
----
-
-### Req 5: Index Subcommand (`khipu index`)
-
-| Acceptance Criterion | Status | Existing Asset |
-|---|---|---|
-| Incremental embeddings build | **EXISTS** | `khipu index` routes to `src/index-embeddings.ts` |
-| `--force` for full rebuild | **EXISTS** | Args forwarded; `index-embeddings.ts` exports `rebuildEmbeddings(platform?, force?)` |
-| Progress/status output while indexing | **NEEDS VERIFICATION** | Need to confirm `index-embeddings.ts` emits progress |
-
-**Low risk**: Routing is complete; may need a small output tweak if the script is silent.
-
----
-
-### Req 6: MCP Server (`khipu mcp`)
-
-| Acceptance Criterion | Status | Existing Asset |
-|---|---|---|
-| Starts MCP server over stdio | **EXISTS** | Routes to `src/mcp.ts` |
-| Clean exit on SIGINT/SIGTERM | **EXISTS** | Node.js process exit; MCP SDK handles transport teardown |
-
-**No gap.**
-
----
-
-### Req 7: Web UI (`khipu web`)
-
-| Acceptance Criterion | Status | Existing Asset |
-|---|---|---|
-| Starts web server + displays URL | **PARTIAL** | Routes to `src/web/server.ts`; need to verify URL is logged at startup |
-| Keeps running until interrupted | **EXISTS** | Express server blocks |
-| Clean exit on SIGINT/SIGTERM | **EXISTS** | Node.js process exit |
-
-**Low risk**: Likely just a log-line check.
-
----
-
-### Req 8: Search Subcommand (`khipu search`)
-
-| Acceptance Criterion | Status | Existing Asset |
-|---|---|---|
-| `khipu search <query>` returns results | **EXISTS** | `search` is in QUERY_COMMANDS; routes to `cli.ts` `case 'search'` |
-| `--platform <p>` filter | **MISSING** | `cli.ts` search case does not parse `--platform` |
-| `--account <name>` filter | **EXISTS** | `parseAccountArg` in `cli.ts` |
-| `--since <date>` / `--until <date>` | **MISSING** | No ISO date parsing for CLI flags; only natural-language temporal detection in `parseTemporalFilters` |
-| `--type <t>` filter | **MISSING** | Not in `handleSearchMessages` or `searchMessages` DB function |
-| `--limit <n>` cap | **MISSING** | Not passed from CLI to handler |
-| Same results as MCP for same query+filters | **MISSING** | MCP `search_messages` also lacks `--since/--until/--type` → both need updates together |
-| Empty results → message + exit 0 | **EXISTS** | `cli.ts` prints "No results found." |
-| Missing `<query>` → usage + non-zero exit | **EXISTS** | `cli.ts` handles empty `query` |
-
-**Significant gap**: Four of the six required filter flags are absent from both CLI and MCP. Adding them requires changes to `handleSearchMessages`, the DB query in `searchMessages`, and the MCP tool definition - all in-scope work, but touches shared infrastructure.
-
----
-
-### Req 9: List Subcommand (`khipu list`)
-
-| Acceptance Criterion | Status | Existing Asset |
-|---|---|---|
-| `khipu list chats` | **MISSING** | `list-chats` (hyphenated) exists as a QUERY_COMMAND but uses a different CLI shape |
-| `khipu list messages` | **MISSING** | `messages` in cli.ts takes a `chat_id`, not filter-based listing across all chats |
-| `--platform/--account/--since/--until/--type/--limit` on both | **MISSING** | Same as Req 8 |
-| `khipu list` (bare) → usage + non-zero | **MISSING** | No `list` command in router |
-| Empty results → message + exit 0 | **EXISTS** | Pattern exists in cli.ts |
-
-**Gap**: `list` needs to be added to the router as a new command that handles two sub-subcommands (`chats` / `messages`). The current `list-chats` and `messages` command shapes (hyphenated, positional chat_id) differ from the requirement's space-separated, filter-flag design.
-
----
-
-### Req 10: CLI/MCP Filter Parity
-
-| Flag | MCP | CLI | Status |
-|---|---|---|---|
-| `--platform` | `list_chats`, `search_messages`, `semantic_*` | `list-chats` only (via `handleListChats`) | **PARTIAL** |
-| `--account` | All tools | `search`, `list-chats`, `semantic-*` | **EXISTS** |
-| `--since` / `--until` | `semantic_find_contacts` (before/after) | `semantic-search` via `parseTemporalFilters` (natural lang only) | **MISSING** (ISO dates) |
-| `--type` | Not exposed | Not exposed | **MISSING** on both |
-| `--limit` | `list_chats`, `semantic_*` | Not on search/list | **PARTIAL** |
-
-**Gap**: Both MCP and CLI need `--type` and ISO-date `--since/--until` on the query tools. The requirement states MCP is the reference implementation — these gaps must land in MCP first, then CLI mirrors them.
-
----
-
-## Implementation Approach Options
-
-### Option A: Extend `src/khipu.ts` + `src/cli.ts`
-
-Add `list` routing logic to the router and all new filter-flag parsing directly in `cli.ts`.
-
-- **Extends**: `src/khipu.ts` (routing for `list`, status, `@account`), `src/cli.ts` (filter flags), `src/query-handlers.ts` (new filter params), `src/mcp.ts` (tool schema update)
-- ✅ Minimal new files; leverages established patterns
-- ❌ `cli.ts` is already 250 lines (past the 200-line guideline); adding 6 filter flags to two list sub-commands would push it well beyond limit
-- ❌ `khipu.ts` would need to handle multi-token sub-subcommands (`list chats` vs `list messages`) inline, increasing cognitive load
-
-### Option B: Create New Components (Recommended)
-
-Extract each new CLI surface into its own entry-point script, keeping `khipu.ts` as a thin router.
-
-- `src/khipu-sync-status.ts` — displays sync status table (reads `loadRegistry` + `getPlatformLastSyncedAt`)
-- `src/khipu-list.ts` — handles `list chats` and `list messages` with all filter flags
-- Update `src/khipu.ts`: reroute `sync all` → `watch.ts`, bare `sync` → `khipu-sync-status.ts`, add `list` route → `khipu-list.ts`, add `@account` parsing
-- Update `src/query-handlers.ts`: add `--type`, ISO date `--since/--until` params to `handleListChats`, `handleListMessages`, `handleSearchMessages`
-- Update `src/mcp.ts`: expose new filter params in tool schemas (MCP is the reference implementation)
-- Update `src/cli.ts`: add `--platform`, `--since`, `--until`, `--type`, `--limit` to `search` case
-
-- ✅ Files stay under 200 lines
-- ✅ Clean separation: router stays thin, each script owns its CLI surface
-- ✅ Easier to test `khipu-sync-status.ts` and `khipu-list.ts` in isolation
-- ❌ Two additional files to navigate
-
-### Option C: Hybrid — Inline Small Changes, New Script for `list`
-
-Same as B but fold `khipu-sync-status.ts` logic directly into `khipu.ts` (it's small: ~20-30 lines) rather than spawning a new child process for a read-only display.
-
-- ✅ Avoids an extra tsx child spawn just to print a table
-- ✅ `khipu.ts` does the status display inline, then exits — no subprocess needed
-- ❌ `khipu.ts` grows slightly but stays under 200 lines if sync-status is compact
-
-**Recommended**: Option C — inline sync-status into `khipu.ts`, create `src/khipu-list.ts` as a separate entry point for the list sub-subcommand surface.
-
----
-
-## Effort and Risk
-
-| Area | Effort | Risk | Justification |
-|---|---|---|---|
-| Router changes (sync all, @account, list, sync status) | S | Low | Existing patterns; `resolveCommand` is pure and well-tested |
-| Sync status display (inline) | S | Low | Just reads registry + DB; no new schema |
-| Filter flags in `query-handlers.ts` + `mcp.ts` | M | Medium | Touches shared seam used by MCP and CLI; must not break existing MCP consumers |
-| `src/khipu-list.ts` | S | Low | New file, no consumers to break |
-| `--since/--until` ISO date parsing | S | Low | Small parsing utility; `parseTemporalFilters` pattern exists |
-| `--type` filter in DB query | S | Low | Additional WHERE clause; same pattern as `platform` filter |
-| Per-subcommand `--help` | S | Low | Extend `resolveCommand` to detect `--help` before routing |
-
-**Overall Effort**: M (3-7 days)
-**Overall Risk**: Low-Medium — MCP schema changes are the main risk surface since they affect active Claude Desktop integrations.
-
----
-
-## Recommendations for Design Phase
-
-**Preferred approach**: Option C (hybrid). Extend `src/khipu.ts` with inline sync-status and `@account` parsing; create `src/khipu-list.ts`; thread new filter flags through `query-handlers.ts` with MCP schema updated first.
-
-**Key design decisions to resolve**:
-1. How `--since/--until` ISO date strings should be parsed (e.g., `2025-01-01`) and converted to Unix timestamps — design a small `parseDateArg` utility alongside `parseTemporalFilters`.
-2. Whether `--type` should filter at the DB layer (SQL WHERE) or application layer (post-query filter) — DB layer is preferable for performance.
-3. How `@account` is forwarded to the per-platform sync script — as a `--account <name>` flag appended to args, or via env var; the per-platform sync scripts' current arg-handling conventions need a quick survey.
-4. Whether `khipu sync <platform>@<account>` validates the account name against `loadRegistry` inside the router (eagerly, risks coupling router to DB/config) or passes through and lets the sync script handle it (deferred validation — simpler router).
-
-**Research items to carry forward**:
-- Confirm that `src/index-embeddings.ts` emits progress output during execution (Req 5.3).
-- Confirm that `src/web/server.ts` logs its URL at startup (Req 7.1).
-- Survey each platform's `sync.ts` to confirm it reads `--account <name>` from argv (needed for `@account` forwarding in Req 4.2).
-- Verify that `searchMessages` in `src/db.ts` supports a `type` column filter without schema changes.
+## References
+- `src/khipu.ts`, `src/cli.ts`, `src/query-handlers.ts`, `src/db.ts`, `src/mcp.ts`, `src/watch.ts`, `src/sync-runner.ts`, `src/account-registry.ts`, `src/platforms/*/sync.ts` — verified in-repo during discovery.
+</content>
+</invoke>
