@@ -105,7 +105,40 @@ describe('Web auth (WEB_USER + WEB_PASS)', () => {
 
 // ── MCP bearer token ──────────────────────────────────────────────────────────
 
+import { startServer } from '../src/web/server'
+import type { Server } from 'node:http'
+
 import { createMcpServer } from '../src/mcp'
+
+// ── Localhost binding (Requirement 4) ─────────────────────────────────────────
+
+describe('Localhost-only binding', () => {
+  let server: Server | undefined
+
+  beforeEach(() => {
+    initDb(':memory:')
+  })
+
+  afterEach(async () => {
+    await new Promise<void>((res, rej) => {
+      if (server) server.close((err) => err ? rej(err) : res())
+      else res()
+    })
+    server = undefined
+  })
+
+  it('web server default bind address is 127.0.0.1', async () => {
+    server = startServer(createApp(), undefined, 0)
+    await new Promise<void>((res, rej) => {
+      server!.once('listening', res)
+      server!.once('error', rej)
+    })
+    const addr = server.address()
+    expect(typeof addr === 'object' && addr !== null && addr.address).toBe('127.0.0.1')
+  })
+})
+
+// ── MCP bearer token ──────────────────────────────────────────────────────────
 
 describe('MCP bearer token (MCP_SECRET)', () => {
   beforeEach(() => {

@@ -13,7 +13,7 @@
   - Running the server still binds on `127.0.0.1:3333` and the EADDRINUSE path still works
   - _Requirements: 4.1_
 
-- [ ] 3. Add localhost-binding test to the security test suite
+- [x] 3. Add localhost-binding test to the security test suite
   - Import `startServer` and `createApp` in `tests/security.test.ts`
   - Call `startServer(createApp(), undefined, 0)` to bind on an ephemeral port using the function's default host
   - Assert `server.address().address === '127.0.0.1'`
