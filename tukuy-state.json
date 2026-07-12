@@ -1,6 +1,8 @@
 {
   "specName": "discord-sync",
-  "completedPhases": [],
+  "completedPhases": [
+    "steering"
+  ],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
