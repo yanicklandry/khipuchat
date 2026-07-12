@@ -9,7 +9,7 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 ### Platform Adapters
 **Location**: `src/platforms/<name>/`
 **Purpose**: All code specific to one messaging platform
-**Pattern**: Each adapter has at minimum a `sync.ts` (the runnable sync script). Complex platforms add `client.ts` (API wrapper) and `contacts.ts` (contact resolution). The adapter exports an object implementing `PlatformAdapter` from `src/platforms/types.ts`. Adapters use `AccountRegistry` to iterate over configured accounts and call `runPlatformSync` per account.
+**Pattern**: Each adapter has at minimum a `sync.ts` (the runnable sync script). Complex platforms add `client.ts` (API wrapper), `contacts.ts` (contact resolution), or `image-meta.ts` (media metadata extraction from platform-specific formats). The adapter exports an object implementing `PlatformAdapter` from `src/platforms/types.ts`. Adapters use `AccountRegistry` to iterate over configured accounts and call `runPlatformSync` per account.
 **Implemented**: telegram, imessage, wechat, discord, slack, email, whatsapp
 **Example**: `src/platforms/telegram/sync.ts`, `src/platforms/discord/sync.ts`
 

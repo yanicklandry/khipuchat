@@ -38,7 +38,7 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 - [x] platform-abstraction -- Generalize schema, reorganize src/platforms/, rename telegram_id→external_id, update MCP tools. Dependencies: none
 - [x] imessage-sync -- Read ~/Library/Messages/chat.db, map to generic schema, add npm run sync:imessage. Dependencies: platform-abstraction
 - [x] wechat-sync -- Read WeChat Mac local SQLite DB directly (no API, no auth), map to generic schema, add npm run sync:wechat. Dependencies: platform-abstraction
-- [ ] wechat-image-sync -- Extract and map image messages from WeChat database, store file references. Dependencies: wechat-sync
+- [x] wechat-image-sync -- Extract and map image messages from WeChat database, store file references. Dependencies: wechat-sync
 - [ ] semantic-search -- Local ONNX embeddings (all-MiniLM-L6-v2) + sqlite-vec; new MCP tools semantic_find_contacts and semantic_search_messages; incremental indexing pipeline. Dependencies: platform-abstraction
 - [ ] web-ui -- Express + plain HTML search UI served at localhost:3333, chat list sidebar, message thread view, platform badges. Dependencies: platform-abstraction, imessage-sync
 - [ ] discord-sync -- Discord bot token, sync DMs and non-broadcast channels, npm run sync:discord. Dependencies: platform-abstraction

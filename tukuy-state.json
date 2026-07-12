@@ -1,18 +1,9 @@
 {
-  "specName": "wechat-image-sync",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "semantic-search",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
-    "wechat-sync"
+    "wechat-sync",
+    "wechat-image-sync"
   ]
 }
