@@ -2,27 +2,28 @@
 
 ## Introduction
 
-The Release spec packages KhipuChat for easy self-hosted deployment: a multi-arch Docker image, `docker compose up` quickstart, GitHub Actions CI/CD, a security disclosure policy, and a demo GIF in the README.
+The Release spec packages KhipuChat for easy self-hosted deployment: a multi-arch Docker image, `docker compose up` quickstart, GitHub Actions CI/CD, a security disclosure policy, and a demo in the README.
 
 ## Boundary Context
 
-- **In scope**: `Dockerfile`, `docker-compose.yml`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `SECURITY.md`, demo GIF in `docs/`, README Docker section.
+- **In scope**: `Dockerfile`, `docker-compose.yml`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `SECURITY.md`, demo asset in `docs/`, README Docker and CLI sections, `package.json` `bin` entry.
 - **Out of scope**: Kubernetes/Helm, paid registries, auto-update mechanism, cloud hosting, new feature development.
-- **Adjacent expectations**: All other specs must be implemented before the release spec is executed. `package.json` scripts must work inside the Docker container.
+- **Adjacent expectations**: All other specs must be implemented before the release spec is executed. The `khipu` CLI command (from the khipu-cli spec) must be available and functional inside the Docker container. The `khipu.config.json` format (from the multi-account spec) must be documented in the README.
 
 ## Requirements
 
 ### Requirement 1: Docker Image
 
-**Objective:** As a user, I want to run KhipuChat with `docker compose up` without installing Node or configuring the system.
+**Objective:** As a user, I want to run KhipuChat with `docker compose up` without installing Node or configuring the system manually.
 
 #### Acceptance Criteria
 
 1. The Docker image shall use a multi-stage build: a build stage that compiles/installs dependencies, and a minimal runtime stage.
 2. The Docker image shall support both `linux/amd64` and `linux/arm64` platforms (Apple Silicon compatible).
 3. When `docker compose up` is run with a correctly configured `.env` file, the MCP server and web UI shall start and be functional.
-4. The `docker-compose.yml` shall mount a named volume for `telegram.db` so that data persists across container restarts.
-5. The `docker-compose.yml` shall document all required env vars as commented-out examples.
+4. The docker-compose sync service shall run `khipu sync all` as its default long-running process.
+5. The `docker-compose.yml` shall mount a named volume for `khipuchat.db` so that data persists across container restarts.
+6. The `docker-compose.yml` shall document all required env vars as commented-out examples.
 
 ---
 
@@ -61,25 +62,25 @@ The Release spec packages KhipuChat for easy self-hosted deployment: a multi-arc
 
 ---
 
-### Requirement 5: Demo and Documentation
+### Requirement 5: CLI Packaging
 
-**Objective:** As a prospective user, I want to see the tool in action before installing it.
+**Objective:** As a user or contributor, I want to install and invoke KhipuChat via a `khipu` command rather than through npm scripts or raw tsx invocations.
+
+#### Acceptance Criteria
+
+1. The `package.json` shall expose a `bin` entry so that the `khipu` command is available after `npm install -g` or `npm link`.
+2. The README shall document the `npm link` development workflow for contributors.
+3. The README and Docker documentation shall reference the `khipu` command (e.g. `khipu sync all`, `khipu sync telegram`) rather than `npm run sync:*` or raw `tsx src/...` invocations.
+
+---
+
+### Requirement 6: Documentation
+
+**Objective:** As a prospective user, I want to see the tool in action and get started quickly.
 
 #### Acceptance Criteria
 
 1. A demo GIF or screenshot shall exist in `docs/` and be linked from the README.
 2. The demo asset shall be under 5 MB.
 3. The README shall include a Docker quickstart section with the minimum commands needed to get started.
-
-## Correction (2026-07-11 quality pass — see .kiro/brief.md)
-
-Regenerate design/tasks so packaging and docs reflect the `khipu` CLI and multi-account config:
-
-### Requirement 5: CLI-first packaging and documentation
-
-#### Acceptance Criteria
-
-1. The README, Docker, and CI shall reference the `khipu` command (e.g. `khipu sync all`, `khipu sync telegram`) rather than `npm run sync:*` or raw `tsx src/...` invocations.
-2. The package shall expose a `bin` entry so the tool installs globally; the README shall document the `npm link` development workflow (see `khipu-cli`).
-3. The Docker service shall run `khipu sync all` (daemon) as its default long-running process.
-4. The README shall document `khipu.config.json` for multi-account setup (see `multi-account`) and note that incremental sync is the default, calling out any platform whose source cannot filter server-side and is therefore slower.
+4. The README shall document `khipu.config.json` for multi-account setup and note that incremental sync is the default, identifying any platform whose message source cannot be filtered server-side and is therefore slower on full sync.
