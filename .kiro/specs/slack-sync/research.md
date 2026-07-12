@@ -97,3 +97,14 @@ No schema changes, no new dependencies, no `src/` modifications are needed.
 - Run `/kiro-spec-design slack-sync` (design already approved — can skip to tasks validation).
 - Or proceed directly to `/kiro-validate-impl slack-sync` to verify implementation against all requirements.
 - If adding missing tests: implement Option B, then re-run `npm test` to confirm 24/24 pass.
+
+---
+
+## Design Synthesis (2026-07-12 refresh)
+
+The `design.md` was regenerated in merge mode to match the implemented architecture. Key synthesis outcomes:
+
+- **Adopt, don't build**: reuse `runPlatformSync` for backfill/incremental mode selection and `sync_state` tracking rather than re-implementing sync bookkeeping in the Slack adapter. Reuse `upsertChat` / `insertMessage` idempotency and the embedding pipeline unchanged.
+- **Corrected stale design**: prior draft described a `FetchSlackClient` class and omitted incremental sync. Reality is a `createSlackClient` factory plus `runIncrementalImpl` / `createSlackAdapter`, with `fetchHistory(channelId, oldest?)` driving R5.3. Design now reflects this.
+- **Dead code noted**: `hashStr` in `sync.ts` is exported but unused (legacy); it is intentionally excluded from the design's component set. `mapChat` sets `external_id: conv.id` directly.
+- **Simplification kept**: fixed 1200ms pre-request pacing (≈50 req/min) plus single `Retry-After` retry is sufficient for a local backfill tool; no adaptive rate limiter introduced.
