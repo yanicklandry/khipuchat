@@ -177,3 +177,49 @@ Set `"bin": {"khipu": "./node_modules/.bin/tsx src/cli.ts"}` — not recommended
 1. Review this gap analysis.
 2. Run `/kiro-spec-design release` to generate the technical design document, which will resolve the open design questions above.
 3. Or `/kiro-spec-design release -y` to skip re-approval of requirements and go directly to design.
+
+---
+
+## Design Synthesis & Decisions (kiro-spec-design, 2026-07-12)
+
+**Discovery type**: Light (Extension). No external web research required; all libraries are already in use and the mechanisms (npm `bin`, `npm link`, multi-arch Docker via QEMU) are established in the existing workflows.
+
+### Synthesis
+
+- **Generalization**: Requirements 1.4, 5.1, 5.3, and 6.4 all presuppose a single `khipu` command that can launch every role. Rather than fixing each reference piecemeal, the design introduces one command router (`src/khipu.ts`) whose interface naturally covers all current subcommands and future ones. The generalization is at the interface (subcommand → script map), not the implementation.
+- **Build vs. adopt**: Dispatch is solved by reusing the proven `spawn(process.execPath, [tsxBin, script], { stdio: 'inherit' })` pattern already in `src/sync-all.ts`, instead of adopting a CLI framework (commander/yargs) — no new dependency, consistent with the "no build step / minimal deps" steering.
+- **Simplification**: Rejected refactoring `src/cli.ts` into a shared library. The router forwards query subcommands to `cli.ts` as-is (spawn), so `cli.ts` stays single-responsibility and under no additional risk. The router is the smallest additive seam.
+
+### Decision: `khipu` implemented as a command router, not an extension of `src/cli.ts`
+
+- **Context**: `src/cli.ts` handles only query tools and already sits near/over the 200-line limit; requirements demand `khipu sync`, `khipu mcp`, `khipu web`, `khipu setup-*`.
+- **Alternatives**: (A) overload `cli.ts` with operational subcommands; (B) new `src/khipu.ts` router that spawns role scripts.
+- **Selected**: B. A dedicated router keeps each file single-responsibility, avoids a `cli.ts` rewrite, and mirrors `sync-all.ts`'s spawn pattern.
+- **Trade-offs**: One extra process hop per command (negligible for CLI/daemon roles) in exchange for a clean boundary and zero refactor risk to existing roles.
+
+### Decision: `bin/khipu` is a Node shim that spawns project-local `tsx`
+
+- **Context**: No build step (`tech.md`); `tsx` is a devDependency, not on the global PATH.
+- **Selected**: `bin/khipu` (`#!/usr/bin/env node`) resolves `node_modules/.bin/tsx` and `src/khipu.ts` from `__dirname` and spawns them with `stdio: 'inherit'`. Works after `npm link` (dev) and inside the image.
+- **Rationale**: Matches the resolution approach already used by `sync-all.ts`/`setup-*.ts`; avoids a compile step and avoids requiring a global `tsx`.
+
+### Decision: Docker Compose runs `web` + long-running `sync`; MCP is the image default CMD (stdio)
+
+- **Context**: MCP is stdio-only (never HTTP, per `tech.md`), so it cannot be a network Compose service. AC 1.3 requires MCP + web functional; AC 1.4 requires a long-running sync service.
+- **Selected**: Compose defines `web` (`khipu web`, port 3333) and `sync` (`sh -c` loop wrapping `khipu sync all`). The image default `CMD` is `["khipu","mcp"]`; interactive MCP use is documented (`docker run -i ... khipu mcp`).
+- **Rationale**: Honest to the stdio constraint while satisfying the requirement literally; keeps `khipu sync all` one-shot (loop lives in Compose, not the CLI).
+- **Follow-up**: Confirm `docker run -i` MCP handshake during deployment verification.
+
+### Decision: WhatsApp/Chromium and ONNX model handling in Docker
+
+- WhatsApp: set `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true` in the image and document WhatsApp sync as unsupported inside Docker (requires local Chrome + QR session). `sync-all` already logs per-platform failures and continues, so the sync loop is unaffected.
+- ONNX model: set `HF_HOME` and mount a named `hf-cache` volume so the `all-MiniLM-L6-v2` model downloaded at first use survives restarts.
+
+### Decision: `SECURITY.md` contact address
+
+- Replace `security@khipuchat.example.com` with the maintainer address `yanick.landry@gmail.com`. Accepted trade-off: exposing a personal address in a public repo for responsible-disclosure reachability. Revisit if a dedicated alias becomes available.
+
+### Risks & Mitigations
+- Role script rename/move breaks the router map → mitigated by importing `PLATFORMS` from `sync-all.ts` and a parity integration test; other paths are covered by unit tests on `resolveCommand`.
+- `npm link` in the image failing → fallback to `npm install -g .`; both place `khipu` on PATH.
+- Stdio MCP buffering → enforced `stdio: 'inherit'` in the shared spawn helper.
