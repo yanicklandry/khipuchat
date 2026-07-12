@@ -1,16 +1,6 @@
 {
-  "specName": "slack-sync",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "whatsapp-sync",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
@@ -18,6 +8,7 @@
     "semantic-search",
     "web-ui",
     "discord-sync",
-    "email-sync"
+    "email-sync",
+    "slack-sync"
   ]
 }
