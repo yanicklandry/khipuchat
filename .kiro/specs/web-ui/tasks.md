@@ -1,7 +1,7 @@
 # Implementation Plan
 
-- [ ] 1. Foundation — dependencies, script, and test scaffold
-- [ ] 1.1 Add Express and supporting dependencies
+- [x] 1. Foundation — dependencies, script, and test scaffold
+- [x] 1.1 Add Express and supporting dependencies
   - Add `express` (v5), `express-basic-auth`, `simple-icons` to `dependencies` in `package.json`
   - Add `@types/express`, `supertest`, `@types/supertest` to `devDependencies`
   - Add `"web": "tsx src/web/server.ts"` to the `scripts` block
@@ -9,14 +9,14 @@
   - `npm test` still passes after adding dependencies
   - _Requirements: 1.1, 6.2_
 
-- [ ] 1.2 Create test file skeleton and in-memory app helper
+- [x] 1.2 Create test file skeleton and in-memory app helper
   - Create `tests/web.test.ts` with a `beforeEach` that initialises an in-memory SQLite DB via `initDb(':memory:')` and calls `createApp()` to get a testable Express instance
   - Import `supertest` and confirm the test file compiles with no TypeScript errors
   - A skeleton test (`GET /` returns 200) passes with `npm test`
   - _Requirements: 1.3_
 
-- [ ] 2. Core — API routes and UI components
-- [ ] 2.1 (P) Implement JSON API route handlers
+- [x] 2. Core — API routes and UI components
+- [x] 2.1 (P) Implement JSON API route handlers
   - Create `src/web/routes.ts` exporting an Express `Router`
   - Optional auth guard: when `WEB_USER` and `WEB_PASS` env vars are both set, apply `express-basic-auth` on `/api/*`; otherwise pass through
   - `GET /api/chats`: reads optional `?account=`; calls `handleListChats(undefined, account)`; responds 200 JSON
@@ -28,7 +28,7 @@
   - _Requirements: 1.5, 2.4, 3.4, 3.5, 4.5_
   - _Boundary: API Routes (routes.ts)_
 
-- [ ] 2.2 (P) Implement platform icon map
+- [x] 2.2 (P) Implement platform icon map
   - Create `src/web/icons.ts` exporting `buildPlatformIconMap(): Record<string, string>`
   - Map known platforms (`telegram`, `wechat`, `discord`, `whatsapp`, `imessage`, `email`) to 16px inline SVG strings from `simple-icons`
   - Resize each SVG, set `fill="currentColor"`, and strip the `xmlns` attribute so the page makes no external request
@@ -37,7 +37,7 @@
   - _Requirements: 5.1, 5.2, 5.3, 6.1_
   - _Boundary: Platform Icons (icons.ts)_
 
-- [ ] 2.3 (P) Implement scroll pagination client script
+- [x] 2.3 (P) Implement scroll pagination client script
   - Create `src/web/ui-scroll.ts` exporting `SCROLL_JS: string` (a vanilla-JS script embedded verbatim into the page; no runtime import, preserving the no-build constraint)
   - `attachScrollSentinel(container, chatId, oldestTimestamp, onOlderLoaded, hasMore)` uses `IntersectionObserver` to fetch `/api/messages/:chatId?before=<oldest>&limit=50` when scrolled to the top
   - Guards concurrent fetches with an `_isFetching` flag; preserves scroll position after prepending older messages; shows a loading indicator; renders a Retry affordance on fetch failure
@@ -46,7 +46,7 @@
   - _Requirements: 4.1_
   - _Boundary: Scroll Client (ui-scroll.ts)_
 
-- [ ] 2.4 Implement the self-contained HTML/CSS/JS UI page
+- [x] 2.4 Implement the self-contained HTML/CSS/JS UI page
   - Create `src/web/ui.ts` exporting `buildHtmlPage(accounts, selectedAccount?): string` and `HTML_PAGE = buildHtmlPage([])` for backward compatibility
   - Three-zone layout: full-width search bar at top; sidebar (type filter, optional account dropdown, platform filter chips, chat list) and main panel side by side below
   - Bake `buildPlatformIconMap()` JSON and `SCROLL_JS` inline at call time; contain no `<link>` to external stylesheets, no `<script src="https://...">`, and no external font references
@@ -62,8 +62,8 @@
   - _Boundary: HTML Builder (ui.ts)_
   - _Depends: 2.2, 2.3_
 
-- [ ] 3. Integration — Express server wiring
-- [ ] 3.1 Implement the Express server and main entry point
+- [x] 3. Integration — Express server wiring
+- [x] 3.1 Implement the Express server and main entry point
   - Create `src/web/server.ts` exporting `createApp(): express.Application`
   - `createApp` mounts the router from `routes.ts` and a `GET /` handler: reads optional `?account=` query param, calls `listArchiveAccounts()`, sets `Content-Type: text/html; charset=utf-8`, and responds with `buildHtmlPage(accounts, selectedAccount)`
   - `main()` calls `initDb('./khipuchat.db')`, then `createApp().listen(3333, '127.0.0.1', ...)`
@@ -74,8 +74,8 @@
   - _Requirements: 1.1, 1.2, 1.4, 6.2_
   - _Depends: 2.1, 2.4_
 
-- [ ] 4. Validation — test coverage
-- [ ] 4.1 API route integration tests
+- [x] 4. Validation — test coverage
+- [x] 4.1 API route integration tests
   - `GET /api/chats` returns 200 JSON array; each entry has `chat_id`, `name`, `platform`, `message_count`
   - `GET /api/search?q=hello` returns 200 JSON array; each entry has `chat_name`, `text`, `platform`
   - `GET /api/messages/:chatId` returns 200 `{ messages, has_more }`; each message has `sender_name`, `text`, `is_sender`, `platform`
@@ -87,7 +87,7 @@
   - All tests pass with `npm test`
   - _Requirements: 1.5, 2.4, 3.4, 3.5, 4.5_
 
-- [ ] 4.2 UI page and icons static tests
+- [x] 4.2 UI page and icons static tests
   - `buildHtmlPage([])` is a non-empty string containing `<html`, `<style`, and `<script` tags
   - `buildHtmlPage([])` contains no `https://` references (verifies no external URLs, Req 6.1)
   - `buildHtmlPage([])` contains `/api/chats`, `/api/search`, and `/api/messages` references (verifies client JS wiring)
