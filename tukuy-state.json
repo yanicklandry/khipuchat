@@ -2,7 +2,8 @@
   "specName": "khipu-cli",
   "completedPhases": [
     "steering",
-    "discovery"
+    "discovery",
+    "init"
   ],
   "done": false,
   "completedQueueSpecs": [
