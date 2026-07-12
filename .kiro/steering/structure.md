@@ -27,6 +27,7 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 - `src/index-embeddings.ts` — runnable script to build/rebuild the embeddings index; exports `rebuildEmbeddings(platform?)` for programmatic use
 - `src/vec-db.ts` — sqlite-vec schema and vector search queries
 - `src/config.ts` — environment and configuration loading
+- `src/setup-claude.ts` — writes the MCP entry into Claude Desktop's config JSON; entry point for `npm run setup-claude`
 
 ### Sync Infrastructure
 **Location**: `src/`

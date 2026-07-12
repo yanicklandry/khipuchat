@@ -1,22 +1,13 @@
 {
-  "specName": "email-sync",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "slack-sync",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
     "wechat-image-sync",
     "semantic-search",
     "web-ui",
-    "discord-sync"
+    "discord-sync",
+    "email-sync"
   ]
 }
