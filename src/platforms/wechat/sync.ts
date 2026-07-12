@@ -128,6 +128,8 @@ export interface MessageMapOpts {
   selfWxid?: string
   /** rowid → username map from Name2Id, used for V4 is_sender detection. */
   senderIdMap?: Map<number, string>
+  /** Resolved counterparty display name; set on received messages, null on sent (Req 3.3). */
+  senderName?: string | null
 }
 
 export function mapMessage(row: WechatMessageRow, chatId: number, opts?: MessageMapOpts): Message {
@@ -166,8 +168,8 @@ export function mapMessage(row: WechatMessageRow, chatId: number, opts?: Message
     external_id: externalId,
     chat_id: chatId,
     sender_id: null,
-    sender_name: null,
-    text: isImageMessage ? '' : rawText, // For images, we don't extract text
+    sender_name: isSend === 1 ? null : (opts?.senderName ?? null),
+    text: isImageMessage ? '' : rawText,
     type: isImageMessage ? 'image' : (msgType === 1 && rawText ? 'text' : 'other'),
     timestamp,
     is_sender: isSend,
@@ -404,6 +406,8 @@ export async function runBackfillImpl(
         const label = displayName.slice(0, 30).padEnd(30)
         process.stdout.write(`\r  [${tIdx + 1}/${tables.length}] ${label}`)
 
+        const tableOpts: MessageMapOpts = { ...msgOpts, senderName: displayName }
+
         try {
           const { selectCols, timeCol } = buildSchemaInfo(chatDb, tableName)
           const chatLastSync = hasPriorSync ? syncedAt.get(tableName) : undefined
@@ -413,7 +417,7 @@ export async function runBackfillImpl(
           ).all() as WechatMessageRow[]
 
           for (const row of msgRows) {
-            insertMessage(mapMessage(row, chatId, msgOpts))
+            insertMessage(mapMessage(row, chatId, tableOpts))
           }
           setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
           if (isIndexed('messages')) await embedNewMessages([chatId])
@@ -468,6 +472,8 @@ export async function runIncrementalImpl(
         const chatId = upsertChat(mapChat(tableName, displayName, userName))
         totalChats++
 
+        const tableOpts: MessageMapOpts = { ...msgOpts, senderName: displayName }
+
         try {
           const { selectCols, timeCol } = buildSchemaInfo(chatDb, tableName)
           const msgRows = chatDb.prepare(
@@ -475,7 +481,7 @@ export async function runIncrementalImpl(
           ).all() as WechatMessageRow[]
 
           for (const row of msgRows) {
-            insertMessage(mapMessage(row, chatId, msgOpts))
+            insertMessage(mapMessage(row, chatId, tableOpts))
           }
           setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
           if (isIndexed('messages')) await embedNewMessages([chatId])

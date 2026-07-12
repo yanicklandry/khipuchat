@@ -15,6 +15,7 @@ import {
   openWechatDb,
   discoverMessageDbs,
   findUserDir,
+  validateContainer,
   buildSenderIdMap,
   extractSelfWxid,
   type WechatMessageRow,
@@ -23,6 +24,37 @@ import {
 import { buildWechatContactMap } from '../src/platforms/wechat/contacts'
 
 // ── Mock DB factories ─────────────────────────────────────────────────────────
+
+/** Create an in-memory SQLite DB with a Msg_<tableName> table using V4 schema. */
+function makeMockV4ChatDb(tableName: string, rows: WechatMessageRow[]): Database.Database {
+  const db = new Database(':memory:')
+  const table = `Msg_${tableName}`
+  db.exec(`
+    CREATE TABLE "${table}" (
+      server_id    INTEGER,
+      create_time  INTEGER,
+      message_content TEXT,
+      WCDB_CT_message_content INTEGER DEFAULT 0,
+      real_sender_id INTEGER,
+      local_type   INTEGER DEFAULT 1
+    )
+  `)
+  const insert = db.prepare(
+    `INSERT INTO "${table}" (server_id, create_time, message_content, WCDB_CT_message_content, real_sender_id, local_type)
+     VALUES (@server_id, @create_time, @message_content, @WCDB_CT_message_content, @real_sender_id, @local_type)`,
+  )
+  for (const row of rows) {
+    insert.run({
+      server_id: row.server_id ?? 0,
+      create_time: row.create_time ?? 0,
+      message_content: row.message_content ?? null,
+      WCDB_CT_message_content: row.WCDB_CT_message_content ?? 0,
+      real_sender_id: row.real_sender_id ?? 0,
+      local_type: row.local_type ?? 1,
+    })
+  }
+  return db
+}
 
 /** Create an in-memory SQLite DB with a Msg_<tableName> table containing rows. */
 function makeMockChatDb(tableName: string, rows: WechatMessageRow[]): Database.Database {
@@ -217,6 +249,22 @@ describe('mapMessage', () => {
   it('V4: extracts text from message_content string', () => {
     expect(mapMessage(v4Row, 2, v4Opts).text).toBe('Hey V4')
     expect(mapMessage(v4Row, 2, v4Opts).type).toBe('text')
+  })
+
+  // Req 3.3: sender_name from opts
+  it('sets sender_name from opts.senderName for received messages (Des=1)', () => {
+    const row: WechatMessageRow = { msgSvrID: 1, CreateTime: 0, Message: 'hi', Des: 1 }
+    expect(mapMessage(row, 1, { senderName: 'Alice' }).sender_name).toBe('Alice')
+  })
+
+  it('sets sender_name to null for sent messages (Des=0) even with senderName in opts', () => {
+    const row: WechatMessageRow = { msgSvrID: 2, CreateTime: 0, Message: 'hi', Des: 0 }
+    expect(mapMessage(row, 1, { senderName: 'Alice' }).sender_name).toBeNull()
+  })
+
+  it('sets sender_name to null when opts.senderName is absent', () => {
+    const row: WechatMessageRow = { msgSvrID: 3, CreateTime: 0, Message: 'hi', Des: 1 }
+    expect(mapMessage(row, 1).sender_name).toBeNull()
   })
 })
 
@@ -434,6 +482,19 @@ describe('findUserDir', () => {
   })
 })
 
+// ── validateContainer ─────────────────────────────────────────────────────────
+
+describe('validateContainer', () => {
+  it('throws with install-guidance message when path does not exist', () => {
+    expect(() => validateContainer('/nonexistent/wechat/container/xyz'))
+      .toThrow('WeChat for Mac is not installed')
+  })
+
+  it('does not throw for an existing path', () => {
+    expect(() => validateContainer(os.tmpdir())).not.toThrow()
+  })
+})
+
 // ── openWechatDb ──────────────────────────────────────────────────────────────
 
 describe('openWechatDb', () => {
@@ -535,6 +596,27 @@ describe('runBackfillImpl integration', () => {
 
     // Missing CreateTime column causes error → should be caught gracefully
     await expect(runBackfillImpl([dbPath], new Map(), new Map())).resolves.not.toThrow()
+    fs.rmSync(tmpDir, { recursive: true })
+  })
+
+  it('imports V4-schema messages correctly (create_time / server_id)', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-v4-'))
+    const v4Rows: WechatMessageRow[] = [
+      { server_id: 9001, create_time: 1710000001, message_content: 'V4 message', WCDB_CT_message_content: 0, real_sender_id: 1, local_type: 1 },
+    ]
+    const db = makeMockV4ChatDb('wxid_v4user', v4Rows)
+    const dbPath = path.join(tmpDir, 'message_0.db')
+    fs.writeFileSync(dbPath, db.serialize())
+    db.close()
+
+    await runBackfillImpl([dbPath], new Map(), new Map())
+
+    const msgs = getDb().prepare('SELECT external_id, text, timestamp FROM messages').all() as { external_id: string; text: string; timestamp: number }[]
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].external_id).toBe('9001')
+    expect(msgs[0].text).toBe('V4 message')
+    expect(msgs[0].timestamp).toBe(1710000001)
+
     fs.rmSync(tmpDir, { recursive: true })
   })
 
