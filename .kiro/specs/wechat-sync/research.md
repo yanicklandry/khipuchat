@@ -103,3 +103,130 @@
 - [Reverse Engineering WeChat on macOS: Building a Forensic Tool](https://blog.imipy.com/post/reverse-engineering-wechat-on-macos--building-a-forensic-tool.html)
 - `src/platforms/imessage/sync.ts` — structural template for the WeChat adapter
 - `src/platforms/imessage/contacts.ts` — contact resolution pattern reference
+
+---
+
+# Gap Analysis Update — 2026-07-11
+
+**Discovery Scope**: Brownfield — implementation substantially complete; audit against requirements.
+
+## Analysis Summary
+
+- Implementation is significantly more advanced than the original tasks.md described: it handles both WeChat 3.x (Chat_*.db with MesSvrID/CreateTime/Message/Des) and WeChat 4.x (message_N.db with Msg_<md5> tables, server_id/create_time/message_content, Name2Id, SQLCipher key loading from `.wechat-keys.json`) schemas.
+- 74 tests pass across `tests/wechat.test.ts` and `tests/wechat-image.test.ts`. All requirement areas have test coverage.
+- One requirements gap identified: `sender_name` is always `null` in `mapMessage` (Req 3.3 requires it be set to the resolved display name).
+- `tasks.md` is entirely stale: all tasks show as unchecked but the implementation already exists and is more comprehensive than the tasks described.
+
+---
+
+## Current State Investigation
+
+### What Exists
+
+| File | Status | Notes |
+|------|--------|-------|
+| `src/platforms/wechat/sync.ts` | Complete | V3 + V4 schemas, encryption, incremental sync, adapter |
+| `src/platforms/wechat/contacts.ts` | Complete | contact.db (V4) + WCDB_Contact.db (V3), remark fallback |
+| `tests/wechat.test.ts` | Complete | 58 tests: unit + integration + error paths |
+| `tests/wechat-image.test.ts` | Complete | 16 tests: image message type handling |
+| `src/platforms/types.ts` | Complete | `'wechat'` in Platform union |
+| `package.json` | Complete | `sync:wechat`, `setup:wechat` scripts |
+| `src/sync-all.ts` | Complete | `'wechat'` included in platform list |
+| `scripts/setup-wechat.sh` | Complete | Frida-based key extraction tool |
+
+### Key Implementation Divergences from Original Design
+
+The actual implementation diverged significantly from the initial design, reflecting discoveries made during implementation:
+
+1. **File layout**: WeChat 4.x uses numbered `message_N.db` files (0–11) in `db_storage/message/`, not individual `Chat_<contactId>.db` files. `discoverMessageDbs` reflects this.
+2. **Table names**: V4 uses `Msg_<md5(user_name)>` tables alongside a `Name2Id` lookup table, not `Chat_<contactId>` tables directly.
+3. **Encryption**: The original design said "try without key, skip on SQLITE_NOTADB." The actual implementation adds key loading from `.wechat-keys.json` written by `scripts/setup-wechat.sh` (Frida-based extraction), covering the encrypted case.
+4. **Incremental sync**: `runIncrementalImpl` and `setLastSyncedAt` per chat provide per-chat watermark tracking, not just the platform-level `sync_state` from the original plan.
+5. **Sender detection V4**: `real_sender_id` + `Name2Id` + `extractSelfWxid` is used to determine `is_sender` in V4 schema, where the original design only handled the legacy `Des` column.
+6. **Container path**: Uses `xwechat_files` layout (`~/Library/.../Data/Documents/xwechat_files/wxid_*`) not the original `Application Support/com.tencent.xinWeChat/` path.
+
+---
+
+## Requirements Feasibility Analysis
+
+### Requirement-to-Asset Map
+
+| Req | Summary | Status | Asset | Notes |
+|-----|---------|--------|-------|-------|
+| 1.1 | Locate all message databases | **Met** | `discoverMessageDbs` + `findUserDir` | Finds `message_N.db` files; covers multi-DB layout |
+| 1.2 | Missing container → install message + exit | **Met** | `validateContainer` (`ENOENT` branch) | |
+| 1.3 | FDA denied → Full Disk Access guidance + exit | **Met** | `validateContainer` (permission error branch) | |
+| 1.4 | Individual DB error → warn + continue | **Met** | `openWechatDb` returns null; caller skips | |
+| 2.1 | Extract all message records | **Met** | `runBackfillImpl` / `runIncrementalImpl` | All rows per table |
+| 2.2 | Map: unique ID, timestamp, text, direction | **Met** | `mapMessage` (V3 + V4 paths) | Both schema versions handled |
+| 2.3 | Store with platform='wechat' | **Met** | `mapMessage`, `mapChat` | Platform literal hardcoded |
+| 2.4 | One chat record per discovered DB table | **Met** | `upsertChat(mapChat(...))` per table | Stable external_id from table name |
+| 2.5 | No-text messages stored as type='other' | **Met** | `mapMessage` (non-text → 'other' or 'image') | Image type also handled |
+| 3.1 | Read display names from contacts DB | **Met** | `buildWechatContactMap` | Both V3 and V4 contact schemas |
+| 3.2 | Contacts DB unavailable → fall back to raw ID | **Met** | Returns empty map; caller falls back to table name | |
+| 3.3 | Resolved display name as `sender_name` per message | **Gap** | `mapMessage` returns `sender_name: null` always | Design called for `contactMap.get(contactId) ?? contactId`; not implemented |
+| 4.1 | `npm run sync:wechat` | **Met** | `package.json` scripts | |
+| 4.2 | No duplicate records on re-run | **Met** | `insertMessage` uses `INSERT OR IGNORE` | Idempotent by external_id + chat_id |
+| 4.3 | New messages additive, existing unchanged | **Met** | Per-chat `last_synced_at` watermark | |
+| 4.4 | Queryable via MCP platform filter | **Met** | `'wechat'` in Platform union, stored as platform='wechat' | |
+| 5.1 | Attempt open locally; no network | **Met** | Key loaded from `.wechat-keys.json` (local file); no network calls | |
+| 5.2 | Clear error on decryption failure | **Met** | `openWechatDb` logs specific message on `SQLITE_NOTADB` | |
+| 5.3 | Never write to WeChat DBs | **Met** | `{ readonly: true }` on every `new Database(...)` call | |
+
+### Identified Gap
+
+**Req 3.3 — `sender_name` always null**
+
+`mapMessage` unconditionally sets `sender_name: null`. The requirement says: "The WeChat Sync shall use the resolved display name as the `sender_name` on each message." The original design specified `sender_name = row.Des === 0 ? null : (contactMap.get(contactId) ?? contactId)`.
+
+Impact: messages stored without sender name attribution. For private chats the chat name encodes the counterparty name, so search results can still show context. For group chats, it is not possible to know who sent each message from the archive alone.
+
+Risk: Medium — the data is already stored; fixing this requires re-syncing to backfill `sender_name`.
+
+---
+
+## Implementation Approach Options
+
+### Option A: Patch `sender_name` in `mapMessage`
+
+- Extend `mapMessage` to accept the `contactMap` and `userName` from the table/chat context.
+- For V3: `sender_name = isSend ? null : (contactMap.get(tableName) ?? tableName)`.
+- For V4 group chats: use `senderIdMap.get(real_sender_id)` resolved through `contactMap`.
+- Existing callers (`runBackfillImpl`, `runIncrementalImpl`) already have `displayName` and `contactMap` in scope; plumbing is minimal.
+
+Trade-offs:
+- Requires adding a `senderName?: string` param to `mapMessage` or passing `contactMap + userName`.
+- Requires a `--force` re-sync to populate `sender_name` on already-imported messages.
+- Test updates needed to assert `sender_name` values.
+
+### Option B: Leave null and document as known limitation
+
+- `sender_name` for private chats is redundant (the chat name captures it). For group chats it is a real missing piece.
+- Low effort, zero migration risk.
+- Leaves Req 3.3 unmet.
+
+### Option C: Hybrid — populate `sender_name` for received messages only, null for sent
+
+- `is_sender=1` messages: `sender_name = null` (the user is always "me").
+- `is_sender=0` messages: `sender_name = contactMap.get(userName) ?? userName ?? tableName`.
+- Closely matches the original design intent and is consistent with how iMessage handles it.
+- This is the recommended approach if Req 3.3 must be satisfied.
+
+---
+
+## Effort and Risk
+
+| Dimension | Rating | Justification |
+|-----------|--------|---------------|
+| Remaining effort (Req 3.3 fix) | S | Pattern is clear; callers already have contactMap in scope; 1–2 hours of changes + tests |
+| Risk (Req 3.3 fix) | Low | Pure additive change to `mapMessage`; no schema change; `--force` re-sync needed to backfill |
+| Tasks.md staleness | S | Update all task checkboxes to reflect current state; no code change |
+| Overall feature readiness | High | 74/74 tests passing; all other requirements met; one gap well-understood |
+
+---
+
+## Recommendations for Design/Implementation Phase
+
+1. **Fix Req 3.3** with Option C: thread `senderName: string | null` into `mapMessage` via `MessageMapOpts`. For `is_sender=0` messages in both V3 and V4, set `sender_name` to the resolved contact display name. Update `runBackfillImpl` and `runIncrementalImpl` callers. Add assertions to existing tests.
+2. **Update tasks.md** to mark all implemented tasks complete and add a new task for the Req 3.3 sender_name fix.
+3. **No new runtime dependencies** needed. All patterns already exist in the codebase.
