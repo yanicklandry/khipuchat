@@ -9,9 +9,10 @@
     "design",
     "validate-design",
     "tasks",
-    "impl"
+    "impl",
+    "validate-impl"
   ],
-  "done": false,
+  "done": true,
   "completedQueueSpecs": [
     "wechat-sync",
     "wechat-image-sync",
@@ -26,6 +27,7 @@
     "khipu-cli",
     "telegram-image-sync",
     "image-support",
-    "signal-platform"
+    "signal-platform",
+    "signal-image-sync"
   ]
 }
