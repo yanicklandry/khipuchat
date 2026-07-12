@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. Core: message classification and Beeper transport
-- [ ] 1.1 (P) Patch Signal message type classification
+- [x] 1.1 (P) Patch Signal message type classification
   - In `mapMessage` within `sync.ts`, change the branch so `m.type === 'IMAGE'` emits `type: 'image'` instead of `'other'`
   - Ensure the fallback branch still maps TEXT with a body to `'text'` and all other types to `'other'`, leaving non-image messages untouched
   - Update any existing test that asserts IMAGE → 'other' to assert IMAGE → 'image'
@@ -9,7 +9,7 @@
   - _Requirements: 1.1, 1.2, 5.2, 5.3_
   - _Boundary: SignalAdapter/Mapping (sync.ts)_
 
-- [ ] 1.2 (P) Add attachment fetch method to the Signal client
+- [x] 1.2 (P) Add attachment fetch method to the Signal client
   - Add `fetchAttachmentBuffer(url: string): Promise<Buffer | null>` to the `BeeperSignalClient` interface in `client.ts`
   - Implement by calling `beeper.assets.serve({ url })`, reading the response into a `Buffer`, and returning `null` on any error or empty/zero-length body
   - Wrap the implementation in try/catch; log a warning on failure; never throw to the caller
@@ -18,7 +18,7 @@
   - _Boundary: SignalAdapter/Transport (client.ts)_
 
 - [ ] 2. Core: image sync orchestration module
-- [ ] 2.1 Implement `processSignalImageMessages` and its private helpers
+- [x] 2.1 Implement `processSignalImageMessages` and its private helpers
   - Create `src/platforms/signal/image-sync.ts`
   - Implement `extFromMime`: `image/png` → `'png'`, `image/gif` → `'gif'`, `image/webp` → `'webp'`, anything else → `'jpg'`
   - Implement `pickImageAttachment`: return the first attachment whose type is `'img'` and that has a non-empty `srcURL` or `id`; return `null` if none qualify
@@ -31,7 +31,7 @@
   - _Boundary: SignalAdapter/ImageSync (image-sync.ts)_
 
 - [ ] 3. Integration: wire image sync into sync runs
-- [ ] 3.1 Collect image messages per chat and invoke image sync after inserts
+- [x] 3.1 Collect image messages per chat and invoke image sync after inserts
   - In `runBackfillImpl` and `runIncrementalImpl` in `sync.ts`, collect each raw `BeeperMessage` that maps to `type: 'image'` into a per-chat array during the insert loop, without changing the insert behavior
   - After each chat's insert loop, call `processSignalImageMessages(client, chatId, imageMsgs)` and accumulate the returned `stored` and `failed` counts into run-level totals
   - Extend the existing completion log line to append `images: N stored, M failed`
@@ -42,7 +42,7 @@
   - _Boundary: SignalAdapter/Runtime (sync.ts)_
 
 - [ ] 4. Validation: tests
-- [ ] 4.1 (P) Unit tests for image-sync helper functions
+- [x] 4.1 (P) Unit tests for image-sync helper functions
   - Test `extFromMime`: `image/png` → `'png'`, `image/gif` → `'gif'`, `image/webp` → `'webp'`, `image/jpeg` → `'jpg'`, `undefined` → `'jpg'`
   - Test `pickImageAttachment`: returns the first `img` attachment with `srcURL`; returns `null` when no attachment has `srcURL` or `id`; returns `null` when only non-`img` type attachments are present
   - Observable: all helper unit test cases pass
@@ -50,7 +50,7 @@
   - _Depends: 2.1_
   - _Boundary: SignalAdapter/ImageSync_
 
-- [ ] 4.2 (P) Integration tests for `processSignalImageMessages`
+- [x] 4.2 (P) Integration tests for `processSignalImageMessages`
   - Use an in-memory SQLite DB with mocked `media-storage` and `ocr`, following the pattern in `tests/telegram-image-sync.test.ts`
   - Case: message with `media_file_path` already set → skipped, no fetch called, counted in neither stored nor failed
   - Case: Beeper fetch returns buffer → `stored: 1, failed: 0`; `media_file_path` and `ocr_text` populated on DB row
@@ -63,7 +63,7 @@
   - _Depends: 2.1_
   - _Boundary: SignalAdapter/ImageSync_
 
-- [ ] 4.3 E2E tests: sync run counts and retrieval parity
+- [x] 4.3 E2E tests: sync run counts and retrieval parity
   - Test `runBackfillImpl` with a mixed chat (one text + one image message): verify both rows are inserted, image sync is triggered, the completion log includes `images: 1 stored, 0 failed`, and text rows are intact even when image fetch fails
   - Test that after a successful image store, calling `handleGetImage(messageId)` returns `file_available: true`, confirming `get_image` MCP tool parity requires no code changes
   - Test that stored OCR text appears in existing FTS query results, confirming searchability requires no FTS pipeline changes

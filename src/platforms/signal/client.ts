@@ -13,6 +13,8 @@ export interface BeeperSignalClient {
   listChatMessages(chatId: string): AsyncGenerator<BeeperMessage>
   /** Messages in one chat strictly after `since` (incremental). */
   listNewChatMessages(chatId: string, since: Date): AsyncGenerator<BeeperMessage>
+  /** Fetches the binary data for a Beeper attachment URL. Returns null on any error or empty body. Never throws. */
+  fetchAttachmentBuffer(url: string): Promise<Buffer | null>
 }
 
 export function createBeeperSignalClient(accessToken: string): BeeperSignalClient {
@@ -91,7 +93,20 @@ export function createBeeperSignalClient(accessToken: string): BeeperSignalClien
     }
   }
 
-  return { signalAccountIds, listChats, listChatMessages, listNewChatMessages }
+  async function fetchAttachmentBuffer(url: string): Promise<Buffer | null> {
+    try {
+      const response = await beeper.assets.serve({ url })
+      const arrayBuffer = await response.arrayBuffer()
+      const buf = Buffer.from(arrayBuffer)
+      if (buf.length === 0) return null
+      return buf
+    } catch (err) {
+      console.warn(`[signal] fetchAttachmentBuffer failed for url=${url}:`, err instanceof Error ? err.message : String(err))
+      return null
+    }
+  }
+
+  return { signalAccountIds, listChats, listChatMessages, listNewChatMessages, fetchAttachmentBuffer }
 }
 
 function wrapBeeperError(err: unknown): Error {

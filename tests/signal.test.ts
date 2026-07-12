@@ -126,9 +126,9 @@ describe('mapMessage', () => {
     expect(result.type).toBe('text')
   })
 
-  it('sets type to other when type is not TEXT', () => {
+  it('sets type to image when type is IMAGE', () => {
     const result = mapMessage({ ...baseMessage, type: 'IMAGE' }, 42)
-    expect(result.type).toBe('other')
+    expect(result.type).toBe('image')
   })
 
   it('sets type to other when text is empty string', () => {
@@ -681,5 +681,134 @@ describe('Signal platform query parity', () => {
     expect(signalChats.every(c => c.platform === 'signal')).toBe(true)
     expect(signalChats.some(c => c.name === 'Alice')).toBe(true)
     expect(signalChats.some(c => c.platform === 'telegram')).toBe(false)
+  })
+})
+
+// ── image sync wiring ─────────────────────────────────────────────────────────
+
+vi.mock('../src/platforms/signal/image-sync', () => ({
+  processSignalImageMessages: vi.fn().mockResolvedValue({ stored: 0, failed: 0 }),
+}))
+
+describe('image sync wiring — runBackfillImpl', () => {
+  beforeEach(async () => {
+    initDb(':memory:')
+    const { processSignalImageMessages } = await import('../src/platforms/signal/image-sync')
+    vi.mocked(processSignalImageMessages).mockClear()
+    vi.mocked(processSignalImageMessages).mockResolvedValue({ stored: 1, failed: 0 })
+  })
+
+  it('collects IMAGE messages and calls processSignalImageMessages after inserts', async () => {
+    const { processSignalImageMessages } = await import('../src/platforms/signal/image-sync')
+
+    const chat = makeSignalChat({ id: 'chat-img-wiring', title: 'Image Chat' })
+    const textMsg = makeSignalMessage({ id: 'msg-text', chatID: 'chat-img-wiring', type: 'TEXT', text: 'hello' })
+    const imageMsg = makeSignalMessage({ id: 'msg-img', chatID: 'chat-img-wiring', type: 'IMAGE', text: undefined })
+    const msgMap = new Map([['chat-img-wiring', [textMsg, imageMsg]]])
+    const client = makeMockSignalClient(['signal-acct-1'], [chat], msgMap)
+
+    await runBackfillImpl(client, 'test-account')
+
+    // Both messages inserted
+    const chats = getChats()
+    const chatRow = chats.find(c => c.external_id === 'chat-img-wiring')!
+    const msgs = getMessages(chatRow.id as unknown as number, 100)
+    expect(msgs).toHaveLength(2)
+
+    // processSignalImageMessages called once per chat, with only the IMAGE message
+    expect(processSignalImageMessages).toHaveBeenCalledOnce()
+    const [, , imageMsgsArg] = vi.mocked(processSignalImageMessages).mock.calls[0]!
+    expect(imageMsgsArg).toHaveLength(1)
+    expect(imageMsgsArg[0]!.id).toBe('msg-img')
+  })
+
+  it('appends images count to completion log line', async () => {
+    const consoleSpy = vi.spyOn(console, 'log')
+
+    const chat = makeSignalChat({ id: 'chat-log', title: 'Log Chat' })
+    const imageMsg = makeSignalMessage({ id: 'msg-log-img', chatID: 'chat-log', type: 'IMAGE', text: undefined })
+    const msgMap = new Map([['chat-log', [imageMsg]]])
+    const client = makeMockSignalClient(['signal-acct-1'], [chat], msgMap)
+
+    await runBackfillImpl(client, 'test-account')
+
+    const logCall = consoleSpy.mock.calls.find(c => String(c[0]).includes('Sync complete'))
+    expect(logCall).toBeDefined()
+    expect(String(logCall![0])).toMatch(/images: 1 stored, 0 failed/)
+
+    consoleSpy.mockRestore()
+  })
+
+  it('accumulates stored/failed counts across multiple chats', async () => {
+    const { processSignalImageMessages } = await import('../src/platforms/signal/image-sync')
+    vi.mocked(processSignalImageMessages)
+      .mockResolvedValueOnce({ stored: 1, failed: 0 })
+      .mockResolvedValueOnce({ stored: 0, failed: 1 })
+
+    const consoleSpy = vi.spyOn(console, 'log')
+
+    const chat1 = makeSignalChat({ id: 'chat-acc-1', title: 'Chat 1' })
+    const chat2 = makeSignalChat({ id: 'chat-acc-2', title: 'Chat 2' })
+    const img1 = makeSignalMessage({ id: 'img-1', chatID: 'chat-acc-1', type: 'IMAGE', text: undefined })
+    const img2 = makeSignalMessage({ id: 'img-2', chatID: 'chat-acc-2', type: 'IMAGE', text: undefined })
+    const msgMap = new Map([['chat-acc-1', [img1]], ['chat-acc-2', [img2]]])
+    const client = makeMockSignalClient(['signal-acct-1'], [chat1, chat2], msgMap)
+
+    await runBackfillImpl(client, 'test-account')
+
+    const logCall = consoleSpy.mock.calls.find(c => String(c[0]).includes('Sync complete'))
+    expect(String(logCall![0])).toMatch(/images: 1 stored, 1 failed/)
+
+    consoleSpy.mockRestore()
+  })
+})
+
+describe('image sync wiring — runIncrementalImpl', () => {
+  const since = new Date('2024-06-15T00:00:00.000Z')
+
+  beforeEach(async () => {
+    initDb(':memory:')
+    const { processSignalImageMessages } = await import('../src/platforms/signal/image-sync')
+    vi.mocked(processSignalImageMessages).mockClear()
+    vi.mocked(processSignalImageMessages).mockResolvedValue({ stored: 1, failed: 0 })
+  })
+
+  it('collects IMAGE messages and calls processSignalImageMessages after inserts', async () => {
+    const { processSignalImageMessages } = await import('../src/platforms/signal/image-sync')
+
+    const chat = makeSignalChat({ id: 'chat-inc-img', title: 'Inc Image Chat' })
+    const textMsg = makeSignalMessage({ id: 'msg-inc-text', chatID: 'chat-inc-img', type: 'TEXT', text: 'hello' })
+    const imageMsg = makeSignalMessage({ id: 'msg-inc-img', chatID: 'chat-inc-img', type: 'IMAGE', text: undefined })
+    const msgMap = new Map([['chat-inc-img', [textMsg, imageMsg]]])
+    const client = makeMockSignalClient(['signal-acct-1'], [chat], msgMap)
+
+    await runIncrementalImpl(client, since, 'test-account')
+
+    const chats = getChats()
+    const chatRow = chats.find(c => c.external_id === 'chat-inc-img')!
+    const msgs = getMessages(chatRow.id as unknown as number, 100)
+    expect(msgs).toHaveLength(2)
+
+    expect(processSignalImageMessages).toHaveBeenCalledOnce()
+    const [, , imageMsgsArg] = vi.mocked(processSignalImageMessages).mock.calls[0]!
+    expect(imageMsgsArg).toHaveLength(1)
+    expect(imageMsgsArg[0]!.id).toBe('msg-inc-img')
+  })
+
+  it('appends images count to incremental completion log line', async () => {
+    const consoleSpy = vi.spyOn(console, 'log')
+
+    const chat = makeSignalChat({ id: 'chat-inc-log', title: 'Inc Log Chat' })
+    const imageMsg = makeSignalMessage({ id: 'msg-inc-log-img', chatID: 'chat-inc-log', type: 'IMAGE', text: undefined })
+    const msgMap = new Map([['chat-inc-log', [imageMsg]]])
+    const client = makeMockSignalClient(['signal-acct-1'], [chat], msgMap)
+
+    await runIncrementalImpl(client, since, 'test-account')
+
+    const logCall = consoleSpy.mock.calls.find(c => String(c[0]).includes('Incremental sync complete'))
+    expect(logCall).toBeDefined()
+    expect(String(logCall![0])).toMatch(/images: 1 stored, 0 failed/)
+
+    consoleSpy.mockRestore()
   })
 })
