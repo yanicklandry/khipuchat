@@ -42,7 +42,7 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 ### Web UI
 **Location**: `src/web/`
 **Purpose**: Express server + server-side HTML rendering
-**Pattern**: `server.ts` registers routes from `routes.ts`. UI is plain HTML strings assembled in `ui.ts` / `ui-scroll.ts`. `icons.ts` provides SVG icon helpers (simple-icons). No client-side framework.
+**Pattern**: `server.ts` exports `createApp()` (builds and returns the Express app) and `startServer(app, host?, port?)` (binds it; defaults to `127.0.0.1:3333`). Routes are registered in `routes.ts`. UI is plain HTML strings assembled in `ui.ts` / `ui-scroll.ts`. `icons.ts` provides SVG icon helpers (simple-icons). No client-side framework.
 
 ### Scripts
 **Location**: `scripts/`
