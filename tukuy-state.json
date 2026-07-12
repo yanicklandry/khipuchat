@@ -6,7 +6,8 @@
     "init",
     "requirements",
     "validate-gap",
-    "design"
+    "design",
+    "validate-design"
   ],
   "done": false,
   "completedQueueSpecs": []
