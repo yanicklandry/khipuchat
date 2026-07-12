@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { initDb, getChats } from '../src/db'
 import {
   hashStr,
@@ -6,7 +6,9 @@ import {
   mapMessage,
   runBackfillImpl,
   runIncrementalImpl,
+  createSlackAdapter,
 } from '../src/platforms/slack/sync'
+import { createSlackClient } from '../src/platforms/slack/client'
 import type { SlackClient, SlackConversation, SlackMessage } from '../src/platforms/slack/client'
 
 // ── Mock factory ──────────────────────────────────────────────────────────────
@@ -178,5 +180,58 @@ describe('runIncrementalImpl', () => {
     )
     await runIncrementalImpl(client, new Date())
     expect(getChats()).toHaveLength(0)
+  })
+})
+
+// ── SlackClient 429 retry ─────────────────────────────────────────────────────
+
+describe('createSlackClient — 429 retry', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('retries after Retry-After delay on 429 response', async () => {
+    vi.useFakeTimers()
+    const retryAfterSeconds = 2
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        status: 429,
+        headers: { get: (_h: string) => String(retryAfterSeconds) },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ ok: true, channels: [], response_metadata: {} }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = createSlackClient('xoxp-test-token')
+    const gen = client.listConversations()
+
+    const promise = gen.next()
+    await vi.advanceTimersByTimeAsync(1200)
+    await vi.advanceTimersByTimeAsync(retryAfterSeconds * 1000)
+    await promise
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+})
+
+// ── createSlackAdapter missing token ─────────────────────────────────────────
+
+describe('createSlackAdapter — missing token', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('exits with code 1 and writes to stderr when SLACK_USER_TOKEN is absent', async () => {
+    const db = initDb(':memory:')
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number) => { throw new Error('process.exit') })
+
+    const adapter = createSlackAdapter('default', { name: 'default', fields: { SLACK_USER_TOKEN: '' } })
+
+    await expect(adapter.runBackfill(db)).rejects.toThrow('process.exit')
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    const stderr = stderrSpy.mock.calls.map(c => String(c[0])).join('')
+    expect(stderr).toContain('SLACK_USER_TOKEN')
   })
 })
