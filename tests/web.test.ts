@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import request from 'supertest'
+import type { Server } from 'node:http'
 
 import { initDb, upsertChat, insertMessage } from '../src/db'
-import { createApp } from '../src/web/server'
+import { createApp, startServer } from '../src/web/server'
 import { HTML_PAGE } from '../src/web/ui'
 
 vi.mock('../src/vec-db', async (importOriginal) => {
@@ -442,4 +443,58 @@ describe('GET /api/semantic-search', () => {
     expect(res.status).toBe(400)
     expect(res.body).toHaveProperty('error')
   })
+})
+
+// ── startServer helper ────────────────────────────────────────────────────────
+
+function waitForListening(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once('listening', resolve)
+    server.once('error', reject)
+  })
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((err) => { if (err) reject(err); else resolve() })
+  })
+}
+
+describe('startServer', () => {
+  let server: Server | undefined
+
+  afterEach(async () => {
+    if (server) {
+      await closeServer(server)
+      server = undefined
+    }
+  })
+
+  it('is exported from src/web/server', () => {
+    expect(typeof startServer).toBe('function')
+  })
+
+  it('returns an http.Server bound to 127.0.0.1:3333 by default', async () => {
+    initDb(':memory:')
+    server = startServer(createApp())
+    await waitForListening(server)
+    const addr = server.address()
+    expect(addr).not.toBeNull()
+    if (typeof addr === 'object' && addr !== null) {
+      expect(addr.address).toBe('127.0.0.1')
+      expect(addr.port).toBe(3333)
+    }
+  }, 5000)
+
+  it('accepts custom host and port overrides', async () => {
+    initDb(':memory:')
+    server = startServer(createApp(), '127.0.0.1', 0)
+    await waitForListening(server)
+    const addr = server.address()
+    expect(addr).not.toBeNull()
+    if (typeof addr === 'object' && addr !== null) {
+      expect(addr.address).toBe('127.0.0.1')
+      expect(addr.port).toBeGreaterThan(0)
+    }
+  }, 5000)
 })

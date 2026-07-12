@@ -1,12 +1,12 @@
 # Implementation Plan
 
-- [ ] 1. Verify existing security layers
+- [x] 1. Verify existing security layers
   - Run the existing `tests/security.test.ts` suite without any modification
   - Confirm all DB encryption, Web Basic Auth, and MCP bearer token tests pass
   - All existing security tests are green before any code changes are made
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 3.1, 3.2_
 
-- [ ] 2. Extract `startServer` helper from the web server entry point
+- [x] 2. Extract `startServer` helper from the web server entry point
   - Extract the `app.listen(port, host, cb)` call from `main()` into an exported `startServer(app, host?, port?)` function with default `host = '127.0.0.1'` and default `port = 3333`
   - Reattach or move the `EADDRINUSE` error handler so it remains active on the returned `http.Server`
   - `main()` delegates entirely to `startServer(createApp())`; no production behaviour changes (same bind address, same port, same error handling)

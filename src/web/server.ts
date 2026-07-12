@@ -1,5 +1,6 @@
 import express from 'express'
 import type { Application, Request, Response } from 'express'
+import type { Server } from 'node:http'
 import { initDb } from '../db'
 import { listArchiveAccounts } from '../query-handlers'
 import router from './routes'
@@ -18,19 +19,28 @@ export function createApp(): Application {
   return app
 }
 
-async function main(): Promise<void> {
-  initDb('./khipuchat.db')
-  const app = createApp()
-  const server = app.listen(3333, '127.0.0.1', () => {
-    console.log('KhipuChat web UI running at http://127.0.0.1:3333')
+// Extracted from main(); default host guarantees localhost-only binding.
+export function startServer(
+  app: Application,
+  host: string = '127.0.0.1',
+  port: number = 3333,
+): Server {
+  const server = app.listen(port, host, () => {
+    console.log(`KhipuChat web UI running at http://${host}:${port}`)
   })
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
-      process.stderr.write('Port 3333 is already in use. Stop the existing process and try again.\n')
+      process.stderr.write(`Port ${port} is already in use. Stop the existing process and try again.\n`)
       process.exit(1)
     }
     throw err
   })
+  return server
+}
+
+async function main(): Promise<void> {
+  initDb('./khipuchat.db')
+  startServer(createApp())
 }
 
 if (require.main === module) {
