@@ -43,6 +43,11 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 **Purpose**: Express server + server-side HTML rendering
 **Pattern**: `server.ts` registers routes from `routes.ts`. UI is plain HTML strings assembled in `ui.ts` / `ui-scroll.ts`. `icons.ts` provides SVG icon helpers (simple-icons). No client-side framework.
 
+### Scripts
+**Location**: `scripts/`
+**Purpose**: Platform-specific setup helpers that can't be expressed as npm scripts
+**Pattern**: Shell scripts and compiled C helpers for one-time or privileged operations (e.g., WeChat key extraction requires a native binary)
+
 ### Tests
 **Location**: `tests/`
 **Purpose**: Vitest test files; use `:memory:` SQLite, not mocks
