@@ -9,3 +9,4 @@ scripts/wechat-key-extract
 .wechat-keys.json
 .wwebjs_auth/
 .wwebjs_cache/
+media/

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import type { Platform } from './platforms/types'
 import { loadVecExtension, createVecSchema } from './vec-db'
-import { runMigrations } from './db-migrations'
+import { runMigrations, applyFtsSchema } from './db-migrations'
 
 export type { Platform }
 export type ChatType = 'user' | 'group' | 'channel' | 'private'
@@ -34,6 +34,14 @@ export interface Message {
   media_url?: string | null
   media_width?: number | null
   media_height?: number | null
+  ocr_text?: string | null
+}
+
+export interface MediaUpdate {
+  media_file_path?: string | null
+  media_width?: number | null
+  media_height?: number | null
+  ocr_text?: string | null
 }
 
 export interface MessageRow extends Message { id: number }
@@ -125,6 +133,7 @@ function createSchema(database: Database.Database): void {
       media_url            TEXT,
       media_width          INTEGER,
       media_height         INTEGER,
+      ocr_text             TEXT,
       UNIQUE(external_id, chat_id)
     );
 
@@ -138,21 +147,8 @@ function createSchema(database: Database.Database): void {
       platform       TEXT    NOT NULL PRIMARY KEY,
       last_synced_at INTEGER NOT NULL
     );
-
-    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
-      USING fts5(text, content='messages', content_rowid='id');
-
-    CREATE TRIGGER IF NOT EXISTS messages_fts_insert
-      AFTER INSERT ON messages BEGIN
-        INSERT INTO messages_fts(rowid, text) VALUES (new.id, new.text);
-      END;
-
-    CREATE TRIGGER IF NOT EXISTS messages_fts_delete
-      AFTER DELETE ON messages BEGIN
-        INSERT INTO messages_fts(messages_fts, rowid, text)
-          VALUES ('delete', old.id, old.text);
-      END;
   `)
+  applyFtsSchema(database)
 }
 
 export function upsertChat(chat: Chat): number {
@@ -181,11 +177,11 @@ export function insertMessage(msg: Message): void {
     INSERT INTO messages
       (external_id, chat_id, sender_id, sender_name, text, type, timestamp,
        is_sender, reply_to_external_id, platform,
-       media_file_path, media_url, media_width, media_height)
+       media_file_path, media_url, media_width, media_height, ocr_text)
     VALUES
       (@external_id, @chat_id, @sender_id, @sender_name, @text, @type, @timestamp,
        @is_sender, @reply_to_external_id, @platform,
-       @media_file_path, @media_url, @media_width, @media_height)
+       @media_file_path, @media_url, @media_width, @media_height, @ocr_text)
     ON CONFLICT(external_id, chat_id) DO UPDATE SET
       is_sender = CASE WHEN excluded.is_sender = 1 THEN 1 ELSE messages.is_sender END
   `).run({
@@ -203,7 +199,26 @@ export function insertMessage(msg: Message): void {
     media_url: msg.media_url ?? null,
     media_width: msg.media_width ?? null,
     media_height: msg.media_height ?? null,
+    ocr_text: msg.ocr_text ?? null,
   })
+}
+
+const ALLOWED_MEDIA_KEYS = new Set(['media_file_path', 'media_width', 'media_height', 'ocr_text'])
+
+export function updateMessageMedia(id: number, fields: MediaUpdate): void {
+  const entries = Object.entries(fields).filter(([k]) => ALLOWED_MEDIA_KEYS.has(k))
+  if (entries.length === 0) return
+  const setClauses = entries.map(([k]) => `${k} = @${k}`).join(', ')
+  const params = Object.fromEntries(entries) as Record<string, unknown>
+  params['id'] = id
+  db().prepare(`UPDATE messages SET ${setClauses} WHERE id = @id`).run(params)
+}
+
+export function getMessageIdByExternalId(chatId: number, externalId: string): number | null {
+  const row = db().prepare(
+    'SELECT id FROM messages WHERE chat_id = ? AND external_id = ?'
+  ).get(chatId, externalId) as { id: number } | undefined
+  return row?.id ?? null
 }
 
 export function getChats(): Chat[] {

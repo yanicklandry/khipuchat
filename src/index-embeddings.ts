@@ -14,6 +14,22 @@ import type { Platform } from './platforms/types'
 
 const BATCH_SIZE = 100
 
+// ── Shared embedding query constants ─────────────────────────────────────────
+
+/** Columns to select when fetching messages for embedding. */
+const MSG_COLUMNS = 'm.id, m.text, m.ocr_text'
+
+/**
+ * WHERE predicate that matches any message with indexable content:
+ * either a non-empty text body, a non-empty OCR transcription, or both.
+ */
+const HAS_CONTENT = `((m.text IS NOT NULL AND m.text != '') OR (m.ocr_text IS NOT NULL AND m.ocr_text != ''))`
+
+/** Build the embedding input string from a message row. */
+function buildEmbedInput(row: { text: string | null; ocr_text: string | null }): string {
+  return [row.text, row.ocr_text].filter(Boolean).join(' ')
+}
+
 // ── Progress bar ──────────────────────────────────────────────────────────────
 
 function renderBar(done: number, total: number, startMs: number): string {
@@ -38,9 +54,9 @@ function renderBar(done: number, total: number, startMs: number): string {
 
 function countUnindexed(): number {
   return (getDb()
-    .prepare(`SELECT COUNT(*) FROM messages
-      WHERE text IS NOT NULL AND text != ''
-        AND id NOT IN (SELECT rowid FROM vec_messages)`)
+    .prepare(`SELECT COUNT(*) FROM messages m
+      WHERE ${HAS_CONTENT}
+        AND m.id NOT IN (SELECT rowid FROM vec_messages)`)
     .pluck()
     .get() as number)
 }
@@ -57,17 +73,17 @@ export async function embedNewMessages(chatIds: number[]): Promise<void> {
   const db = (await import('./db')).getDb()
   const rows = db
     .prepare(`
-      SELECT m.id, m.text
+      SELECT ${MSG_COLUMNS}
       FROM messages m
       WHERE m.chat_id IN (${chatIds.map(() => '?').join(',')})
-        AND m.text IS NOT NULL AND m.text != ''
+        AND ${HAS_CONTENT}
         AND m.id NOT IN (SELECT rowid FROM vec_messages)
     `)
-    .all(...chatIds) as Array<{ id: number; text: string }>
+    .all(...chatIds) as Array<{ id: number; text: string | null; ocr_text: string | null }>
 
   for (const row of rows) {
     try {
-      const [vec] = await embed([row.text])
+      const [vec] = await embed([buildEmbedInput(row)])
       upsertMessageVector(row.id, vec)
     } catch (err) {
       console.error(`[embed] message ${row.id} failed:`, err)
@@ -106,18 +122,18 @@ export async function embedNewChats(chatIds: number[]): Promise<void> {
 
 // ── Platform-scoped helpers ────────────────────────────────────────────────────
 
-function getUnindexedMessagesByPlatform(limit: number, platform: Platform): Array<{ id: number; text: string }> {
+function getUnindexedMessagesByPlatform(limit: number, platform: Platform): Array<{ id: number; text: string | null; ocr_text: string | null }> {
   return getDb()
     .prepare(`
-      SELECT m.id, m.text
+      SELECT ${MSG_COLUMNS}
       FROM messages m
       JOIN chats c ON c.id = m.chat_id
       WHERE c.platform = ?
-        AND m.text IS NOT NULL AND m.text != ''
+        AND ${HAS_CONTENT}
         AND m.id NOT IN (SELECT rowid FROM vec_messages)
       LIMIT ?
     `)
-    .all(platform, limit) as Array<{ id: number; text: string }>
+    .all(platform, limit) as Array<{ id: number; text: string | null; ocr_text: string | null }>
 }
 
 function getUnindexedChatsByPlatform(platform: Platform): Array<{ id: number; name: string }> {
@@ -148,7 +164,7 @@ export async function rebuildEmbeddings(platform?: Platform, force?: boolean): P
   const msgCount = platform
     ? (getDb()
         .prepare(`SELECT COUNT(*) FROM messages m JOIN chats c ON c.id = m.chat_id
-          WHERE c.platform = ? AND m.text IS NOT NULL AND m.text != ''
+          WHERE c.platform = ? AND ${HAS_CONTENT}
             AND m.id NOT IN (SELECT rowid FROM vec_messages)`)
         .pluck()
         .get(platform) as number)
@@ -164,7 +180,7 @@ export async function rebuildEmbeddings(platform?: Platform, force?: boolean): P
   }
 
   let msgTotal = 0
-  let msgBatch: Array<{ id: number; text: string }>
+  let msgBatch: Array<{ id: number; text: string | null; ocr_text: string | null }>
   const msgStart = Date.now()
 
   do {
@@ -172,16 +188,16 @@ export async function rebuildEmbeddings(platform?: Platform, force?: boolean): P
       ? getUnindexedMessagesByPlatform(BATCH_SIZE, platform)
       : getDb()
           .prepare(`
-            SELECT m.id, m.text
+            SELECT ${MSG_COLUMNS}
             FROM messages m
-            WHERE m.text IS NOT NULL AND m.text != ''
+            WHERE ${HAS_CONTENT}
               AND m.id NOT IN (SELECT rowid FROM vec_messages)
             LIMIT ?
           `)
-          .all(BATCH_SIZE) as Array<{ id: number; text: string }>
+          .all(BATCH_SIZE) as Array<{ id: number; text: string | null; ocr_text: string | null }>
     for (const row of msgBatch) {
       try {
-        const [vec] = await embed([row.text])
+        const [vec] = await embed([buildEmbedInput(row)])
         upsertMessageVector(row.id, vec)
       } catch (err) {
         process.stderr.write(`\n[embed] message ${row.id} failed: ${err}\n`)

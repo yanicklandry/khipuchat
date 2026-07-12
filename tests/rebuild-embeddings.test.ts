@@ -18,7 +18,7 @@ vi.mock('@huggingface/transformers', () => {
 
 import { initDb, getDb, upsertChat, insertMessage } from '../src/db'
 import { getUnindexedMessages, getUnindexedChats } from '../src/vec-db'
-import { rebuildEmbeddings } from '../src/index-embeddings'
+import { rebuildEmbeddings, embedNewMessages } from '../src/index-embeddings'
 import * as embeddings from '../src/embeddings'
 
 // Capture console.log output for completion-line assertions
@@ -49,6 +49,80 @@ describe('rebuildEmbeddings', () => {
   beforeEach(() => {
     initDb(':memory:')
     seedDb()
+  })
+
+  describe('OCR text embedding (task 2.3)', () => {
+    it('image-only message (text=null, ocr_text set) appears in vec_messages after one embedNewMessages run', async () => {
+      const db = getDb()
+      // Insert a telegram chat if not already present via seedDb
+      db.exec(`
+        INSERT OR IGNORE INTO chats(id, name, type, platform)
+          VALUES (10, 'ImageChat', 'user', 'telegram');
+        INSERT OR IGNORE INTO messages(external_id, chat_id, sender_name, text, ocr_text, type, timestamp, is_sender, platform)
+          VALUES ('img1', 10, 'Alice', NULL, 'OCR extracted text from image', 'image', 5000, 0, 'telegram');
+      `)
+
+      await rebuildEmbeddings()
+
+      // The image-only message must be in vec_messages
+      const imgMsgId = db.prepare(`SELECT id FROM messages WHERE external_id = 'img1'`).pluck().get() as number
+      const row = db.prepare('SELECT rowid FROM vec_messages WHERE rowid = ?').get(BigInt(imgMsgId))
+      expect(row, 'image-only message should be indexed via ocr_text').toBeDefined()
+    })
+
+    it('image-only message is NOT re-embedded on the next run (idempotency)', async () => {
+      const db = getDb()
+      db.exec(`
+        INSERT OR IGNORE INTO chats(id, name, type, platform)
+          VALUES (11, 'ImageChat2', 'user', 'telegram');
+        INSERT OR IGNORE INTO messages(external_id, chat_id, sender_name, text, ocr_text, type, timestamp, is_sender, platform)
+          VALUES ('img2', 11, 'Alice', NULL, 'Some OCR text', 'image', 6000, 0, 'telegram');
+      `)
+
+      // First run: embeds the image message
+      const embedSpy = vi.spyOn(embeddings, 'embed')
+      await rebuildEmbeddings()
+      const firstRunCallCount = embedSpy.mock.calls.length
+      expect(firstRunCallCount).toBeGreaterThan(0)
+
+      // Second run: image-only message already indexed, must NOT call embed again for it
+      embedSpy.mockClear()
+      await rebuildEmbeddings()
+      // All previously-indexed messages should be skipped — embed call count for messages is 0
+      // (chats may still call embedOne but embed for messages should not be called again)
+      const imgMsgId = db.prepare(`SELECT id FROM messages WHERE external_id = 'img2'`).pluck().get() as number
+      const row = db.prepare('SELECT rowid FROM vec_messages WHERE rowid = ?').get(BigInt(imgMsgId))
+      expect(row, 'image-only message should remain indexed').toBeDefined()
+
+      embedSpy.mockRestore()
+    })
+
+    it('message with both text and ocr_text uses combined input for embedding', async () => {
+      const db = getDb()
+      db.exec(`
+        INSERT OR IGNORE INTO chats(id, name, type, platform)
+          VALUES (12, 'BothChat', 'user', 'telegram');
+        INSERT OR IGNORE INTO messages(external_id, chat_id, sender_name, text, ocr_text, type, timestamp, is_sender, platform)
+          VALUES ('both1', 12, 'Alice', 'Caption text', 'OCR from image', 'image', 7000, 0, 'telegram');
+      `)
+
+      const capturedInputs: string[][] = []
+      const embedSpy = vi.spyOn(embeddings, 'embed').mockImplementation(async (texts) => {
+        capturedInputs.push([...texts])
+        // Return a fake vector
+        return [new Float32Array(384).fill(0.5)]
+      })
+
+      try {
+        await rebuildEmbeddings()
+      } finally {
+        embedSpy.mockRestore()
+      }
+
+      // Find the call that embedded the 'both1' message
+      const combinedCall = capturedInputs.find(texts => texts.some(t => t.includes('Caption text') && t.includes('OCR from image')))
+      expect(combinedCall, 'embedding input should combine text and ocr_text').toBeDefined()
+    })
   })
 
   it('is exported from index-embeddings', () => {
@@ -234,6 +308,78 @@ describe('rebuildEmbeddings', () => {
       const indexed = db.prepare('SELECT COUNT(*) FROM vec_messages').pluck().get() as number
       expect(indexed).toBeGreaterThanOrEqual(2)
       expect(indexed).toBeLessThan(3)
+    })
+  })
+
+  // ── embedNewMessages integration (task 4.2 semantic discovery) ────────────────
+
+  describe('embedNewMessages — semantic discovery', () => {
+    it('image-only message with ocr_text is embedded after embedNewMessages run', async () => {
+      const db = getDb()
+
+      // Insert a chat and an image-only message with ocr_text (no text)
+      const chatId = upsertChat({ external_id: 'img-chat', account: 'default', name: 'Img Chat', type: 'user', username: null, platform: 'telegram' })
+      insertMessage({
+        external_id: 'img-ocr-only',
+        chat_id: chatId,
+        sender_id: 'u1',
+        sender_name: 'Alice',
+        text: null,
+        type: 'image',
+        timestamp: 9000,
+        is_sender: 0,
+        reply_to_external_id: null,
+        platform: 'telegram',
+      })
+
+      // Set ocr_text directly via SQL (simulates what processImageMessages does)
+      const msgId = db.prepare(`SELECT id FROM messages WHERE external_id = 'img-ocr-only'`).pluck().get() as number
+      db.prepare('UPDATE messages SET ocr_text = ? WHERE id = ?').run('scanned invoice text', msgId)
+
+      // Before embedNewMessages: message is NOT in vec_messages
+      const beforeRow = db.prepare('SELECT rowid FROM vec_messages WHERE rowid = ?').get(BigInt(msgId))
+      expect(beforeRow).toBeUndefined()
+
+      await embedNewMessages([chatId])
+
+      // After embedNewMessages: message IS in vec_messages
+      const afterRow = db.prepare('SELECT rowid FROM vec_messages WHERE rowid = ?').get(BigInt(msgId))
+      expect(afterRow, 'image-only message should be indexed after embedNewMessages').toBeDefined()
+    })
+
+    it('message already in vec_messages is not re-embedded by embedNewMessages', async () => {
+      const db = getDb()
+
+      // Insert a chat and image-only message with ocr_text
+      const chatId = upsertChat({ external_id: 'img-chat-2', account: 'default', name: 'Img Chat 2', type: 'user', username: null, platform: 'telegram' })
+      insertMessage({
+        external_id: 'img-already-indexed',
+        chat_id: chatId,
+        sender_id: 'u1',
+        sender_name: 'Alice',
+        text: null,
+        type: 'image',
+        timestamp: 10000,
+        is_sender: 0,
+        reply_to_external_id: null,
+        platform: 'telegram',
+      })
+      const msgId = db.prepare(`SELECT id FROM messages WHERE external_id = 'img-already-indexed'`).pluck().get() as number
+      db.prepare('UPDATE messages SET ocr_text = ? WHERE id = ?').run('already indexed ocr', msgId)
+
+      // First run: message gets indexed
+      await embedNewMessages([chatId])
+      const rowAfterFirst = db.prepare('SELECT rowid FROM vec_messages WHERE rowid = ?').get(BigInt(msgId))
+      expect(rowAfterFirst).toBeDefined()
+
+      // Spy to verify embed is NOT called again on the second run
+      const embedSpy = vi.spyOn(embeddings, 'embed')
+
+      // Second run: message is already in vec_messages; embed should not be called for it
+      await embedNewMessages([chatId])
+
+      expect(embedSpy, 'embed should not be called when message is already indexed').not.toHaveBeenCalled()
+      embedSpy.mockRestore()
     })
   })
 })

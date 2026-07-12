@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { initDb, type Platform } from './db'
 import { isClaudeConfigured } from './setup-claude'
+import { handleGetImage } from './image-handlers'
 
 export {
   parseTemporalFilters,
@@ -18,6 +19,8 @@ export {
   type MessageResult,
   type SummaryResult,
 } from './query-handlers'
+
+export { handleGetImage, type GetImageResult } from './image-handlers'
 
 import {
   handleListChats,
@@ -47,6 +50,7 @@ export function createMcpServer(): Server {
       { name: 'get_chat_summary', description: 'Get summary and recent texts for a chat', inputSchema: { type: 'object', properties: { chat_id: { type: 'number' } }, required: ['chat_id'] } },
       { name: 'semantic_find_contacts', description: 'Find contacts by meaning (e.g. "old friend from Shanghai around 2019"). Requires khipu index first.', inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Natural-language description of the contact or relationship' }, limit: { type: 'number', description: 'Max results (default 10, max 50)' }, before: { type: 'number', description: 'Unix timestamp — restrict to chats last active before this date' }, after: { type: 'number', description: 'Unix timestamp — restrict to chats last active after this date' }, platform: { type: 'string', description: 'Filter by platform' }, account: { type: 'string', description: 'Filter results to a specific account name. Omit to return results from all accounts.' } }, required: ['query'] } },
       { name: 'semantic_search_messages', description: 'Search messages by meaning rather than exact keywords. Requires khipu index first.', inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Natural-language description of the message content' }, limit: { type: 'number', description: 'Max results (default 20, max 100)' }, chat_id: { type: 'number' }, platform: { type: 'string' }, before_timestamp: { type: 'number' }, after_timestamp: { type: 'number' }, account: { type: 'string', description: 'Filter results to a specific account name. Omit to return results from all accounts.' } }, required: ['query'] } },
+      { name: 'get_image', description: 'Retrieve a stored image by message ID. Returns the image as base64-encoded content along with its file path and OCR text if available.', inputSchema: { type: 'object', properties: { message_id: { type: 'number', description: 'The internal message ID of the image message' } }, required: ['message_id'] } },
     ],
   }))
 
@@ -98,6 +102,8 @@ export function createMcpServer(): Server {
         after_timestamp: args['after_timestamp'] !== undefined ? Number(args['after_timestamp']) : undefined,
         account,
       })
+    else if (name === 'get_image')
+      result = await handleGetImage(Number(args['message_id']))
     else throw new Error(`Unknown tool: ${name}`)
     return { content: [{ type: 'text', text: JSON.stringify(result) }] }
   })

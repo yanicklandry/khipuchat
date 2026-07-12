@@ -28,6 +28,10 @@ export const config: Config = {
   sessionString: process.env['TELEGRAM_SESSION_STRING'] ?? '',
 }
 
+// ── Media directory ───────────────────────────────────────────────────────────
+
+export const mediaDir: string = process.env['MEDIA_DIR'] ?? path.resolve(process.cwd(), 'media')
+
 // ── Write-back ────────────────────────────────────────────────────────────────
 
 const ENV_PATH = path.resolve(process.cwd(), '.env')

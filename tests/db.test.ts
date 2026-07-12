@@ -10,6 +10,8 @@ import {
   getLastSyncedId,
   getPlatformLastSyncedAt,
   setPlatformLastSyncedAt,
+  updateMessageMedia,
+  getMessageIdByExternalId,
 } from '../src/db'
 
 const T = 1700000000
@@ -632,5 +634,178 @@ describe('sync_state', () => {
   it('different platforms are independent', () => {
     setPlatformLastSyncedAt('telegram', 'default', 1000)
     expect(getPlatformLastSyncedAt('slack', 'default')).toBeNull()
+  })
+})
+
+// ── ocr_text schema (task 1.2) ────────────────────────────────────────────────
+
+describe('schema — ocr_text column (task 1.2)', () => {
+  it('messages table has an ocr_text column', () => {
+    const database = initDb(':memory:')
+    const cols = (database.pragma('table_info(messages)') as { name: string }[]).map(r => r.name)
+    expect(cols).toContain('ocr_text')
+  })
+
+  it('messages_fts FTS table includes ocr_text column', () => {
+    const database = initDb(':memory:')
+    const cols = (database.pragma('table_info(messages_fts)') as { name: string }[]).map(r => r.name)
+    expect(cols).toContain('ocr_text')
+  })
+})
+
+// ── updateMessageMedia (task 1.2) ─────────────────────────────────────────────
+
+describe('updateMessageMedia', () => {
+  let chatId: number
+  let msgId: number
+
+  beforeEach(() => {
+    chatId = upsertChat({ external_id: 'c1', account: 'default', name: 'Test Chat', type: 'user', username: null, platform: 'telegram' })
+    insertMessage({
+      external_id: 'ext-1',
+      chat_id: chatId,
+      sender_id: 'u1',
+      sender_name: 'Alice',
+      text: 'original text',
+      type: 'image',
+      timestamp: T + 1,
+      is_sender: 0,
+      reply_to_external_id: null,
+      platform: 'telegram',
+    })
+    const row = getMessageIdByExternalId(chatId, 'ext-1')
+    msgId = row!
+  })
+
+  it('sets ocr_text without touching text', () => {
+    updateMessageMedia(msgId, { ocr_text: 'extracted text' })
+    const msgs = getMessages(chatId, 10)
+    expect(msgs[0].text).toBe('original text')
+    expect(msgs[0].ocr_text).toBe('extracted text')
+  })
+
+  it('sets media_file_path without touching other fields', () => {
+    updateMessageMedia(msgId, { media_file_path: '/tmp/photo.jpg' })
+    const msgs = getMessages(chatId, 10)
+    expect(msgs[0].media_file_path).toBe('/tmp/photo.jpg')
+    expect(msgs[0].text).toBe('original text')
+    expect(msgs[0].ocr_text).toBeNull()
+  })
+
+  it('sets multiple media fields at once', () => {
+    updateMessageMedia(msgId, { media_width: 1920, media_height: 1080, ocr_text: 'hello' })
+    const msgs = getMessages(chatId, 10)
+    expect(msgs[0].media_width).toBe(1920)
+    expect(msgs[0].media_height).toBe(1080)
+    expect(msgs[0].ocr_text).toBe('hello')
+    expect(msgs[0].text).toBe('original text')
+  })
+
+  it('calling with empty object does not throw and leaves row unchanged', () => {
+    expect(() => updateMessageMedia(msgId, {})).not.toThrow()
+    const msgs = getMessages(chatId, 10)
+    expect(msgs[0].text).toBe('original text')
+  })
+
+  it('subsequent call with only ocr_text does not reset media_file_path', () => {
+    updateMessageMedia(msgId, { media_file_path: '/tmp/img.jpg' })
+    updateMessageMedia(msgId, { ocr_text: 'found text' })
+    const msgs = getMessages(chatId, 10)
+    expect(msgs[0].media_file_path).toBe('/tmp/img.jpg')
+    expect(msgs[0].ocr_text).toBe('found text')
+  })
+})
+
+// ── searchMessages via ocr_text (FTS guard integration) ──────────────────────
+
+describe('searchMessages — finds image messages by ocr_text', () => {
+  let chatId: number
+  let msgId: number
+
+  beforeEach(() => {
+    chatId = upsertChat({ external_id: 'c1', account: 'default', name: 'OCR Chat', type: 'user', username: null, platform: 'telegram' })
+    insertMessage({
+      external_id: 'img-ocr-1',
+      chat_id: chatId,
+      sender_id: 'u1',
+      sender_name: 'Alice',
+      text: null,
+      type: 'image',
+      timestamp: T + 1,
+      is_sender: 0,
+      reply_to_external_id: null,
+      platform: 'telegram',
+    })
+    const id = getMessageIdByExternalId(chatId, 'img-ocr-1')
+    msgId = id!
+  })
+
+  it('returns image message when searched by its ocr_text term', () => {
+    updateMessageMedia(msgId, { ocr_text: 'uniqueocrterm' })
+    const results = searchMessages('uniqueocrterm')
+    expect(results).toHaveLength(1)
+    expect(results[0].chat_id).toBe(chatId)
+  })
+
+  it('does not return image message before ocr_text is set', () => {
+    const results = searchMessages('uniqueocrterm')
+    expect(results).toHaveLength(0)
+  })
+})
+
+// ── getMessageIdByExternalId (task 1.2) ───────────────────────────────────────
+
+describe('getMessageIdByExternalId', () => {
+  let chatId: number
+
+  beforeEach(() => {
+    chatId = upsertChat({ external_id: 'c1', account: 'default', name: 'Test Chat', type: 'user', username: null, platform: 'telegram' })
+    insertMessage({
+      external_id: 'ext-100',
+      chat_id: chatId,
+      sender_id: 'u1',
+      sender_name: 'Alice',
+      text: 'hello',
+      type: 'text',
+      timestamp: T + 1,
+      is_sender: 0,
+      reply_to_external_id: null,
+      platform: 'telegram',
+    })
+  })
+
+  it('returns a number id for an existing (chat_id, external_id) pair', () => {
+    const id = getMessageIdByExternalId(chatId, 'ext-100')
+    expect(typeof id).toBe('number')
+    expect(id).toBeGreaterThan(0)
+  })
+
+  it('returns null for an unknown external_id', () => {
+    expect(getMessageIdByExternalId(chatId, 'no-such-id')).toBeNull()
+  })
+
+  it('returns null for an unknown chat_id', () => {
+    expect(getMessageIdByExternalId(9999, 'ext-100')).toBeNull()
+  })
+
+  it('same external_id under different chat_ids returns distinct ids', () => {
+    const chatId2 = upsertChat({ external_id: 'c2', account: 'default', name: 'Chat 2', type: 'user', username: null, platform: 'telegram' })
+    insertMessage({
+      external_id: 'ext-100',
+      chat_id: chatId2,
+      sender_id: 'u2',
+      sender_name: 'Bob',
+      text: 'world',
+      type: 'text',
+      timestamp: T + 2,
+      is_sender: 0,
+      reply_to_external_id: null,
+      platform: 'telegram',
+    })
+    const id1 = getMessageIdByExternalId(chatId, 'ext-100')
+    const id2 = getMessageIdByExternalId(chatId2, 'ext-100')
+    expect(id1).not.toBeNull()
+    expect(id2).not.toBeNull()
+    expect(id1).not.toBe(id2)
   })
 })

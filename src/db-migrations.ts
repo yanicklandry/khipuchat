@@ -8,6 +8,31 @@ export function columnExists(db: Database.Database, table: string, col: string):
   }
 }
 
+export function applyFtsSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
+      USING fts5(text, ocr_text, content='messages', content_rowid='id');
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_insert
+      AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts(rowid, text, ocr_text) VALUES (new.id, new.text, new.ocr_text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_delete
+      AFTER DELETE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, text, ocr_text)
+          VALUES ('delete', old.id, old.text, old.ocr_text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_update
+      AFTER UPDATE OF ocr_text ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, text, ocr_text)
+          VALUES ('delete', old.id, old.text, old.ocr_text);
+        INSERT INTO messages_fts(rowid, text, ocr_text) VALUES (new.id, new.text, new.ocr_text);
+      END;
+  `)
+}
+
 function indexExists(db: Database.Database, indexName: string): boolean {
   const row = db.prepare(
     "SELECT name FROM sqlite_master WHERE type='index' AND name=?"
@@ -53,6 +78,22 @@ export function runMigrations(database: Database.Database): void {
     database.exec('ALTER TABLE messages ADD COLUMN media_width INTEGER')
   if (!columnExists(database, 'messages', 'media_height'))
     database.exec('ALTER TABLE messages ADD COLUMN media_height INTEGER')
+
+  // Add ocr_text column to messages (telegram-image-sync)
+  if (!columnExists(database, 'messages', 'ocr_text'))
+    database.exec('ALTER TABLE messages ADD COLUMN ocr_text TEXT')
+
+  // FTS recreate guard: upgrade one-column messages_fts to two-column if needed
+  const ftsExists = (database.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='messages_fts'"
+  ).get()) !== undefined
+  if (ftsExists && !columnExists(database, 'messages_fts', 'ocr_text')) {
+    database.exec('DROP TRIGGER IF EXISTS messages_fts_insert')
+    database.exec('DROP TRIGGER IF EXISTS messages_fts_delete')
+    database.exec('DROP TRIGGER IF EXISTS messages_fts_update')
+    database.exec('DROP TABLE messages_fts')
+    applyFtsSchema(database)
+  }
 
   // Rebuild sync_state to composite PK (platform, account) if not already done
   if (!syncStateHasAccountPk(database)) {

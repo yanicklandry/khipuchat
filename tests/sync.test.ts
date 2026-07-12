@@ -7,6 +7,18 @@ import { config, saveSessionString } from '../src/config'
 import { runAuthWizard, runBackfill, runSync, startListener, syncIncrementalImpl, type PromptFn } from '../src/platforms/telegram/sync'
 import { initDb, upsertChat, getChats, getMessages, getPlatformLastSyncedAt, setPlatformLastSyncedAt } from '../src/db'
 
+// Mock image-sync module to track processImageMessages calls
+vi.mock('../src/platforms/telegram/image-sync', () => ({
+  processImageMessages: vi.fn().mockResolvedValue(undefined),
+}))
+// Mock ocr module to track terminateOcr calls
+vi.mock('../src/ocr', () => ({
+  extractText: vi.fn().mockResolvedValue(null),
+  terminateOcr: vi.fn().mockResolvedValue(undefined),
+}))
+
+import { processImageMessages } from '../src/platforms/telegram/image-sync'
+
 const T = 1700000000
 
 // ── Helpers — env files ───────────────────────────────────────────────────────
@@ -71,6 +83,20 @@ function makeMsg(
     media: undefined,
     replyTo: undefined,
     out,
+  }
+}
+
+function makeImageMsg(id: number, date: number, peerId = 1): MockMessage & { media: { className: 'MessageMediaPhoto'; photo: { sizes: [] } } } {
+  return {
+    className: 'Message',
+    id,
+    message: '',
+    date,
+    fromId: { className: 'PeerUser', userId: BigInt(999) },
+    peerId: { className: 'PeerUser', userId: BigInt(peerId) },
+    media: { className: 'MessageMediaPhoto', photo: { sizes: [] } },
+    replyTo: undefined,
+    out: false,
   }
 }
 
@@ -321,6 +347,47 @@ describe('runBackfill', () => {
     expect(sleep).toHaveBeenCalledTimes(1)
     expect(sleep).toHaveBeenCalledWith(300)
   })
+
+  it('calls processImageMessages with image msgs from first-time sync', async () => {
+    vi.mocked(processImageMessages).mockClear()
+    const entity = makeUserEntity(1, 'Alice')
+    const textMsg = makeMsg(1, 'hello', T + 1)
+    const imageMsg = makeImageMsg(2, T + 2)
+    const client = makeMockClient()
+    client.getDialogs.mockResolvedValue([{ entity }])
+    client.getMessages.mockResolvedValue([textMsg, imageMsg])
+    const sleep = vi.fn().mockResolvedValue(undefined)
+
+    await runBackfill(client as unknown as TelegramClient, sleep, 20)
+
+    expect(processImageMessages).toHaveBeenCalledOnce()
+    const [, , imgs] = vi.mocked(processImageMessages).mock.calls[0]
+    expect(imgs).toHaveLength(1)
+    expect(imgs[0].id).toBe(2)
+  })
+
+  it('calls processImageMessages with image msgs from incremental (paginated) sync', async () => {
+    vi.mocked(processImageMessages).mockClear()
+    const entity = makeUserEntity(1, 'Alice')
+    upsertChat({ external_id: '1', account: 'default', name: 'Alice', type: 'user', username: null, platform: 'telegram' })
+    const { insertMessage } = await import('../src/db')
+    insertMessage({ external_id: '0', chat_id: 1, sender_id: null, sender_name: 'A', text: 'seed', type: 'text', timestamp: T, is_sender: 0, reply_to_external_id: null, platform: 'telegram' })
+
+    const imageMsg = makeImageMsg(5, T + 5)
+    const client = makeMockClient()
+    client.getDialogs.mockResolvedValue([{ entity }])
+    client.getMessages
+      .mockResolvedValueOnce([makeMsg(4, 'text', T + 4), imageMsg])
+      .mockResolvedValue([])
+    const sleep = vi.fn().mockResolvedValue(undefined)
+
+    await runBackfill(client as unknown as TelegramClient, sleep, 20)
+
+    expect(processImageMessages).toHaveBeenCalledOnce()
+    const [, , imgs] = vi.mocked(processImageMessages).mock.calls[0]
+    expect(imgs).toHaveLength(1)
+    expect(imgs[0].id).toBe(5)
+  })
 })
 
 // ── startListener ─────────────────────────────────────────────────────────────
@@ -360,6 +427,31 @@ describe('startListener', () => {
 
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('1'))
     consoleSpy.mockRestore()
+  })
+
+  it('calls processImageMessages with single-element array when an image message arrives', async () => {
+    vi.mocked(processImageMessages).mockClear()
+    const client = makeMockClient()
+    startListener(client as unknown as TelegramClient)
+
+    const handler = client.addEventHandler.mock.calls[0][0] as (e: { message: unknown }) => Promise<void>
+    await handler({ message: makeImageMsg(77, T + 100, 1) })
+
+    expect(processImageMessages).toHaveBeenCalledOnce()
+    const [, , imgs] = vi.mocked(processImageMessages).mock.calls[0]
+    expect(imgs).toHaveLength(1)
+    expect(imgs[0].id).toBe(77)
+  })
+
+  it('does NOT call processImageMessages for non-image messages in listener', async () => {
+    vi.mocked(processImageMessages).mockClear()
+    const client = makeMockClient()
+    startListener(client as unknown as TelegramClient)
+
+    const handler = client.addEventHandler.mock.calls[0][0] as (e: { message: MockMessage }) => Promise<void>
+    await handler({ message: makeMsg(88, 'text message', T + 200, 1, 999, false) })
+
+    expect(processImageMessages).not.toHaveBeenCalled()
   })
 })
 
@@ -486,5 +578,23 @@ describe('syncIncrementalImpl', () => {
     const stored = getMessages(1, 10)
     expect(stored).toHaveLength(1)
     expect(stored[0].external_id).toBe('3')
+  })
+
+  it('calls processImageMessages with image msgs during incremental sync', async () => {
+    vi.mocked(processImageMessages).mockClear()
+    const since = new Date(T * 1000)
+    const entity = makeUserEntity(1, 'Dave')
+    const imageMsg = makeImageMsg(20, T + 5)
+    const client = makeMockClient()
+    client.getDialogs.mockResolvedValue([{ entity, date: T + 10 }])
+    client.getMessages.mockResolvedValue([makeMsg(19, 'text', T + 4), imageMsg])
+    const sleep = vi.fn().mockResolvedValue(undefined)
+
+    await syncIncrementalImpl(client as unknown as TelegramClient, since, sleep, 20)
+
+    expect(processImageMessages).toHaveBeenCalledOnce()
+    const [, , imgs] = vi.mocked(processImageMessages).mock.calls[0]
+    expect(imgs).toHaveLength(1)
+    expect(imgs[0].id).toBe(20)
   })
 })

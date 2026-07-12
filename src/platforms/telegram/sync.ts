@@ -9,6 +9,8 @@ import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { PlatformAdapter } from '../types'
 import type { AccountCredentials } from '../../account-registry'
+import { processImageMessages, type RawTelegramMessage } from './image-sync'
+import { terminateOcr } from '../../ocr'
 
 export type PromptFn = (question: string) => Promise<string>
 export interface WizardConfig { sessionString: string }
@@ -147,6 +149,7 @@ export async function runBackfill(
     let synced = 0
 
     try {
+      const imageMsgs: MsgLike[] = []
       if (lastId === null) {
         // First-time sync: fetch only the most recent messages (no full history trawl)
         const msgs = await withTimeout(
@@ -155,7 +158,11 @@ export async function runBackfill(
         )
         for (const msg of msgs) {
           const row = msgToRow(msg, chatId)
-          if (row) { insertMessage(row); synced++ }
+          if (row) {
+            insertMessage(row)
+            synced++
+            if (row.type === 'image') imageMsgs.push(msg)
+          }
         }
       } else {
         // Incremental sync: paginate forward from the last stored message ID
@@ -167,12 +174,17 @@ export async function runBackfill(
           )
           for (const msg of msgs) {
             const row = msgToRow(msg, chatId)
-            if (row) { insertMessage(row); synced++ }
+            if (row) {
+              insertMessage(row)
+              synced++
+              if (row.type === 'image') imageMsgs.push(msg)
+            }
           }
           if (msgs.length < pageSize) break
           offsetId = msgs[msgs.length - 1].id
         }
       }
+      await processImageMessages(client, chatId, imageMsgs as RawTelegramMessage[])
       setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
       if (isIndexed('messages')) await embedNewMessages([chatId])
       if (isIndexed('chats')) await embedNewChats([chatId])
@@ -195,6 +207,9 @@ export function startListener(client: TelegramClient): void {
     const row = msgToRow(msg, chatId)
     if (row) {
       insertMessage(row)
+      if (row.type === 'image') {
+        await processImageMessages(client, chatId, [msg] as RawTelegramMessage[])
+      }
       if (isIndexed('messages')) await embedNewMessages([chatId])
       if (isIndexed('chats')) await embedNewChats([chatId])
       console.log(`New message in chat ${chatId}`)
@@ -234,6 +249,7 @@ export async function syncIncrementalImpl(
     let synced = 0
 
     try {
+      const imageMsgs: MsgLike[] = []
       if (lastId === null) {
         const msgs = await withTimeout(
           client.getMessages(dialogs[i].entity, { limit: firstRunLimit }) as Promise<MsgLike[]>,
@@ -242,7 +258,11 @@ export async function syncIncrementalImpl(
         for (const msg of msgs) {
           if (msg.date <= sinceTs) continue
           const row = msgToRow(msg, chatId)
-          if (row) { insertMessage(row); synced++ }
+          if (row) {
+            insertMessage(row)
+            synced++
+            if (row.type === 'image') imageMsgs.push(msg)
+          }
         }
       } else {
         let offsetId = parseInt(lastId, 10)
@@ -254,12 +274,17 @@ export async function syncIncrementalImpl(
           for (const msg of msgs) {
             if (msg.date <= sinceTs) continue
             const row = msgToRow(msg, chatId)
-            if (row) { insertMessage(row); synced++ }
+            if (row) {
+              insertMessage(row)
+              synced++
+              if (row.type === 'image') imageMsgs.push(msg)
+            }
           }
           if (msgs.length < pageSize) break
           offsetId = msgs[msgs.length - 1].id
         }
       }
+      await processImageMessages(client, chatId, imageMsgs as RawTelegramMessage[])
       setLastSyncedAt(chatId, Math.floor(Date.now() / 1000))
       if (isIndexed('messages')) await embedNewMessages([chatId])
       if (isIndexed('chats')) await embedNewChats([chatId])
@@ -351,6 +376,7 @@ async function main(): Promise<void> {
     console.error(err)
     process.exit(1)
   }
+  await terminateOcr()
 
   if (backfillOnly) { await client.disconnect(); process.exit(0) }
   startListener(client)

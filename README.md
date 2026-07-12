@@ -119,6 +119,7 @@ If you run `khipu setup-claude` or `khipu setup-sync` again (e.g. after a Node u
 | `list_messages(chat_id, limit?, before_timestamp?)` | List text messages (max 200) |
 | `search_messages(query, chat_id?)` | Full-text search across all messages |
 | `get_chat_summary(chat_id)` | Stats + last 5 texts for a chat |
+| `get_image(message_id)` | Retrieve a stored image as base64 content, with file path and OCR text if available |
 
 ## Multi-account configuration
 

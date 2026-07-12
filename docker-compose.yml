@@ -7,6 +7,7 @@ services:
     volumes:
       - db-data:/app/khipuchat.db
       - hf-cache:/app/.cache/huggingface
+      - media-data:/app/media
     env_file: .env
 
   sync:
@@ -15,11 +16,13 @@ services:
     volumes:
       - db-data:/app/khipuchat.db
       - hf-cache:/app/.cache/huggingface
+      - media-data:/app/media
     env_file: .env
 
 volumes:
   db-data:
   hf-cache:
+  media-data:
 
 # ── Claude Desktop (stdio MCP) ─────────────────────────────────────────────
 # docker run -i --rm -v khipuchat_db-data:/app/khipuchat.db <image> khipu mcp
