@@ -93,3 +93,20 @@ Requirements 1–3 are fully implemented and tested. Only Requirement 4 needs a 
 **Key decision to confirm in design**: Whether the localhost binding test should live in `security.test.ts` (thematically correct, co-located with other security tests) or `web.test.ts` (tests all web server behaviour). Recommendation: `security.test.ts`.
 
 **Research items to carry forward**: None — all dependencies are already installed, all APIs are understood.
+
+---
+
+## Design-Phase Decisions (2026-07-12)
+
+### Synthesis outcome
+- **No generalization or new abstraction warranted.** Layers 1-3 already exist and pass; the feature reduces to one test gap (R4) plus a minimal testability refactor. Adopt existing `createApp()` + supertest patterns as-is.
+- **Build-vs-adopt**: adopt installed deps (`better-sqlite3-multiple-ciphers`, `express-basic-auth`); no additions.
+
+### R4 approach: Option B adopted (overrides the earlier Option A recommendation)
+- The gap analysis recommended **Option A** (test-only; test itself passes `'127.0.0.1'` to `listen`). On review, Option A is near-tautological: it asserts that Node binds where the test tells it to, not that production binds to localhost. It would still pass if `main()` were changed to bind `0.0.0.0`, which is exactly the misconfiguration Requirement 4 exists to prevent.
+- **Decision: Option B.** Extract `app.listen` from `main()` into an exported `startServer(app, host = '127.0.0.1', port = 3333)`; `main()` delegates to it. The R4 test calls `startServer(createApp(), undefined, 0)` and asserts the **default** bind host is `127.0.0.1`. This makes the test guard the requirement's intent.
+- **Cost/risk**: small pure extraction in `src/web/server.ts` (well under size limit), no new dependency, Low risk. Only care point: preserve the existing `EADDRINUSE` handler on the returned server.
+- **Test location**: `tests/security.test.ts` (co-located with the other three layers), per the gap-analysis recommendation.
+
+### Consequence
+- `design.md` reframed from greenfield ("implement all four layers") to reflect actual state (layers 1-3 implemented + tested; R4 is the only build). `tasks.md` was generated against the old greenfield design and is now stale — regenerate after design re-approval.
