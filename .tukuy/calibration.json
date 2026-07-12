@@ -278,5 +278,13 @@
     "actualDurationMs": 64537,
     "idleDurationMs": 0,
     "estimatedTokens": 80000
+  },
+  {
+    "phase": "init",
+    "timestamp": "2026-07-12T02:45:29.855Z",
+    "estimatedDurationMs": 28817.666666666668,
+    "actualDurationMs": 30987,
+    "idleDurationMs": 0,
+    "estimatedTokens": 40000
   }
 ]
