@@ -420,4 +420,3 @@ Progress/status output is already emitted by `index-embeddings.ts` (5.3) and the
 
 ## Security Considerations
 No new external surface, network calls, or credential handling are introduced. The CLI reads the same local SQLite archive and account registry already used by existing surfaces; `@account` validation reads configured names only and never prints credential values.
-</content>
