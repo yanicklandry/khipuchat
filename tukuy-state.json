@@ -2,7 +2,8 @@
   "specName": "platform-abstraction",
   "completedPhases": [
     "steering",
-    "discovery"
+    "discovery",
+    "init"
   ],
   "done": false,
   "completedQueueSpecs": [
