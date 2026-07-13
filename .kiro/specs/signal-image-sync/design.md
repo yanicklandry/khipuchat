@@ -29,19 +29,20 @@
 
 - The Signal image-sync module (`src/platforms/signal/image-sync.ts`): image detection, two-strategy fetch, store, OCR, persist, and `{ stored, failed }` accounting for one chat.
 - The `mapMessage` classification change (`IMAGE` → `type: 'image'`).
-- The `fetchAttachmentBuffer` method added to `BeeperSignalClient` and its Beeper `assets.serve` wrapping.
-- Wiring image-sync into `runBackfillImpl` and `runIncrementalImpl`, including surfacing counts in the summary line.
+- The `AttachmentFetcher` interface plus its `createSignalAttachmentFetcher(accessToken)` factory (both in `image-sync.ts`), which wrap Beeper `assets.serve`.
+- Wiring image-sync into `runBackfillImpl` and `runIncrementalImpl`, including passing an `AttachmentFetcher` and surfacing counts in the summary line.
 
 ### Out of Boundary
 
 - Shared infrastructure behavior: `storeMedia` / `mediaPathFor`, `extractText`, `updateMessageMedia`, `getMessageIdByExternalId`, `handleGetImage`. Used as-is, not modified.
+- `client.ts` / `BeeperSignalClient`: unchanged. The Beeper `assets.serve` access lives in the standalone `AttachmentFetcher` (in `image-sync.ts`), so the existing client interface and its `BeeperDesktop` instance are not touched.
 - Message record creation. Signal text sync must have already inserted the message row (with `external_id`) before image-sync runs.
 - Full-text and semantic search indexing. Searchability is a consequence of writing `ocr_text` via the existing `updateMessageMedia` path, not new indexing work here.
 
 ### Allowed Dependencies
 
 - `src/media-storage.ts` (`storeMedia`, `mediaPathFor`), `src/ocr.ts` (`extractText`), `src/db.ts` (`getMessageIdByExternalId`, `updateMessageMedia`, `getDb`).
-- `@beeper/desktop-api` `assets.serve`: accessed only through the new `fetchAttachmentBuffer` client method; the `BeeperDesktop` instance stays private to `client.ts`.
+- `@beeper/desktop-api` `assets.serve`: accessed only through the `AttachmentFetcher` returned by `createSignalAttachmentFetcher`; the `BeeperDesktop` instance it constructs stays private to `image-sync.ts`.
 - Node `fs` for the local filesystem fallback read.
 - Dependency direction: `image-sync.ts` → (`client` interface, `media-storage`, `ocr`, `db`). It must not be imported by shared infra, and must not import the sync-runner.
 
@@ -68,7 +69,7 @@ graph TB
         SyncLoop[runBackfill and runIncremental]
         MapMessage[mapMessage]
         ImageSync[processSignalImageMessages]
-        Client[BeeperSignalClient]
+        Fetcher[AttachmentFetcher]
     end
     subgraph SharedInfra
         MediaStorage[media-storage storeMedia]
@@ -81,8 +82,8 @@ graph TB
     end
     SyncLoop --> MapMessage
     SyncLoop --> ImageSync
-    ImageSync --> Client
-    Client --> Beeper
+    ImageSync --> Fetcher
+    Fetcher --> Beeper
     ImageSync --> Fs
     ImageSync --> MediaStorage
     ImageSync --> Ocr
@@ -91,9 +92,9 @@ graph TB
 
 **Architecture Integration**:
 - Selected pattern: extend the existing per-adapter pipeline; one new module plus a client method, matching the Telegram precedent.
-- Domain boundaries: fetch strategy is owned by `image-sync` (orchestration) + `client` (Beeper transport); storage/OCR/persistence stay in shared infra.
-- Existing patterns preserved: narrow client interface hides the SDK; per-message error isolation; per-chat processing inside the sync loop.
-- New components rationale: `image-sync.ts` (Signal has none yet); `fetchAttachmentBuffer` (expose `assets.serve` without leaking the SDK type).
+- Domain boundaries: fetch strategy is owned by `image-sync` (orchestration + the `AttachmentFetcher` Beeper transport); storage/OCR/persistence stay in shared infra.
+- Existing patterns preserved: a narrow interface (`AttachmentFetcher`) hides the SDK; per-message error isolation; per-chat processing inside the sync loop.
+- New components rationale: `image-sync.ts` (Signal has none yet); `AttachmentFetcher` + `createSignalAttachmentFetcher` (expose `assets.serve` without leaking the SDK type and without modifying `client.ts`).
 - Steering compliance: all data stays local (no cloud); OCR via local Tesseract; agent-native retrieval via existing `get_image`.
 
 ### Technology Stack
@@ -102,7 +103,7 @@ graph TB
 |-------|------------------|-----------------|-------|
 | Backend / Services | TypeScript (existing) | Image-sync orchestration + client method | Strict typing; no `any` |
 | Data / Storage | `media-storage` + SQLite `messages` (existing) | On-disk image files + media columns | No schema change |
-| Messaging / Events | `@beeper/desktop-api` `assets.serve` | Fetch attachment bytes | Wrapped by `fetchAttachmentBuffer` |
+| Messaging / Events | `@beeper/desktop-api` `assets.serve` | Fetch attachment bytes | Wrapped by `AttachmentFetcher` (`createSignalAttachmentFetcher`) |
 | Infrastructure / Runtime | Node `fs`, Tesseract via `ocr` | Filesystem fallback read + OCR | Both best-effort |
 
 New dependency surface: none. `@beeper/desktop-api` and `tesseract.js` are already in use.
@@ -112,17 +113,19 @@ New dependency surface: none. `@beeper/desktop-api` and `tesseract.js` are alrea
 ### Directory Structure
 ```
 src/platforms/signal/
-├── image-sync.ts     # NEW: processSignalImageMessages + fetch strategy + ext/detection helpers
-├── client.ts         # MODIFIED: add fetchAttachmentBuffer to interface + impl
-└── sync.ts           # MODIFIED: mapMessage IMAGE=>'image'; wire image-sync into both run*Impl
+├── image-sync.ts     # NEW: AttachmentFetcher + createSignalAttachmentFetcher; processSignalImageMessages + fetch strategy + ext/detection helpers
+├── client.ts         # UNCHANGED: BeeperSignalClient interface is not touched
+└── sync.ts           # MODIFIED: mapMessage IMAGE=>'image'; wire image-sync into both run*Impl; createSignalAdapter builds and passes the fetcher
 ```
 
 ### Modified Files
-- `src/platforms/signal/client.ts`: add `fetchAttachmentBuffer(url: string): Promise<Buffer | null>` to the `BeeperSignalClient` interface and implement it by wrapping `beeper.assets.serve({ url })`, returning `null` on any failure.
-- `src/platforms/signal/sync.ts`: `mapMessage`: emit `type: 'image'` when `m.type === 'IMAGE'`. `runBackfillImpl` / `runIncrementalImpl`: collect the raw `BeeperMessage`s classified as image per chat, call `processSignalImageMessages` after inserting that chat's messages, accumulate `{ stored, failed }`, and include them in the completion log (Req 6.4).
+- `src/platforms/signal/sync.ts`: `mapMessage`: emit `type: 'image'` when `m.type === 'IMAGE'`. `runBackfillImpl` / `runIncrementalImpl`: accept an optional `fetcher?: AttachmentFetcher`, collect the raw `BeeperMessage`s classified as image per chat, call `processSignalImageMessages(fetcher, chatId, imageMsgs)` after inserting that chat's messages, accumulate `{ stored, failed }`, and include them in the completion log (Req 6.4). `createSignalAdapter` constructs `createSignalAttachmentFetcher(token)` and passes it into both run functions.
 
 ### New Files
-- `src/platforms/signal/image-sync.ts`: owns `processSignalImageMessages`, the internal `fetchSignalAttachment` two-strategy resolver, `pickImageAttachment`, and `extFromMime`.
+- `src/platforms/signal/image-sync.ts`: owns the `AttachmentFetcher` interface, its `createSignalAttachmentFetcher(accessToken)` factory (wrapping `beeper.assets.serve`), `processSignalImageMessages`, the internal `fetchSignalAttachment` two-strategy resolver, `pickImageAttachment`, and `extFromMime`.
+
+### Unchanged Files
+- `src/platforms/signal/client.ts`: the `BeeperSignalClient` interface is deliberately left untouched. Beeper `assets.serve` is reached through the standalone `AttachmentFetcher`, avoiding any modification to the existing client boundary.
 
 ## System Flows
 
@@ -156,10 +159,10 @@ Key decisions: Beeper is always tried first (Req 2.1); the `file://` disk read i
 | 1.1 | Identify image messages | mapMessage, sync loop | `mapMessage` | Detection at map time |
 | 1.2 | Skip non-image messages unchanged | mapMessage | `mapMessage` |: |
 | 1.3 | Skip already-stored images | processSignalImageMessages | `media_file_path` guard | Guard node |
-| 2.1 | Fetch via Beeper Desktop | processSignalImageMessages, BeeperSignalClient | `fetchAttachmentBuffer` | Beeper node |
+| 2.1 | Fetch via Beeper Desktop | processSignalImageMessages, AttachmentFetcher | `fetchAttachmentBuffer` | Beeper node |
 | 2.2 | Local filesystem fallback | processSignalImageMessages | `fetchSignalAttachment` | FileUrl/Disk nodes |
 | 2.3 | Both fail → record + continue | processSignalImageMessages | return `{ stored, failed }` | Fail node |
-| 2.4 | No Beeper/credential config change | BeeperSignalClient | existing `createBeeperSignalClient` |: |
+| 2.4 | No Beeper/credential config change | AttachmentFetcher | `createSignalAttachmentFetcher(token)` reuses existing token |: |
 | 3.1 | Store via shared path convention | processSignalImageMessages | `storeMedia` | Store node |
 | 3.2 | Record file location on message | processSignalImageMessages | `updateMessageMedia` | Persist node |
 | 3.3 | Do not overwrite existing file | processSignalImageMessages | guard + deterministic path | Guard node |
@@ -180,9 +183,9 @@ Key decisions: Beeper is always tried first (Req 2.1); the `file://` disk read i
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
 |-----------|--------------|--------|--------------|--------------------------|-----------|
 | `mapMessage` (patch) | Adapter/mapping | Classify `IMAGE` as `type: 'image'` | 1.1, 1.2, 5.3 |: | State |
-| `BeeperSignalClient.fetchAttachmentBuffer` | Adapter/transport | Fetch attachment bytes via Beeper, isolate SDK + errors | 2.1, 2.4 | `assets.serve` (P0) | Service |
-| `processSignalImageMessages` | Adapter/image-sync | Detect→fetch→store→OCR→persist per chat, count results | 1.3, 2.1–2.3, 3.1–3.3, 4.1–4.4, 6.1–6.4 | client (P0), media-storage (P0), ocr (P1), db (P0) | Service, Batch |
-| Sync-loop wiring | Adapter/runtime | Collect image msgs, invoke image-sync, surface counts | 6.3, 6.4 | processSignalImageMessages (P0) | Batch |
+| `AttachmentFetcher` + `createSignalAttachmentFetcher` | Adapter/transport | Fetch attachment bytes via Beeper, isolate SDK + errors | 2.1, 2.4 | `assets.serve` (P0) | Service |
+| `processSignalImageMessages` | Adapter/image-sync | Detect→fetch→store→OCR→persist per chat, count results | 1.3, 2.1–2.3, 3.1–3.3, 4.1–4.4, 6.1–6.4 | fetcher (P0), media-storage (P0), ocr (P1), db (P0) | Service, Batch |
+| Sync-loop wiring | Adapter/runtime | Build + pass fetcher, collect image msgs, invoke image-sync, surface counts | 6.3, 6.4 | processSignalImageMessages (P0), AttachmentFetcher (P0) | Batch |
 
 ### Adapter / Mapping
 
@@ -205,11 +208,11 @@ Key decisions: Beeper is always tried first (Req 2.1); the `file://` disk read i
 
 ### Adapter / Transport
 
-#### BeeperSignalClient.fetchAttachmentBuffer
+#### AttachmentFetcher + createSignalAttachmentFetcher
 
 | Field | Detail |
 |-------|--------|
-| Intent | Fetch raw attachment bytes for a Beeper asset URL, returning `null` on any failure |
+| Intent | Fetch raw attachment bytes for a Beeper asset URL, returning `null` on any failure, without modifying `client.ts` |
 | Requirements | 2.1, 2.4 |
 
 **Dependencies**
@@ -219,17 +222,18 @@ Key decisions: Beeper is always tried first (Req 2.1); the `file://` disk read i
 
 ##### Service Interface
 ```typescript
-interface BeeperSignalClient {
-  // ...existing members...
+interface AttachmentFetcher {
   fetchAttachmentBuffer(url: string): Promise<Buffer | null>;
 }
+
+function createSignalAttachmentFetcher(accessToken: string): AttachmentFetcher;
 ```
-- Preconditions: `url` is a non-empty Beeper-recognized URL (`attachment.srcURL ?? attachment.id`).
-- Postconditions: resolves to a `Buffer` on success, or `null` if `assets.serve` throws or yields no body.
-- Invariants: never throws; the private `BeeperDesktop` instance is not exposed.
+- Preconditions: `url` is a non-empty Beeper-recognized URL (`attachment.srcURL ?? attachment.id`). `createSignalAttachmentFetcher` receives the same access token the Signal adapter already holds — no new credential surface (2.4).
+- Postconditions: resolves to a `Buffer` on success, or `null` if `assets.serve` throws or yields an empty body.
+- Invariants: never throws; the `BeeperDesktop` instance is constructed and held privately inside the factory closure, never exposed and never placed on `BeeperSignalClient`.
 
 **Implementation Notes**
-- Integration: `Buffer.from(await (await beeper.assets.serve({ url })).arrayBuffer())`, wrapped in try/catch returning `null`; log at warn on failure.
+- Integration: the factory constructs its own `BeeperDesktop` client; `fetchAttachmentBuffer` does `Buffer.from(await (await beeper.assets.serve({ url })).arrayBuffer())`, wrapped in try/catch returning `null`; logs at warn on failure. A standalone interface (rather than a method on `BeeperSignalClient`) keeps `client.ts` unchanged and lets tests supply a trivial fetcher double without importing the SDK.
 - Validation: treat an empty/zero-length body as `null`.
 - Risks: `assets.serve` may return a stale/expired asset for old Signal messages (P1); mitigated by the filesystem fallback in `processSignalImageMessages`. Adds no new credential/config surface (2.4).
 
@@ -252,7 +256,7 @@ interface BeeperSignalClient {
 **Dependencies**
 - Inbound: sync-loop wiring: invokes per chat (P0).
 - Outbound: `storeMedia`/`mediaPathFor` (P0), `updateMessageMedia`/`getMessageIdByExternalId`/`getDb` (P0), `extractText` (P1).
-- External: `BeeperSignalClient.fetchAttachmentBuffer` (P0), Node `fs` for fallback (P1).
+- External: `AttachmentFetcher.fetchAttachmentBuffer` (P0), Node `fs` for fallback (P1).
 
 **Contracts**: Service [x] / Batch [x]
 
@@ -264,7 +268,7 @@ interface SignalImageSyncResult {
 }
 
 function processSignalImageMessages(
-  client: Pick<BeeperSignalClient, 'fetchAttachmentBuffer'>,
+  client: AttachmentFetcher,
   chatId: number,
   imageMsgs: readonly BeeperMessage[],
 ): Promise<SignalImageSyncResult>;
@@ -294,21 +298,22 @@ function processSignalImageMessages(
 | Requirements | 6.3, 6.4 |
 
 **Responsibilities & Constraints**
+- `runBackfillImpl` / `runIncrementalImpl` accept an optional `fetcher?: AttachmentFetcher`; `createSignalAdapter` builds `createSignalAttachmentFetcher(token)` and passes it in.
 - In each chat loop, when a message maps to `type: 'image'`, push the raw `BeeperMessage` into a per-chat `imageMsgs` array while still inserting the row as today.
-- After the chat's insert loop, `await processSignalImageMessages(client, chatId, imageMsgs)`; accumulate `stored`/`failed` into run totals.
+- After the chat's insert loop, if a `fetcher` is present, `await processSignalImageMessages(fetcher, chatId, imageMsgs)`; accumulate `stored`/`failed` into run totals.
 - Extend the existing completion `console.log` to include `images: N stored, M failed` (6.4). Image-sync runs after inserts, so text rows are already durable (6.3).
 
 **Contracts**: Batch [x]
 
 **Implementation Notes**
-- Integration: mirror `src/platforms/telegram/sync.ts` collect-then-process; `client` already flows into both `run*Impl`.
+- Integration: mirror `src/platforms/telegram/sync.ts` collect-then-process; the `fetcher` is threaded through both `run*Impl` (optional so callers/tests that omit it skip image work cleanly).
 - Risks: low; per-chat error isolation for text sync is preserved and image-sync itself never throws.
 
 ## Error Handling
 
 ### Error Strategy
 Best-effort, layered, never-fatal: matching the Telegram precedent and Req 6:
-- **Transport (Beeper)**: `fetchAttachmentBuffer` catches all `assets.serve` errors and returns `null`, converting failure into the fallback trigger rather than an exception.
+- **Transport (Beeper)**: the `AttachmentFetcher`'s `fetchAttachmentBuffer` catches all `assets.serve` errors and returns `null`, converting failure into the fallback trigger rather than an exception.
 - **Fallback (filesystem)**: `fs` read wrapped in try/catch; failure yields `null`.
 - **Per-message**: the whole detect→persist body is wrapped; a throw is logged and counted as `failed`, then the loop continues.
 - **OCR**: `extractText` already never throws and returns `null` on failure (4.3).

@@ -263,3 +263,19 @@ The design specified adding `fetchAttachmentBuffer` to `BeeperSignalClient` so t
 |-----------|--------|---------------|
 | Effort | **S** (half-day) | Two loop extensions + one log line + one test update; all logic exists |
 | Risk | **Low** | `processSignalImageMessages` never throws; no schema changes; pattern mirrors existing code |
+
+---
+
+## Design Reconciliation (2026-07-13)
+
+_Recorded during a re-run of `/kiro-spec-design`. The spec was already at `tasks-generated` with all approvals; phase and approvals were left intact (no regeneration)._
+
+`design.md` originally specified **Option A** (add `fetchAttachmentBuffer` to `BeeperSignalClient` in `client.ts`). The actual implementation adopted **Option B** (the recommendation in this log): a standalone `AttachmentFetcher` interface plus a `createSignalAttachmentFetcher(accessToken)` factory, both inside `image-sync.ts`, leaving `client.ts` untouched. The design document was updated in-place to match the shipped code:
+
+- Boundary Commitments: `client.ts` moved to Out of Boundary (unchanged); ownership now lists `AttachmentFetcher` + factory.
+- Architecture diagram + rationale: `BeeperSignalClient` node replaced by `AttachmentFetcher`.
+- File Structure Plan: `client.ts` reclassified from MODIFIED to UNCHANGED; `sync.ts` now notes the optional `fetcher?: AttachmentFetcher` param and `createSignalAdapter` wiring.
+- Component section renamed to `AttachmentFetcher + createSignalAttachmentFetcher`; interface signature, preconditions, and invariants updated.
+- `processSignalImageMessages` signature type changed from `Pick<BeeperSignalClient, ...>` to `AttachmentFetcher`; sync-loop wiring notes the optional fetcher threading.
+
+No requirements changed; traceability IDs are unchanged. Remaining implementation work is unchanged (Task 3.1 sync-loop wiring per Gap 1 above).
