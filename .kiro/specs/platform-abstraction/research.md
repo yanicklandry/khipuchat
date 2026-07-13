@@ -108,3 +108,30 @@
 - [SQLite ALTER TABLE](https://www.sqlite.org/lang_altertable.html) — covers RENAME COLUMN (3.25+) and ADD COLUMN constraints
 - [better-sqlite3 changelog](https://github.com/WiseLibs/better-sqlite3/blob/master/CHANGELOG.md) — version history and bundled SQLite versions
 - [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) — tool schema definition patterns
+
+---
+
+## Current-State Verification (2026-07-12)
+
+**Result: All requirements already implemented. No residual gap.**
+
+Verified against live codebase on 2026-07-12:
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| Req 1: platform column on chats + messages | Done | `src/db.ts` createSchema: `platform TEXT NOT NULL DEFAULT 'telegram'` on both tables; UNIQUE(external_id, chat_id) present |
+| Req 2: external_id rename | Done | `Message` interface uses `external_id` + `reply_to_external_id`; `getLastSyncedId` returns `external_id`; no `telegram_id` in src/db.ts |
+| Req 3: PlatformAdapter + Platform export | Done | `src/platforms/types.ts` exports `Platform`, `PlatformAdapter`, `AdapterFactory` |
+| Req 4: src/sync.ts → src/platforms/telegram/sync.ts | Done | File exists at new path; no src/sync.ts at root |
+| Req 5: MCP platform filter + response field | Done | All four MCP tools accept optional `platform` param; `platform` field in every response object |
+| Req 6: Test coverage | Done | tests/db.test.ts and tests/mcp.test.ts cover all acceptance criteria |
+
+**Notable extensions beyond spec scope** (already present, non-breaking):
+- `Platform` union includes `wechat`, `email`, `signal` in addition to the five specified values.
+- `AdapterFactory` type exported alongside `PlatformAdapter`.
+- Seven platform sync modules exist under `src/platforms/` (Discord, Email, iMessage, Signal, Slack, WeChat, WhatsApp).
+- `chats` table includes an `account` column (multi-account support) not mentioned in the spec.
+
+**Migration risk** (out of scope per spec, but documented): databases created before this schema was written lack the `platform` column and `external_id` rename. The idempotent `ALTER TABLE` approach described above handles this at startup.
+
+**Next step**: All design and task artifacts are approved. Run `/kiro-impl platform-abstraction` to begin implementation verification, or run `npm test` to confirm the suite passes as-is.

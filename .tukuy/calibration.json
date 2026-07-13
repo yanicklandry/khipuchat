@@ -1534,5 +1534,13 @@
     "actualDurationMs": 137721,
     "idleDurationMs": 0,
     "estimatedTokens": 70000
+  },
+  {
+    "phase": "validate-gap",
+    "timestamp": "2026-07-13T03:06:11.093Z",
+    "estimatedDurationMs": 175858.5,
+    "actualDurationMs": 106259,
+    "idleDurationMs": 0,
+    "estimatedTokens": 60000
   }
 ]
