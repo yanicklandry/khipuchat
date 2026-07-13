@@ -250,3 +250,21 @@ Requirement 1.1 says "listing each platform/account". With two Discord accounts 
 2. In `watch.ts`: scope both count queries to `AND account = ?` bound to `adapter.account` (Option A for Gap B).
 3. In `watch.ts`: update the startup log line to include `adapter.account` (Option A for Gap C).
 4. In `watch.test.ts`: add/update tests to cover signal `isConfigured` and account-scoped counting.
+
+---
+
+# Design Regeneration (2026-07-13)
+
+## Trigger
+
+`design.md` was regenerated because the original draft predated three approved requirements and named the wrong primary entry point. Synthesis outcomes applied to the rewrite:
+
+- **Entry-point correction**: `khipu sync all` is the primary command (routed via `src/khipu.ts`); `npm run watch` is a thin wrapper. The original design named `npm run watch` as primary and omitted the `khipu.ts` routing change.
+- **Account iteration (Req 2.6)**: design now reflects the `AccountRegistry` (`loadRegistry` -> `listAccounts` -> `credentialsFor`) loop and the per-platform `ADAPTER_FACTORIES` map, including the `wechat` singleton wrapper. The original design used a flat per-platform loop with no account concept.
+- **Embedding indexing (Req 6.1–6.3)**: design now specifies the post-cycle `rebuildEmbeddings(platform)` call, gated on `newMessages > 0`, with its own error isolation. Absent from the original.
+- **Single-pass `--once` (Req 7.1–7.3)**: design now specifies the `Promise.all` one-pass branch with per-adapter try/catch and completion log. Absent from the original.
+- **Account-scoped correctness**: design specifies `COUNT(*) ... WHERE platform=? AND account=?` and a `[platform/account]` log prefix, resolving the multi-account count and startup-log gaps flagged in the 2026-07-13 audit (Gaps B and C). Signal is included in `ADAPTER_FACTORIES` / `REQUIRED_ENV_VARS`, resolving Gap A.
+
+## Traceability
+
+All 20 requirement IDs (1.1–7.3) now map to concrete components, interfaces, and flows in `design.md`. Design review gate passed (mechanical + judgment).
