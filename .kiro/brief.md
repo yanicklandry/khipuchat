@@ -109,7 +109,7 @@ Existing `npm run` scripts may remain as thin wrappers during transition but are
 - [x] khipu-cli
 - [x] image-support
 - [x] signal-platform
-- [ ] signal-image-sync (in progress)
-- [ ] telegram-image-sync
+- [x] signal-image-sync
+- [ ] telegram-image-sync (in progress)
 - [ ] wechat-sync
 - [ ] wechat-image-sync
