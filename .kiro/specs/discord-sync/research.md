@@ -78,3 +78,62 @@ The implementation is complete. Proceed to `/kiro-validate-impl discord-sync` to
 - **Added**: incremental sync (`runIncrementalImpl`, `dateToDiscordSnowflake`, `after` cursor on `getMessages`), the adapter/multi-account architecture (`createDiscordAdapter(account, credentials)`, `AccountCredentials`, `runPlatformSync` orchestration, `startListener` no-op), and embeddings integration (`isIndexed`, `embedNewMessages`, `embedNewChats`).
 - **Corrected `mapChat`**: returns `{ external_id, account, name, type: 'group'|'private', username: null, platform }` where `isGroup = type 0 || 3`. Prior design's `id: hashStr(...)` and `type === 0 ? 'user'` were inaccurate.
 - **Noted**: `hashStr` is exported/tested but unused by the runners; 429 retry is single-shot; rate limiting is reactive only.
+
+---
+
+# Gap Analysis — 2026-07-13
+
+**Date**: 2026-07-13
+**Context**: Post-implementation retrospective run (implementation is complete as of 2026-07-12).
+
+## Analysis Summary
+
+- Implementation is confirmed complete. Both `src/platforms/discord/client.ts` and `src/platforms/discord/sync.ts` exist and satisfy all six requirements. 27 tests pass.
+- `'discord'` is in the `PLATFORMS` array in `sync-all.ts`, in `LEGACY_ENV_VARS` in `account-registry.ts`, and in the `Platform` union in `src/platforms/types.ts` — no wiring gaps.
+- Multi-account support (R6) is fully covered by `AccountRegistry` + `runAllAccountsSync`; independent per-account error isolation is confirmed in `sync-runner.ts:67-90`.
+- **One accepted gap remains**: R4.2 (proactive 50 req/s global cap) is not implemented. Rate limiting is reactive-only (429 + Retry-After). This matches the Slack and Telegram adapter pattern and is intentional per the design doc.
+- No new gaps discovered since the 2026-07-12 analysis.
+
+## Requirement-to-Asset Map
+
+| Req | Description | Asset | Status |
+|---|---|---|---|
+| R1.1 | Read `DISCORD_TOKEN` from env | `account-registry.ts:33` `sync.ts:131` | COMPLETE |
+| R1.2 | Exit with error if token absent | `sync.ts:133-135` | COMPLETE |
+| R1.3 | Multi-account via config | `account-registry.ts` `createDiscordAdapter` | COMPLETE |
+| R2.1 | Fetch DM channels | `client.ts:51` `sync.ts:56` | COMPLETE |
+| R2.2 | Fetch group DM channels | `ALLOWED_TYPES` includes type=3 | COMPLETE |
+| R2.3 | Fetch guild text channels | `client.ts:50` `sync.ts:61-66` | COMPLETE |
+| R2.4 | Skip non-text channel types | `ALLOWED_TYPES = {0,1,3}` in `sync.ts:47` | COMPLETE |
+| R3.1 | Paginated message backfill | `sync.ts:73-85` `before` cursor loop | COMPLETE |
+| R3.2 | Schema mapping (id, author, text, ts) | `mapMessage` `sync.ts:32-45` | COMPLETE |
+| R3.3 | Reply thread linking | `reply_to_external_id` from `message_reference` | COMPLETE |
+| R3.4 | Store under `platform='discord'` | `mapChat`/`mapMessage` both set `platform: 'discord'` | COMPLETE |
+| R3.5 | One chat record per channel | `upsertChat(mapChat(...))` per channel | COMPLETE |
+| R3.6 | Embed-only messages stored as `type='other'` | `sync.ts:39` | COMPLETE |
+| R4.1 | Wait Retry-After on 429 | `client.ts:30-34` | COMPLETE |
+| R4.2 | Stay under 50 req/s | No proactive cap | ACCEPTED GAP (reactive-only, per design) |
+| R5.1 | `khipu sync discord` CLI | `package.json` `sync:discord` script | COMPLETE |
+| R5.2 | No duplicate records | `insertMessage` uses `INSERT OR IGNORE` via `external_id` | COMPLETE |
+| R5.3 | Incremental fetch from last sync point | `runIncrementalImpl` + `dateToDiscordSnowflake` | COMPLETE |
+| R5.4 | `--force` full re-read | `sync-runner.ts:41` forces backfill mode | COMPLETE |
+| R6.1 | Process each account independently | `runAllAccountsSync` iterates accounts | COMPLETE |
+| R6.2 | Distinct account identifier per message | `account` param threaded through `mapChat` | COMPLETE |
+| R6.3 | Independent sync state per account | `getPlatformLastSyncedAt(platform, account)` keyed by account | COMPLETE |
+
+## Implementation Approach
+
+**Option B (New Components)** was applied correctly: `src/platforms/discord/` was created as a standalone adapter directory following the established platform adapter pattern (same structure as `slack/`, `telegram/`, `email/`).
+
+## Effort and Risk
+
+- **Effort**: M (estimated 3-7 days; implementation reflects that scope)
+- **Risk**: Low — familiar adapter pattern, no new dependencies, well-tested with 27 unit/integration tests
+
+## Accepted Gap
+
+**R4.2: No proactive 50 req/s throttle.** Rate limiting is purely reactive (429-driven). This is consistent with the Slack and Telegram adapters and was accepted in the design doc. Mitigation: the single-shot retry is sufficient for typical channel counts; the bot token is unlikely to sustain 50+ concurrent requests.
+
+## Next Steps
+
+All tasks complete. Proceed to `/kiro-validate-impl discord-sync` for final feature-level integration validation.
