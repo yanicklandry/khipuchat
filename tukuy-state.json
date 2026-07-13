@@ -1,7 +1,8 @@
 {
   "specName": "email-sync",
   "completedPhases": [
-    "steering"
+    "steering",
+    "discovery"
   ],
   "done": false,
   "completedQueueSpecs": [
