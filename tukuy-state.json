@@ -1,7 +1,8 @@
 {
   "specName": "sync-watcher",
   "completedPhases": [
-    "steering"
+    "steering",
+    "discovery"
   ],
   "done": false,
   "completedQueueSpecs": [
