@@ -107,6 +107,7 @@ export async function createWhatsAppClient(opts: CreateClientOptions = {}): Prom
     client.on('authenticated', () => {
       stopProgress()
       console.log('[whatsapp] Authenticated.')
+      console.log(`[whatsapp] Session saved. Set WHATSAPP_SESSION=${sessionDataPath ?? '.wwebjs_auth'} in your .env to skip QR next time.`)
       dbg('event: authenticated')
     })
 

@@ -30,7 +30,7 @@
     "@beeper/desktop-api": "^5.0.0",
     "@huggingface/transformers": "^3.0.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "better-sqlite3-multiple-ciphers": "^11.10.0",
+    "better-sqlite3-multiple-ciphers": "^12.11.1",
     "dotenv": "^16.0.0",
     "express": "^5.2.1",
     "express-basic-auth": "^1.2.1",
@@ -54,6 +54,6 @@
     "vitest": "^2.0.0"
   },
   "allowScripts": {
-    "better-sqlite3-multiple-ciphers@11.10.0": true
+    "better-sqlite3-multiple-ciphers@12.11.1": true
   }
 }
