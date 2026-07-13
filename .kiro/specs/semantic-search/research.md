@@ -248,6 +248,94 @@ Concrete tasks:
 
 ---
 
+---
+
+# Gap Analysis: semantic-search (2026-07-13 Re-run)
+
+**Date**: 2026-07-13
+**Spec phase**: tasks-generated / ready_for_implementation
+
+## Analysis Summary
+
+- The semantic search feature is **substantially complete**. All core infrastructure exists in the codebase: ONNX embedding pipeline, sqlite-vec schema, both MCP tools, incremental indexing, sync integration, and comprehensive test coverage.
+- **One confirmed gap**: `khipu index --force` CLI flag is not parsed by `index-embeddings.ts main()`. Calling `khipu index --force` silently ignores `--force` and performs an incremental run (Req 1.5 unmet via CLI).
+- **One minor finding**: `getUnindexedMessages()` exported from `vec-db.ts` excludes OCR-only messages. The production indexing path in `index-embeddings.ts` is correct; this only affects a test helper export.
+- Most gaps identified in the previous gap analysis (2026-07-12) have been resolved in the implementation. The post-implementation verification section above confirms this.
+
+---
+
+## Current Source State (2026-07-13)
+
+All files verified by direct read:
+
+| File | State |
+|------|-------|
+| `src/embeddings.ts` | Complete: lazy ONNX pipeline, cache detection, download notice, KHIPUCHAT_EMBED_MOCK test hook, batch 64 |
+| `src/vec-db.ts` | Complete: vec0 schema, kNN with full filters (platform, account, before, after, chat_id, limit, min_similarity), clear functions |
+| `src/index-embeddings.ts` | Mostly complete: `rebuildEmbeddings(platform?, force?)` implemented; `main()` CLI entry parses `--db` only — **does not parse `--force`** |
+| `src/query-handlers.ts` | Complete: isIndexed guard, temporal hint parsing, error message says "khipu index" |
+| `src/mcp.ts` | Complete: both tools registered with account/platform/limit/temporal filters |
+| `src/sync-runner.ts` | Complete: `rebuildEmbeddings(adapter.platform, force)` called after each sync |
+| `src/khipu.ts` | Complete: `index` mapped to `index-embeddings.ts`, argv.slice(1) forwarded (includes --force) |
+| Tests | Complete: embeddings.test.ts, vec-db.test.ts, rebuild-embeddings.test.ts, e2e-index-embeddings.test.ts |
+
+---
+
+## Remaining Gap
+
+### Gap: `khipu index --force` CLI flag not parsed (Req 1.5)
+
+**Location**: `src/index-embeddings.ts`, `main()` (lines 281-297)
+
+**Problem**: `main()` only reads `--db` from `process.argv`. It calls `rebuildEmbeddings()` with no arguments. `khipu.ts` correctly forwards `['index', '--force']` args as `['--force']` to the script via `argv.slice(1)`, but the script ignores them. `rebuildEmbeddings()` already accepts a `force` boolean and is correctly implemented; the wiring in `main()` is simply absent.
+
+**Fix**: In `main()`, detect `process.argv.includes('--force')` and pass it to `rebuildEmbeddings(undefined, force)`.
+
+**Test gap**: `e2e-index-embeddings.test.ts` has no test case for `--force`. A test should run the CLI with `--force` after an initial indexing run and verify full re-indexing occurred (e.g., `embed` call count > 0 on second run).
+
+---
+
+## Minor Finding
+
+### `getUnindexedMessages()` in `vec-db.ts` excludes OCR-only messages
+
+**Location**: `src/vec-db.ts` lines 100-110
+
+The exported `getUnindexedMessages()` helper uses `WHERE m.text IS NOT NULL AND m.text != ''`, omitting messages where only `ocr_text` is set. The production indexing path in `index-embeddings.ts` uses the broader `HAS_CONTENT` predicate and is correct. This function is only used in `vec-db.test.ts` seeding. No runtime correctness impact; the inconsistency means test fixtures that include OCR-only messages may show wrong unindexed counts.
+
+**Recommendation**: Low priority. Either update `getUnindexedMessages()` to match `HAS_CONTENT` semantics, or keep it as-is and document the narrower contract.
+
+---
+
+## Requirement Coverage Status
+
+| Requirement | Status |
+|---|---|
+| Req 1.1: Embed all messages on `khipu index` | Met |
+| Req 1.2: Embed all chats on `khipu index` | Met |
+| Req 1.3: Report total indexed count | Met (DB totals via vec_messages/vec_chats counts) |
+| Req 1.4: Incremental by default | Met |
+| Req 1.5: `khipu index --force` full rebuild | **Gap**: CLI arg not parsed in main() |
+| Req 1.6: No external network calls | Met |
+| Req 1.7: Progress log every 1,000 messages | Met (every 100 satisfies "at least every 1,000") |
+| Req 2.1-2.5 Incremental/automated embedding | Met |
+| Req 3.1-3.8 semantic_find_contacts | Met |
+| Req 4.1-4.8 semantic_search_messages | Met |
+| Req 5.1 2-second query ceiling | Architecture in place; no automated benchmark (manual validation item) |
+| Req 5.2 <= 2 GB disk / 1M messages | Met by design (384 x 4 bytes = 1.47 GB) |
+| Req 5.3 Concurrent operation | Met (WAL mode, separate process) |
+| Req 5.4 Model downloaded once | Met |
+| Req 5.5 Re-download on absent/corrupt cache | Met (`isCachePresent()` check, log on miss) |
+
+---
+
+## Complexity
+
+| Dimension | Rating | Justification |
+|---|---|---|
+| Effort | **XS** (< 1 hour) | Single-line fix: read `--force` in `main()` and pass to `rebuildEmbeddings()` |
+| Risk | **Minimal** | `rebuildEmbeddings(undefined, true)` already fully implemented and tested; only the CLI wiring is missing |
+
 ## 5. Complexity and Risk
 
 | Dimension | Rating | Justification |
