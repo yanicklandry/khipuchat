@@ -63,3 +63,50 @@ Options considered:
 - `chat.db` may be locked by Messages.app while running — `better-sqlite3` read-only mode + WAL should handle this; if locked, error propagates clearly.
 - AddressBook SQLite path varies across macOS versions — fallback to raw handle ID mitigates this.
 - Date field format (ns vs s) varies by macOS version — handled by the guard condition.
+
+---
+
+# Gap Analysis — imessage-sync (2026-07-12)
+
+## Analysis Summary
+
+- **Implementation is essentially complete.** Both `src/platforms/imessage/sync.ts` and `src/platforms/imessage/contacts.ts` fully exist and match all six requirements.
+- All tests in `tests/imessage.test.ts` cover the required acceptance criteria: schema mapping, epoch conversion, deduplication, contact resolution, and `runBackfillImpl` integration with in-memory SQLite.
+- `npm run sync:imessage` script is already wired in `package.json`.
+- The adapter implements `PlatformAdapter` (including optional `syncIncremental`) and integrates with `runPlatformSync` from `sync-runner.ts`.
+- Contacts live-test (`tests/contacts-live.test.ts`) exercises the real Swift/Contacts path on macOS without requiring mocks.
+
+## Requirement-to-Asset Map
+
+| Requirement | Existing Asset | Gap Status |
+|---|---|---|
+| R1: iMessage DB access (read-only, ENOENT/EACCES errors) | `openChatDb` in `sync.ts:40-56` — `readonly: true`, ENOENT and EACCES cases handled | **None** |
+| R2: Chat mapping + upsert with `platform='imessage'` | `mapChat` + `upsertChat` calls in `runBackfillImpl` | **None** |
+| R3: Message mapping + deduplication via `INSERT OR IGNORE` | `mapMessage` + `insertMessage`; `UNIQUE(external_id, chat_id)` constraint in `db.ts` | **None** |
+| R4: Contact name resolution, no new npm deps, isolated to `contacts.ts` | `buildContactMap` / `resolveContactName` in `src/platforms/imessage/contacts.ts`; uses only `child_process`, `fs`, `os`, `path` | **None** |
+| R5: `npm run sync:imessage` script + `PlatformAdapter.runBackfill` | `package.json` script exists; `createIMessageAdapter` exports adapter | **None** |
+| R6: Tests with in-memory SQLite, no real `chat.db` required | `tests/imessage.test.ts` + `tests/contacts-live.test.ts` | **None** |
+
+## Implementation Approach
+
+**Option B (New Components)** was chosen and already executed: `src/platforms/imessage/sync.ts` and `src/platforms/imessage/contacts.ts` are standalone modules with clean separation from other adapters.
+
+Trade-offs applied:
+- Clean separation of concerns (contacts isolated for mocking)
+- Files stay under 200-line limit (sync.ts = 235 lines; minor overage, consider splitting main from adapter factory if needed)
+- No shared code changes: `db.ts` and `mcp.ts` untouched as required
+
+## Effort and Risk (Retrospective)
+
+- **Effort**: S (1-3 days) — confirmed by the actual implementation
+- **Risk**: Low — extended well-established patterns; `better-sqlite3` already a dep; epoch math well-guarded
+
+## Minor Items to Verify Before Closing
+
+1. `sync.ts` is 235 lines — marginally over the 200-line file limit in `structure.md`. Consider extracting the `hashGuid`/`cocoaToUnix` helpers or the main entry into a small sibling file.
+2. R1.5 (macOS-only documentation) is covered only via the inline error string `"Is this macOS?"`. A README section could make this more prominent, but is not a blocking gap.
+3. `npm test` should be run to confirm all imessage tests pass alongside existing tests — no code changes required, just a verification pass.
+
+## Recommendation for Next Steps
+
+The feature is implementation-complete. Run `/kiro-validate-impl imessage-sync` to do a full cross-task consistency check and confirm the tests pass before marking the spec closed.
