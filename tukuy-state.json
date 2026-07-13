@@ -1,6 +1,8 @@
 {
   "specName": "web-ui",
-  "completedPhases": [],
+  "completedPhases": [
+    "steering"
+  ],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
