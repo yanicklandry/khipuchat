@@ -1,7 +1,8 @@
 {
   "specName": "wechat-sync",
   "completedPhases": [
-    "steering"
+    "steering",
+    "discovery"
   ],
   "done": false,
   "completedQueueSpecs": [
