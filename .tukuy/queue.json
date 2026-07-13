@@ -10,7 +10,6 @@
     "slack-sync",
     "security-hardening",
     "release",
-    "incremental-sync",
     "web-ui-enhancements",
     "sync-watcher",
     "multi-account",
@@ -21,10 +20,11 @@
     "telegram-image-sync"
   ],
   "in-progress": [
-    "whatsapp-sync"
+    "incremental-sync"
   ],
   "done": [
     "platform-abstraction",
-    "imessage-sync"
+    "imessage-sync",
+    "whatsapp-sync"
   ]
 }

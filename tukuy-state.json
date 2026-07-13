@@ -1,16 +1,6 @@
 {
-  "specName": "whatsapp-sync",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "incremental-sync",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
@@ -29,6 +19,7 @@
     "signal-platform",
     "signal-image-sync",
     "platform-abstraction",
-    "imessage-sync"
+    "imessage-sync",
+    "whatsapp-sync"
   ]
 }
