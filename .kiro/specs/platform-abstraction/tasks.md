@@ -53,7 +53,7 @@
   - _Boundary: src/db.ts_
   - _Depends: 1.2_
 
-- [ ] 3. Move Telegram sync to `src/platforms/telegram/sync.ts`
+- [ ] 3. (P) Move Telegram sync to `src/platforms/telegram/sync.ts`
 - [ ] 3.1 Create `src/platforms/telegram/sync.ts` with updated field references
   - Create the `src/platforms/telegram/` directory
   - Copy the full contents of `src/sync.ts` to the new path
@@ -67,14 +67,14 @@
 
 - [ ] 3.2 Remove `src/sync.ts` and update all references
   - Delete `src/sync.ts`
-  - Update `package.json` `scripts.sync` (or equivalent entry point) to reference `src/platforms/telegram/sync.ts`
+  - Update `package.json` scripts or equivalent entry points to reference `src/platforms/telegram/sync.ts`
   - Confirm no remaining import of `./sync` or `../sync` exists anywhere in `src/`
   - `npm run build` succeeds with no TypeScript errors
   - _Requirements: 4.3, 4.4_
   - _Boundary: src/platforms/telegram/sync.ts_
   - _Depends: 3.1_
 
-- [ ] 4. MCP layer — additive platform filter and response field
+- [ ] 4. (P) MCP layer — additive platform filter and response field
 - [ ] 4.1 Add `platform?` input parameter to `find_chat_by_name` and `search_messages`
   - Add `platform?: Platform` to `handleFindChatByName(name, platform?)` signature
   - When `platform` is supplied, append `AND c.platform = ?` to the `find_chat_by_name` SQL
