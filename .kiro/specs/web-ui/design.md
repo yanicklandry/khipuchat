@@ -4,9 +4,9 @@
 
 The Web UI adds a thin HTTP layer over the existing archive query handlers. An Express server at `127.0.0.1:3333` serves one dynamically generated HTML page and a set of JSON API routes. The single-page UI uses inline CSS and vanilla JavaScript to render a chat sidebar, message thread view, and search box : no framework, no build step, no external network calls at runtime.
 
-The feature introduces five files under `src/web/` (`server.ts`, `routes.ts`, `ui.ts`, `icons.ts`, `ui-scroll.ts`) plus additions to `package.json`. No existing query logic is modified; the web layer consumes the handler functions read-only.
+The feature introduces six files under `src/web/` (`server.ts`, `routes.ts`, `ui.ts`, `ui-chats.ts`, `icons.ts`, `ui-scroll.ts`) plus additions to `package.json`. No existing query logic is modified; the web layer consumes the handler functions read-only.
 
-> **Note (as-built sync, 2026-07-12):** This design has been reconciled with the shipped implementation. The delivered feature extends the original three-file plan with platform icons, infinite-scroll pagination, semantic search, per-account filtering, and optional HTTP Basic Auth. These additive capabilities are documented in the sections below and in `research.md`. Items that reach into authentication are called out explicitly because they partially overlap the future security-hardening spec.
+> **Note (as-built sync, 2026-07-13):** This design has been reconciled with the shipped implementation. The delivered feature extends the original three-file plan with platform icons, infinite-scroll pagination, semantic search, per-account filtering, sidebar type/platform filters, and optional HTTP Basic Auth. `ui-chats.ts` was split out of `ui.ts` to hold the account-filter markup and sidebar-rendering client script, keeping each UI file under the 200-line limit. These additive capabilities are documented in the sections below and in `research.md`. Items that reach into authentication are called out explicitly because they partially overlap the future security-hardening spec.
 
 ### Goals
 
@@ -29,7 +29,7 @@ The feature introduces five files under `src/web/` (`server.ts`, `routes.ts`, `u
 
 ### This Spec Owns
 
-- `src/web/` : all web server code (Express setup, route handlers, HTML generation, platform icons, scroll pagination client script).
+- `src/web/` : all web server code (Express setup, route handlers, HTML generation, platform icons, account-filter markup, sidebar-rendering and scroll pagination client scripts).
 - The `"web": "tsx src/web/server.ts"` script in `package.json`.
 - The runtime dependencies added for the web layer: `express`, `express-basic-auth`, `simple-icons`.
 - The `127.0.0.1`-only bind constraint (not deferred to security-hardening).
@@ -71,6 +71,7 @@ graph TB
     Server[Express Server server.ts]
     Routes[API Routes routes.ts]
     UI[HTML Builder ui.ts]
+    Chats[Chats UI ui-chats.ts]
     Icons[Platform Icons icons.ts]
     Scroll[Scroll Client ui-scroll.ts]
     Handlers[Query Handlers mcp.ts / query-handlers.ts]
@@ -81,6 +82,7 @@ graph TB
     Browser -->|GET /api/*| Server
     Server --> UI
     Server --> Routes
+    UI --> Chats
     UI --> Icons
     UI --> Scroll
     Routes --> Handlers
@@ -89,7 +91,7 @@ graph TB
     Vec --> DB
 ```
 
-**Dependency direction**: `db.ts` => `query-handlers.ts` (=> `mcp.ts` re-export) => `routes.ts` => `server.ts`. `ui.ts` composes `icons.ts` and `ui-scroll.ts` at build-of-string time and has no runtime data imports.
+**Dependency direction**: `db.ts` => `query-handlers.ts` (=> `mcp.ts` re-export) => `routes.ts` => `server.ts`. `ui.ts` composes `ui-chats.ts`, `icons.ts`, and `ui-scroll.ts` at build-of-string time and has no runtime data imports.
 
 ### Technology Stack
 
@@ -114,6 +116,7 @@ src/web/
 ├── server.ts     # Express app factory (createApp), initDb, GET / handler, listen on 127.0.0.1:3333, main()
 ├── routes.ts     # Optional Basic Auth guard + GET /api/chats, /api/search, /api/messages/:chatId, /api/semantic-search
 ├── ui.ts         # buildHtmlPage(accounts, selectedAccount) => full SPA string (inline CSS+JS); HTML_PAGE back-compat const
+├── ui-chats.ts   # buildAccountFilterHtml() account dropdown markup + CHATS_JS sidebar-render/filter client script
 ├── icons.ts      # buildPlatformIconMap() => platform -> inline SVG (simple-icons), used by ui.ts
 └── ui-scroll.ts  # SCROLL_JS: infinite-scroll IntersectionObserver client script embedded into the page
 tests/
@@ -227,6 +230,7 @@ sequenceDiagram
 | Express Server | HTTP | App factory, bind, initDb, GET /, main() | 1.1-1.4, 6.2 | Service |
 | API Routes | HTTP | JSON endpoints wrapping handlers + optional auth guard | 1.5, 2.4, 3.4, 3.5, 4.5 | API |
 | HTML Builder | UI | Self-contained SPA served at GET / | 1.3, 2.1-2.3, 3.1-3.4, 4.1-4.4, 5.1-5.3, 6.1-6.3 | API |
+| Chats UI | UI | Account-filter markup + sidebar render/filter client script | 2.1-2.3, 5.1 | Service |
 | Platform Icons | UI | platform => inline SVG map with letter fallback | 5.1-5.3, 6.1 | Service |
 | Scroll Client | UI | IntersectionObserver pagination script | 4.1 | Service |
 
@@ -296,7 +300,7 @@ async function main(): Promise<void>
 
 **Responsibilities & Constraints**
 - Exports `buildHtmlPage(accounts, selectedAccount?): string`. Also exports `HTML_PAGE = buildHtmlPage([])` for backward compatibility with existing static tests.
-- Bakes the platform icon map (`buildPlatformIconMap()`) and the scroll client (`SCROLL_JS`) into the page as JSON/JS literals at call time.
+- Bakes the platform icon map (`buildPlatformIconMap()`), the account-filter markup (`buildAccountFilterHtml()`), the sidebar script (`CHATS_JS`), and the scroll client (`SCROLL_JS`) into the page as JSON/JS literals at call time.
 - Contains no `<link>` to external stylesheets, no `<script src="https://...">`, and no external font references. Inline SVG has its `xmlns` stripped so no external URL remains.
 - Three-zone layout: full-width search bar on top; sidebar (type filter, optional account filter, platform filter chips, chat list) and main panel side by side below.
 - Platform badge: renders the inline SVG icon for known platforms, else a single-letter fallback derived from the raw `platform` string (no lookup table beyond the icon map; unknown platforms still display).
@@ -315,6 +319,32 @@ export function buildHtmlPage(
   selectedAccount?: string,
 ): string
 export const HTML_PAGE: string // = buildHtmlPage([])
+```
+
+---
+
+#### Chats UI (`ui-chats.ts`)
+
+| Field | Detail |
+|-------|--------|
+| Intent | Sidebar chat-list rendering, type/platform filters, and the multi-account filter dropdown |
+| Requirements | 2.1, 2.2, 2.3, 5.1 |
+
+**Responsibilities & Constraints**
+- Split out of `ui.ts` to keep both files under the 200-line limit; consumed by `ui.ts` at string-composition time (no runtime import).
+- `buildAccountFilterHtml(accounts, selectedAccount?)`: returns server-rendered `<select>` markup for account switching. Returns `''` (renders nothing) unless at least one platform has more than one account, so single-account installs see no dropdown. Selecting an option navigates to `/?account=<name>`.
+- `CHATS_JS`: a client script string embedded verbatim into the page. Exposes `renderChatList()` (builds sidebar entries with name, platform badge, group tag, per-account label, and message count; wires click-to-open-thread), `renderPlatformFilter()` (builds the platform filter chips), and helpers `isDirectChat()` / `platformLabel()` (icon-or-letter badge).
+- Applies the active type filter (all/direct/group) and platform filter client-side over the already-loaded chat list; performs no data fetching of its own.
+- All user-derived strings pass through an HTML-escape helper before insertion.
+
+**Contracts**: Service [ x ]
+
+```typescript
+export function buildAccountFilterHtml(
+  accounts: { platform: string; account: string }[],
+  selectedAccount?: string,
+): string
+export const CHATS_JS: string // client-side sidebar render/filter script, embedded into the page
 ```
 
 ---

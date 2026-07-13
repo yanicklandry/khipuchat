@@ -121,3 +121,19 @@ All requirements fully covered. No missing capabilities, no pending tasks, no dr
 ## Next Step
 
 Run `/kiro-validate-impl web-ui` to formally validate integration across all tasks.
+
+---
+
+# Design Reconciliation (2026-07-13, re-run of /kiro-spec-design)
+
+**Correction to the note above:** the 2026-07-12 statement that "no new drift was found" was inaccurate for `design.md` itself. A re-run of `/kiro-spec-design` found that `ui-chats.ts` — present in the code and noted in the 2026-07-13 gap analysis — was still absent from `design.md`. The document described only five files under `src/web/`.
+
+**Changes applied to `design.md`:**
+- Overview: five files => six files; as-built note updated to 2026-07-13 and to explain the `ui.ts` => `ui-chats.ts` split (200-line limit).
+- Boundary "This Spec Owns": added account-filter markup and sidebar-rendering client script to the owned surface.
+- Architecture diagram + dependency-direction prose: added the `Chats UI (ui-chats.ts)` node; `ui.ts` now composes `ui-chats.ts`, `icons.ts`, and `ui-scroll.ts`.
+- File Structure Plan: added the `ui-chats.ts` row.
+- Components summary table + new detailed block for `Chats UI` documenting `buildAccountFilterHtml()` and `CHATS_JS` (reqs 2.1-2.3, 5.1).
+- HTML Builder block: now lists `buildAccountFilterHtml()` and `CHATS_JS` among the assets baked into the page.
+
+**Boundary/constraint check:** `src/mcp.ts` remains unmodified; no query logic changed. This is a documentation-only reconciliation of an already-shipped, already-approved feature. Workflow phase (`tasks-generated`, `ready_for_implementation`) preserved intentionally — the feature is implemented and tested, so the completed state is not regressed.
