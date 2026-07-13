@@ -190,3 +190,65 @@ Per the requirements Boundary Context, Signal ingestion is deferred to a follow-
 ## References
 - `src/image-handlers.ts`, `src/db.ts`, `src/cli.ts`, `src/mcp.ts`, `src/query-handlers.ts`, `src/vec-db.ts` — source of truth for gap specification.
 - Requirements Boundary Context (`requirements.md`) — Signal deferral, multi-account path isolation assumption.
+
+---
+
+# Gap Re-validation: image-support
+
+_Date: 2026-07-13_
+
+## Analysis Summary
+
+- **Scope**: Re-validation of implementation completeness against requirements, post all four design-phase gaps being closed.
+- **Codebase status**: All four gaps identified in the previous analysis are now implemented. No new gaps found.
+- **Outcome**: The feature is fully implemented. All requirements from Wave 1 are covered.
+- **Recommendation**: Proceed to `/kiro-validate-impl image-support` for final integration validation.
+
+---
+
+## Gap Closure Verification
+
+All four gaps from the 2026-07-12 analysis are now resolved:
+
+| Previous Gap | Requirement | Resolution Verified |
+|---|---|---|
+| Gap 1: CLI `get_image` | Req 3.5 | `src/cli.ts:248` dispatches `case 'get_image'`, prints `file_path`, `file_available`, `ocr_text`, base64 length; `getUsageText()` documents it |
+| Gap 2: `SearchResult.type` | Req 4.3 | `src/db.ts:54` has `type: MessageType` on `SearchResult`; `searchMessages` SELECT includes `m.type` at line 253 |
+| Gap 3: `handleGetImage` type validation | Req 3.4 | `src/image-handlers.ts:40` checks `row.type !== 'image'` before any path access and throws with message naming the actual type |
+| Gap 4: `ocr_text` preserved on file-unavailable | Req 3.3 | `src/image-handlers.ts` returns `GetImageResultUnavailable` with `ocr_text` retained when `media_file_path` is null or ENOENT |
+
+Additionally: `SemanticMessageResult` in `src/vec-db.ts` includes `type: MessageType` at line 28, covering the design-phase extension of Req 4.3 to semantic search.
+
+## Full Requirements Coverage Snapshot
+
+| Req | Description | File | Status |
+|---|---|---|---|
+| 1.1 | Path convention: `<MEDIA_DIR>/<platform>/<chatId>/<externalId>.<ext>` | `src/media-storage.ts` | Complete |
+| 1.2 | `MEDIA_DIR` env var with fallback to `./media` | `src/media-storage.ts:23` | Complete |
+| 1.3 | Skip download when `media_file_path` already set | `src/platforms/telegram/image-sync.ts:70` | Complete |
+| 1.4 | `media/` in `.gitignore`; `media-data` volume in `docker-compose.yml` | Root files | Complete |
+| 1.5 | `ocr_text`, `media_*` columns added via migration guard | `src/db-migrations.ts:72-84` | Complete |
+| 2.1 | `extractText()` stores result in `ocr_text` | `src/platforms/telegram/image-sync.ts:102-106` | Complete |
+| 2.2 | OCR failures logged; sync continues | `src/ocr.ts:20-28` (never throws) | Complete |
+| 2.3 | FTS `messages_fts` includes `ocr_text` column | `src/db-migrations.ts:14` | Complete |
+| 2.4 | Embedding input concatenates `text + ocr_text` | `src/index-embeddings.ts:29-30` | Complete |
+| 2.5 | `media_width`/`media_height` written from photo sizes | `src/platforms/telegram/image-sync.ts:94-98` | Complete |
+| 3.1 | `get_image` returns `file_path`, `content_base64`, `ocr_text` | `src/image-handlers.ts` | Complete |
+| 3.2 | Unavailable file returns informative error | `src/image-handlers.ts:43-51, 58-70` | Complete |
+| 3.3 | `ocr_text` included in unavailability response | `src/image-handlers.ts:48, 66` | Complete |
+| 3.4 | Non-image message type error | `src/image-handlers.ts:40` | Complete |
+| 3.5 | CLI `get_image` subcommand | `src/cli.ts:248-261` | Complete |
+| 3.6 | README documents `get_image` | `README.md:122-142` | Complete |
+| 4.1 | FTS search matches `ocr_text` via `messages_fts` | `src/db.ts:252-259` | Complete |
+| 4.2 | Semantic search returns image messages (no type filtering) | `src/vec-db.ts` (no type default filter) | Complete |
+| 4.3 | `type` field in both `SearchResult` and `SemanticMessageResult` | `src/db.ts:54`, `src/vec-db.ts:28` | Complete |
+| 4.4 | `type: 'image'` filter on `search_messages` | `src/db.ts:250`, `src/mcp.ts:85` | Complete |
+| 5.1 | Backfill downloads image messages | `src/platforms/telegram/sync.ts:152-187` | Complete |
+| 5.2 | Incremental sync downloads image messages | `src/platforms/telegram/sync.ts:252-287` | Complete |
+| 5.3 | Live listener downloads image messages | `src/platforms/telegram/sync.ts:210-211` | Complete |
+| 5.4 | Per-message try/catch; sync continues on failure | `src/platforms/telegram/image-sync.ts:57, 113` | Complete |
+| 5.5 | Account-scoped paths via `chatId` + platform in path | `src/media-storage.ts:25` | Complete |
+
+## No New Gaps Found
+
+The implementation is complete for all Wave 1 requirements. Signal image sync (`src/platforms/signal/image-sync.ts`) is already present as a bonus but was deferred per the boundary context; it does not block this spec.
