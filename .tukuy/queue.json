@@ -1,9 +1,6 @@
 {
   "backlog": [],
   "ready": [
-    "wechat-sync",
-    "wechat-image-sync",
-    "semantic-search",
     "web-ui",
     "discord-sync",
     "email-sync",
@@ -15,16 +12,19 @@
     "image-support",
     "signal-platform",
     "signal-image-sync",
-    "telegram-image-sync"
+    "telegram-image-sync",
+    "wechat-sync",
+    "wechat-image-sync"
   ],
   "in-progress": [
-    "multi-account"
+    "semantic-search"
   ],
   "done": [
     "platform-abstraction",
     "imessage-sync",
     "whatsapp-sync",
     "incremental-sync",
-    "web-ui-enhancements"
+    "web-ui-enhancements",
+    "multi-account"
   ]
 }
