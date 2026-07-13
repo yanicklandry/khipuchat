@@ -7,9 +7,11 @@
     "requirements",
     "validate-gap",
     "design",
-    "validate-design"
+    "validate-design",
+    "tasks",
+    "implementation"
   ],
-  "done": false,
+  "done": true,
   "completedQueueSpecs": [
     "platform-abstraction",
     "imessage-sync",
