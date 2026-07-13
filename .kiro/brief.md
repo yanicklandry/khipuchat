@@ -98,18 +98,18 @@ Existing `npm run` scripts may remain as thin wrappers during transition but are
 - [x] incremental-sync
 - [x] web-ui-enhancements
 - [x] multi-account
-- [ ] semantic-search
-- [ ] web-ui
-- [ ] discord-sync
-- [ ] email-sync
-- [ ] slack-sync
-- [ ] security-hardening
-- [ ] release
-- [ ] sync-watcher
-- [ ] khipu-cli
-- [ ] image-support
-- [ ] signal-platform
-- [ ] signal-image-sync
+- [x] semantic-search
+- [x] web-ui
+- [x] discord-sync
+- [x] email-sync
+- [x] slack-sync
+- [x] security-hardening
+- [x] release
+- [x] sync-watcher
+- [x] khipu-cli
+- [x] image-support
+- [x] signal-platform
+- [ ] signal-image-sync (in progress)
 - [ ] telegram-image-sync
 - [ ] wechat-sync
 - [ ] wechat-image-sync
