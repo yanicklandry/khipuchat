@@ -223,3 +223,48 @@ Set `"bin": {"khipu": "./node_modules/.bin/tsx src/cli.ts"}` — not recommended
 - Role script rename/move breaks the router map → mitigated by importing `PLATFORMS` from `sync-all.ts` and a parity integration test; other paths are covered by unit tests on `resolveCommand`.
 - `npm link` in the image failing → fallback to `npm install -g .`; both place `khipu` on PATH.
 - Stdio MCP buffering → enforced `stdio: 'inherit'` in the shared spawn helper.
+
+---
+
+## Implementation Completion Re-Scan (kiro-validate-gap, 2026-07-13)
+
+**Trigger**: All subtasks in tasks.md are now checked. This re-scan verifies the implementation against requirements with fresh eyes.
+
+### Status: Implementation Complete
+
+Every requirement maps to a present, correct artifact. Summary of findings:
+
+| Req | AC | Status | Evidence |
+|---|---|---|---|
+| 1 | 1.1 Multi-stage Dockerfile | ✅ | builder + runtime on node:20-alpine |
+| 1 | 1.2 amd64 + arm64 | ✅ | release.yml: QEMU + buildx, platforms both arches |
+| 1 | 1.3 compose up starts web | ✅ | web service: `khipu web`, port 127.0.0.1:3333 |
+| 1 | 1.4 sync service runs `khipu sync all` | ✅ | sync service: while-loop around `khipu sync all` |
+| 1 | 1.5 named volume for khipuchat.db | ✅ | db-data volume at /app/khipuchat.db |
+| 1 | 1.6 env vars documented | ✅ | commented block at bottom of docker-compose.yml |
+| 2 | all | ✅ | ci.yml: push+PR to main, ubuntu-latest, Node 20, npm test |
+| 3 | all | ✅ | release.yml: v* tags, ghcr.io, GITHUB_TOKEN, version+latest tags |
+| 4 | all | ✅ | SECURITY.md: private reporting + yanick.landry@gmail.com |
+| 5 | 5.1 bin entry | ✅ | package.json has `"bin": { "khipu": "bin/khipu" }` |
+| 5 | 5.2 npm link in README | ✅ | Contributing section documents clone + npm install + npm link |
+| 5 | 5.3 khipu commands in README | ✅ | All references use `khipu <subcommand>` |
+| 6 | 6.1 demo asset in docs/ | ⚠️ | docs/demo.png exists and is linked; but only 2,710 bytes — likely a placeholder image |
+| 6 | 6.2 under 5 MB | ✅ | 2,710 bytes |
+| 6 | 6.3 Docker quickstart | ✅ | "Docker Quickstart" section present |
+| 6 | 6.4 khipu.config.json + incremental note | ✅ | Multi-account section + iMessage full-scan note |
+
+### Residual Gap: demo asset (Requirement 6.1)
+
+`docs/demo.png` is 2,710 bytes — far below what a real screenshot produces (typically 100 KB+). This is almost certainly a placeholder. The requirement says "a demo GIF or screenshot shall exist in `docs/` and be linked from the README." Technically met on the letter (file exists, linked, under 5 MB), but the spirit (prospective users see the tool in action) is not served by a near-empty image.
+
+**Action required before tagging a release**: Replace `docs/demo.png` with a real screenshot of the web UI or a GIF capture. This is the only remaining work item.
+
+### Known Accepted Trade-offs (not gaps)
+
+- `npm link` in the Dockerfile runtime stage is non-standard but intentional (avoids a dist/ build step per tech.md).
+- Stdio MCP cannot be a Compose network service; documented as `docker run -i ... khipu mcp` instead.
+- WhatsApp sync is unsupported inside Docker (Chromium/QR session); `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true` set in Dockerfile, limitation should be noted in README.
+
+### Recommended Next Step
+
+Run `/kiro-validate-impl release` to formally verify the complete implementation and close parent tasks 1-4.
