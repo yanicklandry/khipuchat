@@ -91,25 +91,25 @@ Existing `npm run` scripts may remain as thin wrappers during transition but are
 - DB operations remain synchronous (better-sqlite3); MCP over stdio only; self-hosted, no external services.
 - Schema changes must migrate existing single-account databases without data loss (default account, e.g. `"default"`).
 
-## Specs (all generated, tasks-generated phase)
+## Specs
 - [x] platform-abstraction
 - [x] imessage-sync
 - [x] whatsapp-sync
 - [x] incremental-sync
 - [x] web-ui-enhancements
 - [x] multi-account
-- [x] semantic-search
-- [x] web-ui
-- [x] discord-sync
-- [x] email-sync
-- [x] slack-sync
-- [x] security-hardening
-- [x] release
-- [x] sync-watcher
-- [x] khipu-cli
-- [x] image-support
-- [x] signal-platform
-- [x] signal-image-sync
-- [x] telegram-image-sync
-- [x] wechat-sync
-- [x] wechat-image-sync
+- [ ] semantic-search
+- [ ] web-ui
+- [ ] discord-sync
+- [ ] email-sync
+- [ ] slack-sync
+- [ ] security-hardening
+- [ ] release
+- [ ] sync-watcher
+- [ ] khipu-cli
+- [ ] image-support
+- [ ] signal-platform
+- [ ] signal-image-sync
+- [ ] telegram-image-sync
+- [ ] wechat-sync
+- [ ] wechat-image-sync
