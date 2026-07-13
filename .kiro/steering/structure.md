@@ -10,7 +10,7 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 **Location**: `src/platforms/<name>/`
 **Purpose**: All code specific to one messaging platform
 **Pattern**: Each adapter has at minimum a `sync.ts` (the runnable sync script). Complex platforms add `client.ts` (API wrapper), `contacts.ts` (contact resolution), or `image-meta.ts` (media metadata extraction from platform-specific formats). The adapter exports an object implementing `PlatformAdapter` from `src/platforms/types.ts`; the factory function that constructs it from credentials implements `AdapterFactory` (also from `types.ts`). Adapters use `AccountRegistry` to iterate over configured accounts and call `runPlatformSync` per account.
-**Implemented**: telegram, imessage, wechat, discord, slack, email, whatsapp
+**Implemented**: telegram, imessage, wechat, discord, slack, email, whatsapp, signal
 **Example**: `src/platforms/telegram/sync.ts`, `src/platforms/discord/sync.ts`
 
 ### Shared Infrastructure
@@ -41,6 +41,7 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 - `src/ocr.ts` — tesseract.js singleton worker; `extractText(Buffer|string)` never throws (returns null on failure); `terminateOcr()` for process shutdown
 - `src/image-handlers.ts` — MCP `get_image` tool handler; reads `media_file_path` + `ocr_text` from DB, returns base64 content
 - `src/platforms/telegram/image-sync.ts` — Telegram-specific: downloads photo messages via GramJS `client.downloadMedia()`, stores via `storeMedia`, runs OCR, writes `media_file_path` + `ocr_text` back to DB
+- `src/platforms/signal/image-sync.ts` — Signal-specific: fetches attachments via Beeper's attachment API, stores via `storeMedia`, runs OCR; follows same interface as telegram image-sync
 
 **Pattern**: Platform adapters implement `image-sync.ts` for platform-specific download logic. Shared infrastructure (`media-storage.ts`, `ocr.ts`, `image-handlers.ts`) is reused across all platforms.
 
