@@ -68,6 +68,8 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 **Purpose**: Express server + server-side HTML rendering
 **Pattern**: `server.ts` exports `createApp()` (builds and returns the Express app) and `startServer(app, host?, port?)` (binds it; defaults to `127.0.0.1:3333`). Routes are registered in `routes.ts`. UI is plain HTML strings assembled in `ui.ts` / `ui-scroll.ts` / `ui-chats.ts`. `icons.ts` provides SVG icon helpers (simple-icons). `ui-chats.ts` handles chat list rendering with multi-account filter UI. No client-side framework.
 
+**Parity mechanism**: `routes.ts` calls exported handler functions from `mcp.ts` directly (`handleListChats`, `handleSearchMessages`, `handleListMessages`). This is how agent-native parity is enforced at the code level: the same logic runs for MCP tools and web API routes.
+
 ### Scripts
 **Location**: `scripts/`
 **Purpose**: Platform-specific setup helpers that can't be expressed as npm scripts

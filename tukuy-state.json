@@ -1,16 +1,6 @@
 {
-  "specName": "web-ui",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "discord-sync",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
@@ -19,6 +9,7 @@
     "incremental-sync",
     "web-ui-enhancements",
     "multi-account",
-    "semantic-search"
+    "semantic-search",
+    "web-ui"
   ]
 }
