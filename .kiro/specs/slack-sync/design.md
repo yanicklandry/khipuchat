@@ -258,7 +258,7 @@ export async function runIncrementalImpl(client: SlackClient, since: Date, accou
 export function createSlackAdapter(account: string, credentials: AccountCredentials): PlatformAdapter
 export const slackAdapter: PlatformAdapter   // default account from process.env.SLACK_USER_TOKEN
 ```
-- Preconditions: `credentials.fields['SLACK_USER_TOKEN']` non-empty; otherwise writes to stderr and `process.exit(1)`.
+- Preconditions: construction never fails; the token guard runs when `runBackfill` / `syncIncremental` is invoked. If `credentials.fields['SLACK_USER_TOKEN']` is empty at that point, the adapter writes to stderr and calls `process.exit(1)` before any network call.
 - Postconditions: returns adapter with `runBackfill`, `syncIncremental`, and a no-op `startListener`.
 - Invariants: token read exclusively from `SLACK_USER_TOKEN`; never hardcoded or logged.
 

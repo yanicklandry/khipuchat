@@ -123,3 +123,13 @@ Both previously missing tests (identified in the 2026-07-12 analysis as Option B
 **Test result**: 24/24 passing in 154ms.
 
 All five requirements are satisfied. Implementation is complete and fully tested. Spec status: `implemented`.
+
+---
+
+## Design Refresh — 2026-07-13
+
+Re-ran `/kiro-spec-design` in merge mode against the current source (`src/platforms/slack/client.ts`, `sync.ts`). Discovery type: **light** (extension of an existing, established adapter pattern). The existing `design.md` still maps 1:1 to the implementation across all interfaces, flows, and the traceability table — no substantive drift.
+
+One precision fix applied: the `createSlackAdapter` Preconditions previously read as a construction-time token guard. Corrected to reflect the actual behavior — the guard runs when `runBackfill` / `syncIncremental` is invoked (`sync.ts:96-101, 104-109`), exiting 1 before any network call. This does not change requirement coverage for 1.1 / 1.2.
+
+Phase intentionally **not** regressed to `design-generated`: the feature is already implemented, approved, and 24/24 tests pass. Downgrading tracking state would misreport completed work.
