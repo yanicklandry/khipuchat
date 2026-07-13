@@ -97,3 +97,27 @@
 
 - Mark all tasks in `tasks.md` as complete.
 - Run `/kiro-validate-impl web-ui` to formally validate the existing implementation against the spec.
+
+---
+
+# Gap Analysis (2026-07-13)
+
+**Spec phase at analysis time:** tasks-generated / ready_for_implementation
+**All tasks.md boxes confirmed marked `[x]` in current file state.**
+
+## Summary
+
+The web-ui feature is **fully implemented and tested**. A re-read of all six source files (`server.ts`, `routes.ts`, `ui.ts`, `ui-chats.ts`, `icons.ts`, `ui-scroll.ts`) and `tests/web.test.ts` confirms:
+
+- Every requirement in `requirements.md` is satisfied — see the coverage table in the 2026-07-12 section above, which remains valid.
+- The extra file `ui-chats.ts` (not in the original three-file plan) was introduced to keep `ui.ts` under the 200-line limit; it exports `buildAccountFilterHtml` and `CHATS_JS`.
+- `design.md` was reconciled with the as-built state on 2026-07-12; no new drift was found.
+- `tests/web.test.ts` covers: `GET /`, `/api/chats` (empty + seeded + account filter), `/api/search` (empty query, whitespace, valid query, account filter), `/api/messages/:chatId` (200 + 400 cases, pagination, ordering), multi-account UI, `/api/semantic-search` (no index, seeded index, invalid limit), and `startServer` lifecycle.
+
+## No New Gaps Found
+
+All requirements fully covered. No missing capabilities, no pending tasks, no drift between design and implementation.
+
+## Next Step
+
+Run `/kiro-validate-impl web-ui` to formally validate integration across all tasks.
