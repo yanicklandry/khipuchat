@@ -7,9 +7,10 @@
     "requirements",
     "validate-gap",
     "design",
-    "validate-design"
+    "validate-design",
+    "tasks"
   ],
-  "done": false,
+  "done": true,
   "completedQueueSpecs": [
     "platform-abstraction",
     "imessage-sync",
@@ -28,6 +29,7 @@
     "khipu-cli",
     "image-support",
     "signal-platform",
-    "signal-image-sync"
+    "signal-image-sync",
+    "telegram-image-sync"
   ]
 }
