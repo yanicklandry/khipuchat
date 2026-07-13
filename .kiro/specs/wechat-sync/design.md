@@ -244,7 +244,7 @@ graph TB
 | 2.5 | No-text messages stored as type='other' | Message Mapper | `mapMessage` (non-text branch) | Schema Detection |
 | 3.1 | Read display names from contacts DB | Contact Resolver | `buildWechatContactMap` | Sync Sequence |
 | 3.2 | Contacts DB unavailable → raw id fallback | Contact Resolver | empty map → caller falls back | Sync Sequence |
-| 3.3 | Resolved display name as `sender_name` | Message Mapper (**planned fix**) | `mapMessage` + `MessageMapOpts.senderName` | Schema Detection |
+| 3.3 | Resolved display name as `sender_name` | Message Mapper | `mapMessage` + `MessageMapOpts.senderName` | Schema Detection |
 | 4.1 | `npm run sync:wechat` | Adapter + scripts | `wechatAdapter`, `package.json` | — |
 | 4.2 | No duplicate records on re-run | Sync Core + shared DB | `insertMessage` `INSERT OR IGNORE` | Sync Sequence |
 | 4.3 | New messages additive, existing unchanged | Sync Core | per-chat `setLastSyncedAt` watermark | Sync Sequence |
@@ -410,7 +410,7 @@ export interface WechatMessageRow {
 export interface MessageMapOpts {
   selfWxid?: string                        // V4 is_sender detection
   senderIdMap?: Map<number, string>        // rowid → wxid, V4
-  senderName?: string | null               // planned (Req 3.3): resolved counterparty name
+  senderName?: string | null               // Req 3.3: resolved counterparty name
 }
 ```
 
@@ -439,14 +439,14 @@ export function mapMessage(row: WechatMessageRow, chatId: number, opts?: Message
 //                    : (Message ?? strContent ?? null)   // zstd blobs and images → no text
 // type          = isImageMessage ? 'image' : (msgType === 1 && text ? 'text' : 'other')   // Req 2.5
 // timestamp     = V4 ? create_time : CreateTime          // already Unix seconds
-// sender_name   = is_sender === 1 ? null : (opts?.senderName ?? null)   // planned Req 3.3 fix
+// sender_name   = is_sender === 1 ? null : (opts?.senderName ?? null)   // Req 3.3
 // sender_id     = null; reply_to_external_id = null; platform = 'wechat'
 ```
 
 **Responsibilities & Constraints**
 - `extractWechat4Text` strips the `sender_wxid:\n` group-chat prefix and returns readable text; returns `null` for `Buffer` (zstd) content.
 - Image detection: legacy `Type === 4`, V4 `local_type === 4`, or WeChat media types `43`/`49` → `type = 'image'` with empty text (no bytes extracted).
-- **Req 3.3 (planned change)**: today `sender_name` is unconditionally `null`. The target contract sets `sender_name` to the resolved counterparty display name for received messages (`is_sender = 0`) and leaves it `null` for sent messages. The resolved name is supplied by the Sync Core via `MessageMapOpts.senderName`.
+- **Req 3.3**: `sender_name` is set to the resolved counterparty display name for received messages (`is_sender = 0`) and left `null` for sent messages. The resolved name is supplied by the Sync Core via `MessageMapOpts.senderName`.
 
 ---
 
@@ -488,7 +488,7 @@ export function buildWechatContactMap(contactDir: string, keyMap?: Map<string, s
 - Per table: resolve `displayName` (`contactMap.get(userName) ?? userName ?? contactMap.get(tableName) ?? tableName`), `upsertChat`, then read rows via the schema-specific SELECT. Backfill applies a per-chat `WHERE timeCol > watermark` when a prior sync exists; incremental applies `WHERE timeCol > since`.
 - Per row: `insertMessage(mapMessage(...))` (idempotent via `INSERT OR IGNORE`, Req 4.2). After each table, `setLastSyncedAt(chatId, now)` (Req 4.3) and, when the vector index exists, `embedNewMessages`/`embedNewChats`.
 - Per-table read failures are caught and logged; the loop continues (Req 1.4).
-- **Req 3.3 plumbing**: the Sync Core passes the resolved counterparty display name into `MessageMapOpts.senderName` (V3: `displayName`; V4 group chats: resolve `real_sender_id` → wxid → `contactMap`).
+- **Req 3.3**: the Sync Core passes the resolved counterparty display name into `MessageMapOpts.senderName` (both `runBackfillImpl` and `runIncrementalImpl` set `senderName: displayName` when building `tableOpts`).
 
 **Contracts**: Batch
 
@@ -562,7 +562,7 @@ WeChat Sync introduces **no schema changes**; it writes existing `Chat` and `Mes
 | `messages.text` | `Message`/`strContent` | decoded `message_content` (plain only) |
 | `messages.is_sender` | `Des`/`isSend` | `real_sender_id` → `Name2Id` vs `selfWxid` |
 | `messages.type` | image types → `image`; text → `text`; else `other` | same |
-| `messages.sender_name` | received → resolved name; sent → `null` *(planned)* | same |
+| `messages.sender_name` | received → resolved name; sent → `null` | same |
 
 ### Integrity
 
