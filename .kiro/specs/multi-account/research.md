@@ -271,3 +271,100 @@ _Appended: 2026-07-11 during `/kiro-spec-design`._
 ## References
 - better-sqlite3 RETURNING support — https://github.com/WiseLibs/better-sqlite3/releases (v9+)
 - SQLite ALTER TABLE limitations (no DROP/ADD PRIMARY KEY) — https://www.sqlite.org/lang_altertable.html
+
+---
+
+# Post-Implementation Gap Verification
+
+_Generated: 2026-07-13 — re-run of `/kiro-validate-gap` after all tasks marked complete._
+
+## Summary
+
+- **Status**: Implementation is substantively complete. All major architectural components verified present in the codebase.
+- **Scope covered**: Config registry, DB migrations, adapter factory pattern, sync orchestration, MCP/CLI/Web query surfaces — all implemented.
+- **One observation**: `/api/messages/:chatId` does not expose an `?account=` filter; this is intentional since querying a specific chat already scopes the result.
+- **Recommendation**: Proceed to `/kiro-validate-impl multi-account` for full cross-task consistency check and test-suite run.
+
+---
+
+## Requirement-to-Asset Verification
+
+### Req 1: Account Configuration Registry
+
+| Requirement | Asset | Status |
+|---|---|---|
+| 1.1 Config file loading, legacy fallback | `src/account-registry.ts: loadRegistry()` | Implemented |
+| 1.2 `$VAR` env resolution + missing-var error | `src/account-registry.ts: resolveField()` | Implemented |
+| 1.3 Duplicate/empty-name validation, case-sensitive | `src/account-registry.ts: buildConfigAccounts()` | Implemented |
+| 1.4 WeChat single-account exclusion | `src/account-registry.ts` (wechat_multi_account guard) | Implemented |
+| 1.5 Account enumeration via `listAccounts` | `src/account-registry.ts: AccountRegistry.listAccounts()` | Implemented |
+
+### Req 2: Database Schema and Migration
+
+| Requirement | Asset | Status |
+|---|---|---|
+| 2.1 `account` column on chats + backfill + unique index | `src/db-migrations.ts: runMigrations()` | Implemented |
+| 2.1 `external_id` column, identity via `(platform, account, external_id)` | `src/db-migrations.ts`, `src/db.ts: upsertChat()` | Implemented |
+| 2.2 `sync_state` composite PK rebuild | `src/db-migrations.ts: syncStateHasAccountPk()` + transaction | Implemented |
+
+### Req 3: Platform Adapter Account Awareness
+
+| Requirement | Asset | Status |
+|---|---|---|
+| 3.1 Per-account sync iteration with error isolation | `src/sync-runner.ts: runAllAccountsSync()` | Implemented |
+| 3.2 Credential isolation via adapter factory | `src/platforms/types.ts: AdapterFactory`, adapter `createX()` functions | Implemented |
+| 3.3 Per-account incremental sync state | `src/sync-runner.ts: runPlatformSync()` reads `(platform, adapter.account)` | Implemented |
+
+### Req 4: MCP Query Surface
+
+| Requirement | Asset | Status |
+|---|---|---|
+| 4.1 `account` filter on list/search/semantic tools | `src/mcp.ts` tool schemas + `src/query-handlers.ts` | Implemented |
+| 4.2 `account` field on all result objects | `ChatResult`, `MessageResult`, `SearchResult`, `SemanticContactResult`, `SemanticMessageResult` | Implemented |
+
+### Req 5: CLI Query Surface
+
+| Requirement | Asset | Status |
+|---|---|---|
+| 5.1 `--account` filter on list/search | `src/cli-filters.ts: parseQueryFilters()` + `src/cli.ts: parseAccountArg()` | Implemented |
+| 5.1 Account label in multi-account output | `src/cli.ts: formatPlatformLabel()` + `listArchiveAccounts()` check | Implemented |
+
+### Req 6: Web UI Account Disambiguation
+
+| Requirement | Asset | Status |
+|---|---|---|
+| 6.1 Account label beside platform for multi-account platforms | `src/web/ui-chats.ts` (MULTI_ACCOUNT_PLATFORMS set + conditional label) | Implemented |
+| 6.1 Account filter dropdown | `src/web/ui-chats.ts` (account-select + location.href redirect) | Implemented |
+| 6.1 `/api/chats?account=` and `/api/search?account=` routes | `src/web/routes.ts` | Implemented |
+
+---
+
+## Observations
+
+### No account filter on `/api/messages/:chatId`
+
+`routes.ts` line 75 calls `handleListMessages(chatId, { before, limit })` without an `account` option. This is intentional: once a `chat_id` is known it already implies a specific `(platform, account)` — the filter would be redundant. No gap here, just confirming the design choice.
+
+### `vec-db.ts` account filter confirmed
+
+`ContactFilters.account` and `MessageFilters.account` are implemented; the post-filter loop applies equality check on `chat.account` / `row.account`. `SemanticContactResult` and `SemanticMessageResult` carry `account: string`.
+
+### `db.ts` schema vs createSchema
+
+The base `createSchema()` in `db.ts` does not include the `account` or `external_id` columns on `chats` (still shows the original minimal schema). These columns are added by `runMigrations()` which runs immediately after `createSchema()` in `initDb()`. For new databases the migration adds them as the first step. This is intentional and matches the established migration pattern; no gap.
+
+---
+
+## Effort and Risk (re-assessed post-implementation)
+
+All tasks are marked `[x]` in `tasks.md`. Based on code inspection:
+
+- DB layer, registry, sync-runner, query-handlers, MCP, CLI, Web routes, Web UI: all present.
+- Adapter factory pattern: confirmed on Telegram and Slack; other adapters follow the same pattern (same `AccountCredentials` import visible).
+- Tests: `tests/account-registry.test.ts` exists. Full test-suite pass must be verified by `/kiro-validate-impl`.
+
+**Remaining risk**: Integration tests (tasks 11.x) are declared in `tasks.md` but test execution has not been confirmed here. Run `npm test` to verify.
+
+---
+
+_Status: Post-implementation verification complete. Run `/kiro-validate-impl multi-account` to confirm full test-suite pass and cross-task consistency._
