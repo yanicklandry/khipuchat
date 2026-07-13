@@ -1,16 +1,6 @@
 {
-  "specName": "semantic-search",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "web-ui",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
@@ -18,6 +8,7 @@
     "whatsapp-sync",
     "incremental-sync",
     "web-ui-enhancements",
-    "multi-account"
+    "multi-account",
+    "semantic-search"
   ]
 }
