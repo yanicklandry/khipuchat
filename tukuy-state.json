@@ -1,7 +1,8 @@
 {
   "specName": "signal-image-sync",
   "completedPhases": [
-    "steering"
+    "steering",
+    "discovery"
   ],
   "done": false,
   "completedQueueSpecs": [
