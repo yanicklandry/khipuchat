@@ -10,9 +10,9 @@
 
 ---
 
-- [ ] 1. Search Index — extract `rebuildEmbeddings` callable
+- [x] 1. Search Index — extract `rebuildEmbeddings` callable
 
-- [ ] 1.1 Extract `rebuildEmbeddings(platform?)` from `index-embeddings.ts`
+- [x] 1.1 Extract `rebuildEmbeddings(platform?)` from `index-embeddings.ts`
   - Confirm `rebuildFtsIndex()` is already exported from `src/db.ts` and importable by `sync-runner.ts`; if not, add the export in this task
   - Pull the existing embedding batch loop out of `main()` in `src/index-embeddings.ts` into an exported async function `rebuildEmbeddings(platform?: Platform): Promise<void>`
   - With no argument: same whole-database sweep as before, preserving `npm run index:embeddings` behavior
@@ -22,9 +22,9 @@
   - _Requirements: 4.4_
   - _Boundary: rebuildEmbeddings (src/index-embeddings.ts)_
 
-- [ ] 2. Shared sync runner — flag parsing and mode routing
+- [x] 2. Shared sync runner — flag parsing and mode routing
 
-- [ ] 2.1 (P) Implement `parseSyncArgs` in `src/sync-runner.ts`
+- [x] 2.1 (P) Implement `parseSyncArgs` in `src/sync-runner.ts`
   - Create `src/sync-runner.ts` and export `parseSyncArgs(argv: readonly string[]): { force: boolean }`
   - `--force` sets `force: true` with no stderr output
   - `--backfill` sets `force: true` and writes a one-line deprecation warning to stderr
@@ -33,7 +33,7 @@
   - _Requirements: 4.3, 4.5_
   - _Boundary: parseSyncArgs (src/sync-runner.ts)_
 
-- [ ] 2.2 Implement `runPlatformSync` in `src/sync-runner.ts`
+- [x] 2.2 Implement `runPlatformSync` in `src/sync-runner.ts`
   - Import `getPlatformLastSyncedAt`, `setPlatformLastSyncedAt`, `rebuildFtsIndex` from `src/db.ts` and `rebuildEmbeddings` from `src/index-embeddings.ts`; must not import any concrete adapter (type-only import of `PlatformAdapter` from `src/platforms/types.ts`)
   - Snapshot `runStartedAt = Math.floor(Date.now() / 1000)` immediately on entry, before any fetch or state read
   - Call `parseSyncArgs(argv)` to determine the `force` flag
@@ -45,9 +45,9 @@
   - _Boundary: SyncRunner (src/sync-runner.ts)_
   - _Depends: 1.1, 2.1_
 
-- [ ] 3. Platform entry points — delegate to shared runner
+- [x] 3. Platform entry points — delegate to shared runner
 
-- [ ] 3.1 (P) Delegate five simple adapter entry points to `runPlatformSync`
+- [x] 3.1 (P) Delegate five simple adapter entry points to `runPlatformSync`
   - Refactor `main()` in `src/platforms/discord/sync.ts`, `slack/sync.ts`, `email/sync.ts`, `wechat/sync.ts`, and `imessage/sync.ts`
   - Each `main()`: call `initDb()`, then `await runPlatformSync(adapter, db, process.argv)`, exit 0 on success; catch, log, and exit 1 on error
   - Remove any per-adapter mode-select logic that was previously added; the runner owns that logic
@@ -56,7 +56,7 @@
   - _Boundary: discord, slack, email, wechat, imessage entry points_
   - _Depends: 2.2_
 
-- [ ] 3.2 (P) Delegate WhatsApp entry point to `runPlatformSync`
+- [x] 3.2 (P) Delegate WhatsApp entry point to `runPlatformSync`
   - Refactor `main()` in `src/platforms/whatsapp/sync.ts` to retain any client/QR initialization before the runner call, then `await runPlatformSync(whatsappAdapter, db, process.argv)`
   - Remove any per-adapter mode-select logic; the runner owns that logic
   - Observable: `npx tsx src/platforms/whatsapp/sync.ts` exits 0 after a sync run and writes a `sync_state` row; a second run prints `incremental`
@@ -64,7 +64,7 @@
   - _Boundary: whatsapp entry point_
   - _Depends: 2.2_
 
-- [ ] 3.3 (P) Refactor telegram entry point to use `runPlatformSync`
+- [x] 3.3 (P) Refactor telegram entry point to use `runPlatformSync`
   - Replace the broken `runSync` function in `src/platforms/telegram/sync.ts` (which always called `runBackfill`) with a `runPlatformSync` call
   - Retain the auth wizard flow and Telegram client connection lifecycle before the runner call
   - Retain `--backfill-only` gating: after the runner returns cleanly, if `--backfill-only` is present call `process.exit(0)`; otherwise invoke `startListener`
@@ -73,9 +73,9 @@
   - _Boundary: telegram entry point_
   - _Depends: 2.2_
 
-- [ ] 4. Aggregate orchestrator and package.json scripts
+- [x] 4. Aggregate orchestrator and package.json scripts
 
-- [ ] 4.1 Create `src/sync-all.ts` serial orchestrator
+- [x] 4.1 Create `src/sync-all.ts` serial orchestrator
   - Spawn `tsx src/platforms/<p>/sync.ts` for each of the 7 platforms in a fixed serial order using Node built-in `child_process` (no new dependencies)
   - Forward `--force` and `--backfill` flags from own argv to every child subprocess; append `--backfill-only` to the telegram child's args so it exits after sync instead of blocking on the listener
   - Stream each child's stdout and stderr through to the parent process
@@ -84,7 +84,7 @@
   - _Requirements: 4.6_
   - _Boundary: AggregateOrchestrator (src/sync-all.ts)_
 
-- [ ] 4.2 Update `package.json` `sync` script
+- [x] 4.2 Update `package.json` `sync` script
   - Change the `sync` script entry to `tsx src/sync-all.ts`
   - Verify all `sync:<platform>` scripts remain unchanged (delegation now happens inside each `main()`)
   - Observable: `npm run sync` triggers all 7 platform syncs; `npm run sync -- --force` passes `--force` through `sync-all` to each child; `npm run sync:discord` still works as before
@@ -92,9 +92,9 @@
   - _Boundary: package.json scripts_
   - _Depends: 4.1_
 
-- [ ] 5. Tests
+- [x] 5. Tests
 
-- [ ] 5.1 (P) Unit tests for `parseSyncArgs`
+- [x] 5.1 (P) Unit tests for `parseSyncArgs`
   - `['--force']` returns `{ force: true }` with no stderr
   - `['--backfill']` returns `{ force: true }` and emits the deprecation warning to stderr
   - `[]` returns `{ force: false }` with no stderr
@@ -104,7 +104,7 @@
   - _Boundary: parseSyncArgs_
   - _Depends: 2.1_
 
-- [ ] 5.2 (P) Integration tests for `runPlatformSync` mode selection and atomicity
+- [x] 5.2 (P) Integration tests for `runPlatformSync` mode selection and atomicity
   - Mode selection with fake adapters (four cases): (a) `since=null` selects backfill; (b) `since` set + `syncIncremental` present + no force selects incremental; (c) `since` set + adapter lacks `syncIncremental` selects backfill; (d) `force` + `since` set selects backfill
   - Stdout assertion: exactly one of `"incremental"` / `"backfill"` is printed **before** the adapter method is invoked in each case (Req 4.7 ordering)
   - Atomic write: resolving fake adapter results in `setPlatformLastSyncedAt` called with `runStartedAt`; throwing fake adapter results in no call and error propagation
@@ -115,7 +115,7 @@
   - _Boundary: SyncRunner_
   - _Depends: 2.2_
 
-- [ ] 5.3 E2E tests for `sync-all` orchestration and first-run behavior
+- [x] 5.3 E2E tests for `sync-all` orchestration and first-run behavior
   - sync-all: verify all 7 platform subprocesses are spawned serially; `--force` is forwarded to each child; `--backfill-only` is appended for telegram; a failing child does not abort remaining platforms; aggregate exit code is non-zero when any child failed
   - First-run flow against a temporary in-memory DB: empty `sync_state` causes `backfill` to be printed and the marker to be written; a second run causes `incremental` to be printed
   - Observable: E2E test suite passes, confirming serial execution order, flag forwarding, fault tolerance, and correct first-run / subsequent-run mode selection
