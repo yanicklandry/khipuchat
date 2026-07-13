@@ -1,6 +1,8 @@
 {
   "specName": "khipu-cli",
-  "completedPhases": [],
+  "completedPhases": [
+    "steering"
+  ],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
