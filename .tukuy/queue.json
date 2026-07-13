@@ -8,7 +8,6 @@
     "discord-sync",
     "email-sync",
     "slack-sync",
-    "whatsapp-sync",
     "security-hardening",
     "release",
     "incremental-sync",
@@ -22,9 +21,10 @@
     "telegram-image-sync"
   ],
   "in-progress": [
-    "imessage-sync"
+    "whatsapp-sync"
   ],
   "done": [
-    "platform-abstraction"
+    "platform-abstraction",
+    "imessage-sync"
   ]
 }
