@@ -113,3 +113,72 @@ Also update `tests/account-registry.test.ts` lines 65-70 to use the corrected en
 ## Recommendation
 
 Single fix needed: align `LEGACY_ENV_VARS.email` in `account-registry.ts` and its test. All other work is complete. Proceed to `/kiro-validate-impl email-sync` after applying the fix.
+
+---
+
+# Implementation Gap Analysis (Re-run)
+
+**Date**: 2026-07-13
+**Method**: Fresh codebase inspection — `src/platforms/email/sync.ts`, `src/platforms/email/client.ts`, `tests/email.test.ts`, `src/account-registry.ts`.
+
+## Status of Previous Gap
+
+The `LEGACY_ENV_VARS.email` key mismatch identified on 2026-07-12 **is still unresolved**. `src/account-registry.ts` line 36 still reads:
+
+```typescript
+email: ['IMAP_HOST', 'IMAP_PORT', 'IMAP_USER', 'IMAP_PASS'],
+```
+
+Required fix (same as before):
+```typescript
+email: ['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'],
+```
+
+## New Gap: No-Plain-Text Messages Not Skipped
+
+### Location
+`src/platforms/email/sync.ts` lines 77-78, inside `processFolder`.
+
+### Problem
+Requirement 3, AC3 states: "if a message has no plain-text part, the Email Sync shall skip it without error."
+
+The current code always calls `insertMessage(mapMessage(raw, chatId, userEmail))`. When `raw.text` is `null`, `mapMessage` produces `{ text: null, type: 'other' }` and the message is inserted into the DB rather than skipped.
+
+### Fix
+Add a guard before `insertMessage`:
+
+```typescript
+const mapped = mapMessage(raw, chatId, userEmail)
+if (mapped.text === null) continue   // Req 3 AC3: skip messages with no plain-text part
+insertMessage(mapped)
+totalMessages++
+```
+
+Note: the `totalMessages++` must also move inside the guard so the count stays accurate.
+
+### Test Coverage
+`tests/email.test.ts` has a `mapMessage` test verifying `type: 'other'` when text is null, but no integration test verifying the message is **skipped**. A test should be added:
+
+```typescript
+it('skips messages with no plain-text part', async () => {
+  const noText = makeRaw({ messageId: 'no-text@ex.com', text: null })
+  const client = makeMockClient([noText])
+  await runBackfillImpl(client, 'user@ex.com')
+  // chat is created for the thread root but no message should be stored
+  // (or verify via getMessages if exported)
+  expect(getChats()).toHaveLength(0)
+})
+```
+
+## Open Questions
+
+- Should the chat record also be suppressed when the only message in a thread has no plain-text part? The requirement does not specify. Conservative interpretation: skip the message; suppress the chat only if it would otherwise be empty.
+
+## Updated Recommendation
+
+Two fixes needed before marking implementation fully compliant:
+
+1. **`account-registry.ts` line 36**: align `LEGACY_ENV_VARS.email` key names.
+2. **`sync.ts` `processFolder`**: skip insertion when `raw.text` is null; add a corresponding test.
+
+Run `/kiro-validate-impl email-sync` after both are applied.
