@@ -307,3 +307,88 @@ Implementation is approximately 60% complete. The hardest parts (adapter increme
 - **Context**: `npm run sync -- --force` in an `&&` chain forwards the flag only to the last command. Each platform's `main()` also owns its own client/auth lifecycle (telegram auth wizard, whatsapp QR).
 - **Selected Approach**: `src/sync-all.ts` spawns `tsx src/platforms/<p>/sync.ts` serially, forwarding `--force`/`--backfill` to every child and adding `--backfill-only` for telegram.
 - **Rationale**: Preserves each platform's independent runtime setup; forwards flags uniformly (Req 4.6). Lower risk than importing all adapters into one process.
+
+---
+
+# Gap Analysis (2026-07-13)
+
+## Summary
+
+- Implementation is **100% complete**. All tasks marked [x] in tasks.md are confirmed present in the codebase.
+- All four gaps identified in the 2026-07-11 analysis (CLI wiring, `--force` parsing, embeddings rebuild, aggregate script) are resolved.
+- One minor schema inconsistency exists in `createSchema` (see below) — not a bug, acceptable.
+- Test coverage is comprehensive across all three test files.
+- Spec is ready for `/kiro-validate-impl`.
+
+---
+
+## 1. Gap Resolution Status
+
+| Gap (2026-07-11) | Status | Evidence |
+|---|---|---|
+| Gap A: CLI `main()` not wired | Resolved | `src/sync-runner.ts` exports `parseSyncArgs`, `runPlatformSync`, `runAllAccountsSync`; each platform `main()` delegates to `runPlatformSync` |
+| Gap B: `--force` not parsed | Resolved | `parseSyncArgs` in `sync-runner.ts:18-27` handles `--force` and `--backfill` (deprecated alias with stderr warning) |
+| Gap C: embeddings rebuild not wired | Resolved | `rebuildEmbeddings(platform?, force?)` exported from `index-embeddings.ts:158`; `runPlatformSync` calls it on `--force` success |
+| Gap D: aggregate script incomplete | Resolved | `src/sync-all.ts` covers all 8 platforms (`signal` added since prior analysis) serially; `package.json` `sync` script points to `tsx src/sync-all.ts` |
+| Gap E: `sync_state` composite PK | Addressed | `db-migrations.ts:99-116` migrates old single-PK table to `(platform, account)` composite PK; `getPlatformLastSyncedAt`/`setPlatformLastSyncedAt` both accept `account` parameter |
+
+---
+
+## 2. What Exists (Confirmed)
+
+### DB Layer
+
+- `src/db.ts`: `sync_state` table created in `createSchema`; `getPlatformLastSyncedAt(platform, account)` and `setPlatformLastSyncedAt(platform, account, ts)` exported; `rebuildFtsIndex()` exported.
+- `src/db-migrations.ts`: Migration at line 99 upgrades old single-PK `sync_state` to composite `(platform, account)` PK, migrating existing rows to `account = 'default'`.
+
+### Interface
+
+- `src/platforms/types.ts:12`: `syncIncremental?(db, since: Date): Promise<void>` declared on `PlatformAdapter`.
+
+### Adapter Implementations (all 8 platforms)
+
+All adapters implement `syncIncremental`: telegram, imessage, wechat, discord, slack, email, whatsapp, signal.
+
+### Sync Runner
+
+- `src/sync-runner.ts`: `parseSyncArgs`, `runPlatformSync`, `runAllAccountsSync` all implemented and exported. `runStartedAt` snapshot taken before sync begins (satisfies Req 5 decision). `setPlatformLastSyncedAt` only written on clean completion.
+
+### Aggregate Orchestrator
+
+- `src/sync-all.ts`: 8 platforms, serial, forwards `--force`/`--backfill`, appends `--backfill-only` to telegram only.
+
+### Embeddings Rebuild
+
+- `src/index-embeddings.ts:158`: `rebuildEmbeddings(platform?, force?)` exported. `force=true` clears vectors for scope then re-indexes. `main()` reduced to single `await rebuildEmbeddings()` call.
+
+### Tests
+
+| File | Coverage |
+|---|---|
+| `tests/sync-runner.test.ts` | `parseSyncArgs` (5 cases), `runPlatformSync` (9 cases covering all 4 modes + stdout + atomicity + timing), `runAllAccountsSync` (4 cases including per-account mode selection) |
+| `tests/sync-all.test.ts` | 8 cases: platform count, serial order, flag forwarding, `--backfill-only` for telegram, fault tolerance, return values, failure logging |
+| `tests/db.test.ts` | `sync_state` table creation, `getPlatformLastSyncedAt` null/value cases, `setPlatformLastSyncedAt` upsert semantics, cross-account isolation, cross-platform isolation |
+
+---
+
+## 3. Minor Findings
+
+### Schema inconsistency in `createSchema` (non-blocking)
+
+`src/db.ts:147-151`: `createSchema` still creates `sync_state` with `platform TEXT NOT NULL PRIMARY KEY` (old single-PK schema). `runMigrations` then immediately converts it to composite PK on every `initDb` call for a new DB. This causes a redundant migration cycle on fresh installs but is not a correctness issue — the final schema is always correct.
+
+**Verdict**: Acceptable. Fixing it would require updating `createSchema` to create the composite-PK table directly and adding a guard in `runMigrations` to skip conversion when the new schema is already in place. Not worth the churn unless startup performance becomes a concern.
+
+### `runAllAccountsSync` addition (not in original tasks)
+
+`src/sync-runner.ts:67-90`: `runAllAccountsSync` was added to support multi-account dispatch (iterates accounts from registry, calls `runPlatformSync` per account). This goes beyond the tasks.md scope but is forward-compatible with Req 6 and the `multi-account` spec. No action needed.
+
+### `sync:signal` script absent from `package.json`
+
+`src/sync-all.ts` includes `signal` in `PLATFORMS` (8 total), but `package.json` has no `sync:signal` script. This is pre-existing behavior from the `signal-platform` spec and outside this spec's scope.
+
+---
+
+## 4. Verdict
+
+**Implementation complete.** No gaps remain from the requirements. Test coverage spans all requirement acceptance criteria. The spec is ready for `kiro-validate-impl`.
