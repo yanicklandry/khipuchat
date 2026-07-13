@@ -1,11 +1,10 @@
 {
   "backlog": [],
   "ready": [
-    "wechat-sync",
     "wechat-image-sync"
   ],
   "in-progress": [
-    "telegram-image-sync"
+    "wechat-sync"
   ],
   "done": [
     "platform-abstraction",
@@ -25,6 +24,7 @@
     "khipu-cli",
     "image-support",
     "signal-platform",
-    "signal-image-sync"
+    "signal-image-sync",
+    "telegram-image-sync"
   ]
 }
