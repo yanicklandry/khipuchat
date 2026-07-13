@@ -13,6 +13,7 @@ import { initDb, upsertChat, insertMessage, rebuildFtsIndex, getDb } from '../sr
 import { handleGetImage } from '../src/image-handlers'
 import { handleSearchMessages } from '../src/query-handlers'
 import type { BeeperChat, BeeperMessage, BeeperSignalClient } from '../src/platforms/signal/client'
+import { processSignalImageMessages } from '../src/platforms/signal/image-sync'
 import * as fs from 'fs'
 
 // Mock fs so handleGetImage can simulate a file on disk without hitting the filesystem.
@@ -107,8 +108,9 @@ describe('runBackfillImpl — mixed chat (text + image)', () => {
     const client = makeMockClient([chat], msgMap)
 
     const consoleSpy = vi.spyOn(console, 'log')
+    const mockFetcher = { fetchAttachmentBuffer: vi.fn().mockResolvedValue(null) }
 
-    await runBackfillImpl(client, 'test-account')
+    await runBackfillImpl(client, 'test-account', mockFetcher)
 
     // Both rows were inserted into the DB.
     const allRows = getDb()
@@ -123,10 +125,14 @@ describe('runBackfillImpl — mixed chat (text + image)', () => {
     const textRow = allRows.find(r => r.external_id === 'msg-text-e2e')!
     expect(textRow.type).toBe('text')
 
-    // Completion log line includes chat and message counts (image processing is signal-image-sync's responsibility).
+    // Image sync was triggered via processSignalImageMessages.
+    expect(processSignalImageMessages).toHaveBeenCalled()
+
+    // Completion log line includes chat, message, and image counts.
     const logCall = consoleSpy.mock.calls.find(c => String(c[0]).includes('Sync complete'))
     expect(logCall).toBeDefined()
     expect(String(logCall![0])).toMatch(/1 chats, 2 messages/)
+    expect(String(logCall![0])).toMatch(/images: \d+ stored, \d+ failed/)
 
     consoleSpy.mockRestore()
   })

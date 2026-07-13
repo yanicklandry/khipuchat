@@ -1,7 +1,7 @@
 # Implementation Plan
 
-- [ ] 1. Core: message classification and Beeper transport
-- [ ] 1.1 (P) Patch Signal message type classification
+- [x] 1. Core: message classification and Beeper transport
+- [x] 1.1 (P) Patch Signal message type classification
   - In `mapMessage` within `sync.ts`, change the branch so `m.type === 'IMAGE'` emits `type: 'image'` instead of `'other'`
   - Ensure the fallback branch still maps TEXT with a body to `'text'` and all other types to `'other'`, leaving non-image messages untouched
   - Update any existing test that asserts IMAGE => 'other' to assert IMAGE => 'image'
@@ -9,7 +9,7 @@
   - _Requirements: 1.1, 1.2, 5.2, 5.3_
   - _Boundary: SignalAdapter/Mapping (sync.ts)_
 
-- [ ] 1.2 (P) Implement AttachmentFetcher interface and factory in the new image-sync module
+- [x] 1.2 (P) Implement AttachmentFetcher interface and factory in the new image-sync module
   - Create `src/platforms/signal/image-sync.ts` and declare the `AttachmentFetcher` interface: `fetchAttachmentBuffer(url: string): Promise<Buffer | null>`
   - Implement `createSignalAttachmentFetcher(accessToken: string): AttachmentFetcher` which privately constructs a `BeeperDesktop` instance and wraps `assets.serve({ url })` in try/catch, returning `null` on any error or empty/zero-length body
   - Log a warning on failure; never throw to the caller; the `BeeperDesktop` instance stays private to the factory closure; `client.ts` is not modified
@@ -17,8 +17,8 @@
   - _Requirements: 2.1, 2.4_
   - _Boundary: SignalAdapter/Transport (image-sync.ts)_
 
-- [ ] 2. Core: image sync orchestration
-- [ ] 2.1 Implement `processSignalImageMessages` and its private helpers
+- [x] 2. Core: image sync orchestration
+- [x] 2.1 Implement `processSignalImageMessages` and its private helpers
   - Add to `image-sync.ts`: `extFromMime` mapping `image/png` => `'png'`, `image/gif` => `'gif'`, `image/webp` => `'webp'`, anything else => `'jpg'`
   - Add `pickImageAttachment`: return the first attachment with `type === 'img'` and a non-empty `srcURL` or `id`; return `null` if none qualify
   - Add `fetchSignalAttachment`: try `fetcher.fetchAttachmentBuffer(srcURL ?? id)` first; if null and `srcURL` starts with `file://`, strip the scheme and read from disk with `fs`; return `null` if both strategies fail or throw
@@ -29,8 +29,8 @@
   - _Depends: 1.2_
   - _Boundary: SignalAdapter/ImageSync (image-sync.ts)_
 
-- [ ] 3. Integration: wire image sync into sync runs
-- [ ] 3.1 Collect image messages per chat and invoke image sync after inserts
+- [x] 3. Integration: wire image sync into sync runs
+- [x] 3.1 Collect image messages per chat and invoke image sync after inserts
   - In `runBackfillImpl` and `runIncrementalImpl` in `sync.ts`, collect each raw `BeeperMessage` that maps to `type: 'image'` into a per-chat array during the insert loop, without changing insert behavior
   - After each chat's insert loop, call `processSignalImageMessages(fetcher, chatId, imageMsgs)` and accumulate the returned `stored` and `failed` counts into run-level totals
   - In `createSignalAdapter`, construct `createSignalAttachmentFetcher(token)` and thread it into both run functions as the optional `fetcher` parameter (omitting it skips image work cleanly for tests)
@@ -40,8 +40,8 @@
   - _Depends: 1.1, 2.1_
   - _Boundary: SignalAdapter/Runtime (sync.ts)_
 
-- [ ] 4. Validation: tests
-- [ ] 4.1 (P) Unit tests for image-sync helper functions and mapMessage classification
+- [x] 4. Validation: tests
+- [x] 4.1 (P) Unit tests for image-sync helper functions and mapMessage classification
   - Test `extFromMime`: `image/png` => `'png'`, `image/gif` => `'gif'`, `image/webp` => `'webp'`, `image/jpeg` => `'jpg'`, `undefined` => `'jpg'`
   - Test `pickImageAttachment`: returns first `img` attachment with `srcURL`; returns `null` when no attachment has `srcURL` or `id`; returns `null` when only non-`img` type attachments exist
   - Test updated `mapMessage`: IMAGE => `'image'`; TEXT with body => `'text'`; other types => `'other'`
@@ -50,7 +50,7 @@
   - _Depends: 1.1, 1.2_
   - _Boundary: SignalAdapter/ImageSync, SignalAdapter/Mapping_
 
-- [ ] 4.2 (P) Integration tests for `processSignalImageMessages`
+- [x] 4.2 (P) Integration tests for `processSignalImageMessages`
   - Use in-memory SQLite DB with mocked `media-storage` and `ocr`, following `tests/telegram-image-sync.test.ts`
   - Case: `media_file_path` already set => skipped, no fetch called, counted in neither stored nor failed
   - Case: Beeper fetch returns buffer => `stored: 1, failed: 0`; `media_file_path` and `ocr_text` populated on DB row
@@ -63,7 +63,7 @@
   - _Depends: 2.1_
   - _Boundary: SignalAdapter/ImageSync_
 
-- [ ] 4.3 E2E tests: sync run counts and retrieval parity
+- [x] 4.3 E2E tests: sync run counts and retrieval parity
   - Test `runBackfillImpl` with a mixed chat (one text + one image message): verify both rows inserted, image sync triggered, completion log includes `images: 1 stored, 0 failed`, and text rows intact even when image fetch fails
   - Test that after a successful image store, `handleGetImage(messageId)` returns `file_available: true`, confirming `get_image` MCP tool parity requires no code changes
   - Test that stored OCR text appears in existing FTS query results, confirming searchability requires no FTS pipeline changes
