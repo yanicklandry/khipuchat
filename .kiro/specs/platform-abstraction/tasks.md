@@ -2,8 +2,8 @@
 
 ## Tasks
 
-- [ ] 1. Foundation: Platform types module and DB schema migration
-- [ ] 1.1 Create `src/platforms/types.ts` with `Platform` union and `PlatformAdapter` interface
+- [x] 1. Foundation: Platform types module and DB schema migration
+- [x] 1.1 Create `src/platforms/types.ts` with `Platform` union and `PlatformAdapter` interface
   - Create the `src/platforms/` directory
   - Export `Platform = 'telegram' | 'imessage' | 'discord' | 'slack' | 'whatsapp'`
   - Export `PlatformAdapter` interface with `readonly platform: Platform`, `runBackfill(db)`, and `startListener(db)` signatures
@@ -11,7 +11,7 @@
   - _Requirements: 3.1, 3.2, 3.3_
   - _Boundary: src/platforms/types.ts_
 
-- [ ] 1.2 Add `columnExists` migration guard and `platform` columns to `src/db.ts`
+- [x] 1.2 Add `columnExists` migration guard and `platform` columns to `src/db.ts`
   - Add private `columnExists(db, table, column)` helper using `PRAGMA table_info`
   - Gate `ALTER TABLE chats ADD COLUMN platform TEXT NOT NULL DEFAULT 'telegram'` on `!columnExists`
   - Gate `ALTER TABLE messages ADD COLUMN platform TEXT NOT NULL DEFAULT 'telegram'` on `!columnExists`
@@ -20,7 +20,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
   - _Boundary: src/db.ts_
 
-- [ ] 1.3 Rename `telegram_id` and `reply_to_telegram_id` columns in `src/db.ts`
+- [x] 1.3 Rename `telegram_id` and `reply_to_telegram_id` columns in `src/db.ts`
   - Gate `ALTER TABLE messages RENAME COLUMN telegram_id TO external_id` on old column still existing
   - Gate `ALTER TABLE messages RENAME COLUMN reply_to_telegram_id TO reply_to_external_id` on old column still existing
   - Update `Message` interface: `external_id: string` replaces `telegram_id`; `reply_to_external_id` replaces `reply_to_telegram_id`; add `platform: Platform`
@@ -33,8 +33,8 @@
   - _Boundary: src/db.ts_
   - _Depends: 1.2_
 
-- [ ] 2. Update `searchMessages` and `upsertChat` to pass through `platform`
-- [ ] 2.1 Extend `searchMessages` with optional `platform` parameter in `src/db.ts`
+- [x] 2. Update `searchMessages` and `upsertChat` to pass through `platform`
+- [x] 2.1 Extend `searchMessages` with optional `platform` parameter in `src/db.ts`
   - Add `platform?: Platform` parameter to `searchMessages` function signature
   - When `platform` is supplied, append `AND m.platform = ?` to the SQL WHERE clause
   - When `platform` is omitted, query returns results from all platforms
@@ -45,7 +45,7 @@
   - _Boundary: src/db.ts_
   - _Depends: 1.3_
 
-- [ ] 2.2 Extend `upsertChat` to store `platform` in `src/db.ts`
+- [x] 2.2 Extend `upsertChat` to store `platform` in `src/db.ts`
   - Update `upsertChat` INSERT statement to include the `platform` column
   - Update the `ON CONFLICT DO UPDATE SET` clause to include `platform = excluded.platform`
   - `upsertChat({ id: 1, name: 'Test', type: 'user', username: null, platform: 'telegram' })` results in a row with `platform = 'telegram'`
@@ -53,8 +53,8 @@
   - _Boundary: src/db.ts_
   - _Depends: 1.2_
 
-- [ ] 3. (P) Move Telegram sync to `src/platforms/telegram/sync.ts`
-- [ ] 3.1 Create `src/platforms/telegram/sync.ts` with updated field references
+- [x] 3. (P) Move Telegram sync to `src/platforms/telegram/sync.ts`
+- [x] 3.1 Create `src/platforms/telegram/sync.ts` with updated field references
   - Create the `src/platforms/telegram/` directory
   - Copy the full contents of `src/sync.ts` to the new path
   - Update `msgToRow` to produce `external_id` (not `telegram_id`), `reply_to_external_id`, and `platform: 'telegram'`
@@ -65,7 +65,7 @@
   - _Boundary: src/platforms/telegram/sync.ts_
   - _Depends: 1.3_
 
-- [ ] 3.2 Remove `src/sync.ts` and update all references
+- [x] 3.2 Remove `src/sync.ts` and update all references
   - Delete `src/sync.ts`
   - Update `package.json` scripts or equivalent entry points to reference `src/platforms/telegram/sync.ts`
   - Confirm no remaining import of `./sync` or `../sync` exists anywhere in `src/`
@@ -74,8 +74,8 @@
   - _Boundary: src/platforms/telegram/sync.ts_
   - _Depends: 3.1_
 
-- [ ] 4. (P) MCP layer — additive platform filter and response field
-- [ ] 4.1 Add `platform?` input parameter to `find_chat_by_name` and `search_messages`
+- [x] 4. (P) MCP layer — additive platform filter and response field
+- [x] 4.1 Add `platform?` input parameter to `find_chat_by_name` and `search_messages`
   - Add `platform?: Platform` to `handleFindChatByName(name, platform?)` signature
   - When `platform` is supplied, append `AND c.platform = ?` to the `find_chat_by_name` SQL
   - Add `platform?: Platform` to `handleSearchMessages(query, chatId?, platform?)` signature
@@ -86,7 +86,7 @@
   - _Boundary: src/mcp.ts_
   - _Depends: 2.1, 2.2_
 
-- [ ] 4.2 Add `platform` field to all MCP response types and queries
+- [x] 4.2 Add `platform` field to all MCP response types and queries
   - Add `platform: Platform` to `ChatResult`, `MessageResult`, and `SummaryResult` interfaces
   - Update `handleFindChatByName` SQL `SELECT` to include `c.platform`
   - Update `handleListMessages` SQL `SELECT` to include `m.platform`
@@ -97,8 +97,8 @@
   - _Boundary: src/mcp.ts_
   - _Depends: 4.1_
 
-- [ ] 5. Test updates and new platform coverage
-- [ ] 5.1 Update `tests/db.test.ts` — fixture field renames and platform defaults
+- [x] 5. Test updates and new platform coverage
+- [x] 5.1 Update `tests/db.test.ts` — fixture field renames and platform defaults
   - Replace all occurrences of `telegram_id` with `external_id` in test fixtures
   - Replace all occurrences of `reply_to_telegram_id` with `reply_to_external_id` in test fixtures
   - Add `platform: 'telegram'` to `upsertChat` call fixtures
@@ -111,7 +111,7 @@
   - _Boundary: tests/db.test.ts_
   - _Depends: 1.3, 2.2_
 
-- [ ] 5.2 Update `tests/mcp.test.ts` — fixture field renames and platform filter tests
+- [x] 5.2 Update `tests/mcp.test.ts` — fixture field renames and platform filter tests
   - Replace all occurrences of `telegram_id` with `external_id` in the `msg()` helper and fixtures
   - Add `platform: 'telegram'` to `upsertChat` calls in the `seed()` helper
   - Add a second chat with `platform: 'imessage'` in `seed()` and insert one message under it for filter tests
@@ -124,10 +124,17 @@
   - _Boundary: tests/mcp.test.ts_
   - _Depends: 4.2, 5.1_
 
-- [ ] 5.3 Final integration validation
+- [x] 5.3 Final integration validation
   - Run `npm test` and confirm all tests pass (zero failures, zero TypeScript errors)
   - Verify `src/sync.ts` no longer exists in the repository
   - Verify `src/platforms/types.ts` and `src/platforms/telegram/sync.ts` exist and compile without errors
   - `npm test` exits with code 0; `tsc --noEmit` exits with code 0
   - _Requirements: 6.1_
   - _Depends: 5.2_
+
+## Implementation Notes
+
+- The Platform union was extended beyond the spec (added `wechat`, `email`, `signal`) by downstream specs; this is additive and backward-compatible.
+- PlatformAdapter interface was extended with `readonly account: string`, `syncIncremental?`, and an `AdapterFactory` type by the multi-account spec.
+- `better-sqlite3-multiple-ciphers` requires Node.js v24 to run tests (module was compiled for NODE_MODULE_VERSION 137). Run `npm test` via Node v24 (e.g., `nvm exec v24.15.0 npm test`).
+- The `tsc --noEmit` errors about `tests/**/*` files not being under `rootDir` are pre-existing tsconfig configuration issues, not caused by this spec.
