@@ -91,7 +91,7 @@
   - _Boundary: watch.ts_
   - _Depends: 3.1, 2.3, 2.4_
 
-- [ ] 6. Route `khipu sync all` to the daemon in `src/khipu.ts`
+- [x] 6. Route `khipu sync all` to the daemon in `src/khipu.ts`
   - In `src/khipu.ts`, detect the `sync all` subcommand (second argv token is `all`) and import/invoke the daemon entry point from `src/watch.ts`.
   - Expose the `--once` flag in the `khipu sync all` usage or help text.
   - Running `khipu sync all` and `npm run watch` produce identical daemon behaviour (both reach `watch.ts`).
