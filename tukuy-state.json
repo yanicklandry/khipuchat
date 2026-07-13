@@ -1,6 +1,8 @@
 {
   "specName": "email-sync",
-  "completedPhases": [],
+  "completedPhases": [
+    "steering"
+  ],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
