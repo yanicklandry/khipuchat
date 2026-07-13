@@ -50,12 +50,19 @@ The imessage-sync feature adds a one-shot iMessage import command to KhipuChat. 
 
 ### Allowed Dependencies
 
-- `better-sqlite3` (existing) — read-only SQLite access to `chat.db`
-- `src/db.ts` (post-platform-abstraction) — `upsertChat`, `insertMessage`, `initDb`, `Chat`, `Message`, `Platform`
+- `better-sqlite3-multiple-ciphers` (existing) — read-only SQLite access to `chat.db`
+- `src/db.ts` (post-platform-abstraction) — `upsertChat`, `insertMessage`, `setLastSyncedAt`, `initDb`, `getDb`, `Chat`, `Message`
 - `src/platforms/types.ts` — `PlatformAdapter`, `Platform`
-- Node.js built-in `child_process` — for AddressBook SQLite lookup via `sqlite3` CLI
+- `src/sync-runner.ts` — `runPlatformSync` (entry point delegated from `main()`)
+- `src/vec-db.ts` — `isIndexed` (checks whether vector index is active before embedding; same pattern as `telegram/sync.ts`)
+- `src/index-embeddings.ts` — `embedNewMessages`, `embedNewChats` (per-chat incremental embedding; same pattern as `telegram/sync.ts`)
+- `src/account-registry.ts` — `AccountCredentials` type only (for `createIMessageAdapter` factory signature)
 - Node.js built-in `os` — to resolve `~` in `chat.db` path
 - No new npm dependencies
+
+> Note: `sync-runner`, `vec-db`, `index-embeddings`, and `account-registry` were not in the original design boundary.
+> They were added during implementation to match the established patterns in `src/platforms/telegram/sync.ts`.
+> All four imports follow the same convention used by the existing Telegram adapter, which predates this spec.
 
 ### Revalidation Triggers
 
