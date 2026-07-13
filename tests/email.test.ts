@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { initDb, getChats } from '../src/db'
+import { initDb, getChats, getMessages } from '../src/db'
 import {
   resolveThreadExternalId,
   mapMessage,
   runBackfillImpl,
+  createEmailAdapter,
 } from '../src/platforms/email/sync'
 import type { EmailClient, RawEmailMessage, EmailSearchCriteria } from '../src/platforms/email/client'
 
@@ -207,5 +208,82 @@ describe('runBackfillImpl with since criteria', () => {
 
     await runBackfillImpl(client, 'user@ex.com', { since })
     expect(getChats()).toHaveLength(1)
+  })
+})
+
+// ── skip on no plain-text ─────────────────────────────────────────────────────
+
+describe('runBackfillImpl: no plain-text messages', () => {
+  beforeEach(() => { initDb(':memory:') })
+
+  it('does not insert a message row when text is null', async () => {
+    const raw = makeRaw({ messageId: 'no-text@ex.com', text: null })
+    const client = makeMockClient([raw])
+
+    await runBackfillImpl(client, 'user@ex.com')
+
+    const chats = getChats()
+    // chat created for thread root, but no message inserted
+    expect(chats).toHaveLength(1)
+    const msgs = getMessages(chats[0]!.id!, 100)
+    expect(msgs).toHaveLength(0)
+  })
+
+  it('does not insert message row when only message in thread has no text', async () => {
+    const root = makeRaw({ messageId: 'root-no-text@ex.com', text: null })
+    const client = makeMockClient([root])
+
+    await runBackfillImpl(client, 'user@ex.com')
+    expect(getChats()).toHaveLength(1)
+    const msgs = getMessages(getChats()[0]!.id!, 100)
+    expect(msgs).toHaveLength(0)
+  })
+})
+
+// ── message without Message-ID skipped ───────────────────────────────────────
+
+describe('runBackfillImpl: message without Message-ID', () => {
+  beforeEach(() => { initDb(':memory:') })
+
+  it('skips a message with empty messageId', async () => {
+    const noId = makeRaw({ messageId: '', text: 'Has text but no id' })
+    const client = makeMockClient([noId])
+
+    await runBackfillImpl(client, 'user@ex.com')
+    expect(getChats()).toHaveLength(0)
+  })
+})
+
+// ── createEmailAdapter credential guard ──────────────────────────────────────
+
+describe('createEmailAdapter credential guard', () => {
+  it('identifies missing EMAIL_IMAP_HOST', async () => {
+    const captured: string[] = []
+    vi.spyOn(process.stderr, 'write').mockImplementation((s) => { captured.push(String(s)); return true })
+    vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit') }) as never)
+
+    const adapter = createEmailAdapter('default', {
+      name: 'default',
+      fields: { EMAIL_IMAP_USER: 'u', EMAIL_IMAP_PASS: 'p' },
+    })
+
+    await expect(adapter.runBackfill({} as never)).rejects.toThrow('exit')
+    expect(captured.join('')).toContain('EMAIL_IMAP_HOST')
+    vi.restoreAllMocks()
+  })
+
+  it('lists all three vars when all are missing', async () => {
+    const captured: string[] = []
+    vi.spyOn(process.stderr, 'write').mockImplementation((s) => { captured.push(String(s)); return true })
+    vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit') }) as never)
+
+    const adapter = createEmailAdapter('default', { name: 'default', fields: {} })
+
+    await expect(adapter.runBackfill({} as never)).rejects.toThrow('exit')
+    const out = captured.join('')
+    expect(out).toContain('EMAIL_IMAP_HOST')
+    expect(out).toContain('EMAIL_IMAP_USER')
+    expect(out).toContain('EMAIL_IMAP_PASS')
+    vi.restoreAllMocks()
   })
 })

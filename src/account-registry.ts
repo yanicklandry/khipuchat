@@ -33,7 +33,7 @@ const LEGACY_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
   telegram: ['TG_API_ID', 'TG_API_HASH', 'TG_PHONE'],
   discord: ['DISCORD_TOKEN'],
   slack: ['SLACK_USER_TOKEN'],
-  email: ['IMAP_HOST', 'IMAP_PORT', 'IMAP_USER', 'IMAP_PASS'],
+  email: ['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'],
 }
 
 // ── $VAR resolution ───────────────────────────────────────────────────────────

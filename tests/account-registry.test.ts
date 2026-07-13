@@ -62,12 +62,12 @@ describe('loadRegistry — absent config file', () => {
     expect(reg.listAccounts('slack')).toEqual(['default'])
   })
 
-  it('returns default account for email when IMAP_HOST and other vars are set', () => {
-    const env = { IMAP_HOST: 'mail.example.com', IMAP_PORT: '993', IMAP_USER: 'user', IMAP_PASS: 'pass' }
+  it('returns default account for email when EMAIL_IMAP_HOST and other vars are set', () => {
+    const env = { EMAIL_IMAP_HOST: 'mail.example.com', EMAIL_IMAP_USER: 'user', EMAIL_IMAP_PASS: 'pass' }
     const reg = loadRegistry('/nonexistent/khipu.config.json', env)
     expect(reg.listAccounts('email')).toEqual(['default'])
     const creds = reg.credentialsFor('email', 'default')
-    expect(creds.fields).toEqual({ IMAP_HOST: 'mail.example.com', IMAP_PORT: '993', IMAP_USER: 'user', IMAP_PASS: 'pass' })
+    expect(creds.fields).toEqual({ EMAIL_IMAP_HOST: 'mail.example.com', EMAIL_IMAP_USER: 'user', EMAIL_IMAP_PASS: 'pass' })
   })
 
   it('returns empty list for imessage (no env vars)', () => {

@@ -74,6 +74,7 @@ export async function runBackfillImpl(client: EmailClient, userEmail: string, cr
         })
         seenChats.set(threadExternalId, chatId)
       }
+      if (raw.text === null) continue
       insertMessage(mapMessage(raw, chatId, userEmail))
       totalMessages++
     }
