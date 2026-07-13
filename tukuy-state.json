@@ -1,16 +1,6 @@
 {
-  "specName": "security-hardening",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "release",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
@@ -23,6 +13,7 @@
     "web-ui",
     "discord-sync",
     "email-sync",
-    "slack-sync"
+    "slack-sync",
+    "security-hardening"
   ]
 }
