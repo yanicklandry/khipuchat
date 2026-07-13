@@ -2,36 +2,38 @@
 
 ## Introduction
 
-Discord Sync fetches all DM channels and non-broadcast guild text channels accessible to the configured bot token, maps messages to the shared archive schema, and stores them under `platform = 'discord'`. The sync is idempotent, rate-limit-aware, and follows the platform adapter pattern.
+Discord Sync fetches all DM channels, group DM channels, and non-broadcast guild text channels accessible to a configured bot token, maps messages to the shared archive schema, and stores them under `platform = 'discord'`. The sync is idempotent, rate-limit-aware, supports incremental updates, and follows the platform adapter pattern. Multiple Discord accounts may be configured.
 
 ## Boundary Context
 
-- **In scope**: Discord REST API access (DMs + text channels), paginated message backfill, `DISCORD_TOKEN` env var, `npm run sync:discord`, deduplication by external_id, tests with mocked REST client.
-- **Out of scope**: Discord Gateway WebSocket / real-time listener, guild server message sync beyond channels the bot is in, sending messages, media/attachment download, reaction sync.
-- **Adjacent expectations**: `Platform` union in `src/platforms/types.ts` already contains `'discord'` — no type change required. Shared `upsertChat` / `insertMessage` DB functions consumed read-only.
+- **In scope**: Discord REST API access (DMs + group DMs + guild text channels), paginated message backfill, incremental sync from last sync point, `DISCORD_TOKEN` env var and multi-account config, `khipu sync discord`, deduplication by platform-assigned message ID, reply thread linking.
+- **Out of scope**: Discord Gateway WebSocket / real-time listener, guild channels the bot has not been added to, sending messages, media/attachment download, reaction sync.
+- **Adjacent expectations**: `Platform` union in `src/platforms/types.ts` already contains `'discord'`. Shared `upsertChat` / `insertMessage` DB functions are consumed but not modified. `AccountRegistry` provides credentials for each configured account. Archived Discord messages are queryable via the same MCP and CLI surfaces as other platforms, with no Discord-specific query tooling required.
 
 ## Requirements
 
 ### Requirement 1: Bot Token Configuration
 
-**Objective:** As a user, I want to configure my Discord bot token via environment variable so that credentials are never hardcoded.
+**Objective:** As a user, I want to configure my Discord bot token via environment variable or config file so that credentials are never hardcoded.
 
 #### Acceptance Criteria
 
-1. The Discord Sync shall read the bot token exclusively from the `DISCORD_TOKEN` environment variable.
-2. If `DISCORD_TOKEN` is not set at startup, the Discord Sync shall exit with a clear error message instructing the user to set the variable in `.env`.
+1. The Discord Sync shall read the bot token from the `DISCORD_TOKEN` environment variable when no multi-account config is present.
+2. If `DISCORD_TOKEN` is not set and no account is configured, the Discord Sync shall exit with a clear error message instructing the user to set the variable.
+3. Where multiple Discord accounts are configured in `khipu.config.json`, the Discord Sync shall read each account's token from the config and process them independently.
 
 ---
 
 ### Requirement 2: Channel Discovery
 
-**Objective:** As a user, I want all accessible DM channels and joined text channels discovered automatically so I don't need to configure channel IDs manually.
+**Objective:** As a user, I want all accessible DM channels, group DM channels, and joined guild text channels discovered automatically so I don't need to configure channel IDs manually.
 
 #### Acceptance Criteria
 
 1. When sync runs, the Discord Sync shall retrieve all DM channels accessible to the bot token.
-2. When sync runs, the Discord Sync shall retrieve all text channels in guilds the bot has been added to.
-3. The Discord Sync shall skip announcement, voice, forum, and other non-text channel types.
+2. When sync runs, the Discord Sync shall retrieve all group DM channels accessible to the bot token.
+3. When sync runs, the Discord Sync shall retrieve all text channels in guilds the bot has been added to.
+4. The Discord Sync shall skip announcement, voice, forum, and other non-text channel types.
 
 ---
 
@@ -42,10 +44,11 @@ Discord Sync fetches all DM channels and non-broadcast guild text channels acces
 #### Acceptance Criteria
 
 1. When processing a channel, the Discord Sync shall fetch all available messages using paginated requests until no more messages remain.
-2. The Discord Sync shall map each message to the shared schema: message snowflake ID as `external_id`, author username as `sender_name`, author ID as `sender_id`, message content as `text`, ISO timestamp converted to Unix seconds, and reply reference if present.
-3. The Discord Sync shall store all messages with `platform = 'discord'`.
-4. The Discord Sync shall create one chat record per discovered channel.
-5. If a message has no text content (e.g. an embed-only message), the Discord Sync shall store it with `type = 'other'` rather than skipping it.
+2. The Discord Sync shall map each message to the archive schema, capturing: the platform-assigned message identifier for deduplication, author display name and user identifier, message text, and timestamp.
+3. When a message is a reply to another message, the Discord Sync shall store the referenced message's identifier so that the reply relationship is preserved in the archive.
+4. The Discord Sync shall store all messages under the `discord` platform so that they can be filtered by platform in queries.
+5. The Discord Sync shall create one chat record per discovered channel.
+6. If a message has no text content (e.g. an embed-only message), the Discord Sync shall store it with a non-text type rather than skipping it.
 
 ---
 
@@ -60,12 +63,25 @@ Discord Sync fetches all DM channels and non-broadcast guild text channels acces
 
 ---
 
-### Requirement 5: Idempotency and Sync Command
+### Requirement 5: Incremental Sync and Sync Command
 
-**Objective:** As a user, I want `npm run sync:discord` to be safe to run repeatedly without duplicating records.
+**Objective:** As a user, I want `khipu sync discord` to be safe to run repeatedly and to fetch only new messages after the first run.
 
 #### Acceptance Criteria
 
-1. The Discord Sync shall be executable via `npm run sync:discord`.
+1. The Discord Sync shall be executable via `khipu sync discord`.
 2. When run multiple times against the same channels, the Discord Sync shall not create duplicate message or chat records.
-3. When new messages have arrived since the last run, the Discord Sync shall store only the new messages without modifying previously stored records.
+3. When run after a prior successful sync, the Discord Sync shall fetch only messages newer than the last sync point without re-fetching previously stored messages.
+4. When run with the `--force` flag, the Discord Sync shall perform a full re-read of all messages regardless of prior sync state.
+
+---
+
+### Requirement 6: Multi-Account Support
+
+**Objective:** As a user, I want to configure multiple Discord accounts so that messages from all of them are archived.
+
+#### Acceptance Criteria
+
+1. Where multiple Discord accounts are configured, the Discord Sync shall process each account independently.
+2. The Discord Sync shall store each account's messages with a distinct account identifier so that messages from different accounts can be distinguished.
+3. When sync runs for multiple accounts, the Discord Sync shall maintain independent sync state per account so that a failure on one account does not affect others.
