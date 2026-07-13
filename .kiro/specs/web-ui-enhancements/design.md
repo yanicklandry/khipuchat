@@ -8,7 +8,9 @@ This feature enhances the existing KhipuChat web UI with two focused improvement
 
 **Users**: Local users of the KhipuChat web UI who want to scroll through large chat histories and search by meaning rather than exact keywords.
 
-**Impact**: Modifies the existing `/api/messages/:chatId` route to support pagination and adds a new `/api/semantic-search` route. The UI gains an IntersectionObserver-driven scroll manager and a search-mode toggle, both in vanilla JS.
+**Impact**: Modifies the existing `/api/messages/:chatId` route to support pagination and adds a new `/api/semantic-search` route. The UI gains an IntersectionObserver-driven scroll manager and a search-mode toggle, both in vanilla JS. To keep every web file under 200 lines, UI JavaScript is split into two extracted string modules (`ui-scroll.ts`, `ui-chats.ts`) that `ui.ts` inlines into the page.
+
+> **Design revision (post-implementation gap analysis, 2026-07-13):** After partial implementation all server-side routes are complete and passing, but three client-side defects were found (see `research.md`). This design has been updated to specify the corrected approach: (a) `ui.ts` must extract chat-list/account-filter code into a new `ui-chats.ts` to satisfy the 200-line limit; (b) the scroll manager must own message insertion relative to the sentinel (iterating in reverse) so the sentinel stays the container's first child and batch order is preserved; (c) the IntersectionObserver must scope its `root` to the scroll container, not the viewport.
 
 ### Goals
 
@@ -39,8 +41,9 @@ This feature enhances the existing KhipuChat web UI with two focused improvement
 
 **Modified files owned by this spec:**
 - `src/web/routes.ts` — extend `GET /api/messages/:chatId` with `?before=<timestamp>` and `?limit=<n>` query params; add `GET /api/semantic-search` handler.
-- `src/web/ui.ts` — search toggle markup/JS; import and embed `SCROLL_JS`.
+- `src/web/ui.ts` — search toggle markup/JS; import and embed `SCROLL_JS` and `CHATS_JS`; orchestrate thread open + search. Must stay under 200 lines.
 - `src/web/ui-scroll.ts` (new) — scroll management JS string constant.
+- `src/web/ui-chats.ts` (new) — `buildAccountFilterHtml` server helper + `CHATS_JS` string constant (platform-filter and chat-list rendering), extracted from `ui.ts` to satisfy the 200-line limit.
 
 ### Out of Boundary
 
@@ -70,7 +73,7 @@ This feature enhances the existing KhipuChat web UI with two focused improvement
 
 ### Existing Architecture Analysis
 
-`src/web/routes.ts` currently exposes three routes (`/api/chats`, `/api/search`, `/api/messages/:chatId`) by delegating to `src/mcp.ts` handlers. `src/web/ui.ts` exports a single `HTML_PAGE` string constant (vanilla JS SPA). The 200-line per-file rule means `ui.ts` at 233 lines is already at the limit; adding substantial JS will require extracting a helper module. `routes.ts` at 53 lines has room to absorb two route additions cleanly.
+`src/web/routes.ts` currently exposes three routes (`/api/chats`, `/api/search`, `/api/messages/:chatId`) by delegating to `src/mcp.ts` handlers. `src/web/ui.ts` builds the vanilla-JS SPA page as a template literal. The 200-line per-file rule means `ui.ts` cannot hold all of the scroll, chat-list, account-filter, and search-toggle code at once. Scroll JS was extracted to `ui-scroll.ts`, but that alone left `ui.ts` at 256 lines (over the limit); a second extraction of the chat-list/account-filter code into `ui-chats.ts` is required to bring it back under 200. `routes.ts` at 135 lines has absorbed both route changes cleanly and stays under the limit.
 
 ### Architecture Pattern & Boundary Map
 
@@ -80,7 +83,7 @@ graph TB
     Server[Express Server server.ts]
     Routes[API Routes routes.ts]
     SemanticRoute[Semantic Route routes.ts]
-    UI[HTML Page ui.ts / ui-scroll.ts]
+    UI[HTML Page ui.ts / ui-scroll.ts / ui-chats.ts]
     MCP[MCP Handlers mcp.ts]
     VecDb[vec-db.ts]
     Embed[embeddings.ts]
@@ -96,7 +99,7 @@ graph TB
     VecDb --> DB
 ```
 
-**Dependency direction**: `db.ts` → `mcp.ts` / `vec-db.ts` → `routes.ts` → `server.ts`. `ui.ts` / `ui-scroll.ts` have no server-side imports.
+**Dependency direction**: `db.ts` → `mcp.ts` / `vec-db.ts` → `routes.ts` → `server.ts`. `ui-scroll.ts` and `ui-chats.ts` export plain string/HTML helpers with no server-side runtime imports; `ui.ts` imports them and inlines their output into the page.
 
 ### Technology Stack
 
@@ -106,7 +109,9 @@ graph TB
 | Data access — messages | `src/mcp.ts` `handleListMessages` | Paginated message query | Signature extended; see component detail |
 | Data access — semantic | `src/vec-db.ts` `semanticSearchMessages` + `isIndexed` | Semantic kNN query | Read-only |
 | Embedding | `src/embeddings.ts` `embedOne` | Query vectorization | Read-only |
-| UI | Inline HTML/CSS/vanilla JS | SPA scroll + toggle | No framework, no build step |
+| UI — page shell | `src/web/ui.ts` | Page markup, search toggle, thread orchestration | Inlines `SCROLL_JS` + `CHATS_JS`; < 200 lines |
+| UI — scroll | `src/web/ui-scroll.ts` `SCROLL_JS` | IntersectionObserver sentinel + scroll helpers | No framework, no build step |
+| UI — chat list | `src/web/ui-chats.ts` `CHATS_JS` + `buildAccountFilterHtml` | Platform-filter / chat-list rendering + account-filter markup | Extracted from `ui.ts` for 200-line limit |
 
 ---
 
@@ -114,19 +119,23 @@ graph TB
 
 ### Modified Files
 
-- `src/web/routes.ts` — Add `?before` + `?limit` pagination to `/api/messages/:chatId`; add `GET /api/semantic-search` handler. Stays under 200 lines (currently 53 L + ~40 L additions = ~93 L).
-- `src/web/ui.ts` — Add keyword/semantic toggle markup and JS; refactor scroll logic. Currently 233 L — extract scroll helpers to `src/web/ui-scroll.ts` to keep each file under 200 lines.
+- `src/web/routes.ts` — Add `?before` + `?limit` pagination to `/api/messages/:chatId`; add `GET /api/semantic-search` handler. Implemented at 135 L; under 200 lines.
+- `src/web/ui.ts` — Keyword/semantic toggle markup + JS, thread-open orchestration; inlines `SCROLL_JS` and `CHATS_JS`. Currently 256 L (over limit) — extract chat-list/account-filter code to `src/web/ui-chats.ts` to bring it back to ~195 L. `ui.ts` passes a message-**builder** callback (not a DOM-prepend callback) to `attachScrollSentinel`.
 
 ### New Files
 
 ```
 src/web/
-└── ui-scroll.ts   # Exported JS snippet string: IntersectionObserver sentinel logic,
-                   # scroll-to-bottom helper, scroll-anchor-restore helper.
-                   # Inlined into HTML_PAGE by ui.ts at build-read time.
+├── ui-scroll.ts   # Exported JS snippet string: IntersectionObserver sentinel logic
+│                  # (root = scroll container), scroll-to-bottom helper,
+│                  # reverse-order insertion relative to the sentinel, scroll-anchor
+│                  # restore. Inlined into the page by ui.ts.
+└── ui-chats.ts    # buildAccountFilterHtml(accounts, selectedAccount): string (server
+                   # helper) + CHATS_JS: string (platform-filter + chat-list rendering).
+                   # Extracted from ui.ts to keep every web file under 200 lines.
 ```
 
-> `ui-scroll.ts` exports a `SCROLL_JS: string` constant (raw JS for inclusion in the `<script>` block). It has no server-side runtime imports — same pattern as `ui.ts`.
+> Both `ui-scroll.ts` and `ui-chats.ts` export raw-JS `string` constants (`SCROLL_JS`, `CHATS_JS`) for inclusion in the `<script>` block; `ui-chats.ts` additionally exports the `buildAccountFilterHtml` server-side helper. Neither has server-side runtime imports beyond `ui-chats.ts` re-using `./icons` for platform labels if needed.
 
 ### Directory Structure (web/)
 
@@ -134,8 +143,9 @@ src/web/
 src/web/
 ├── server.ts      # Unchanged
 ├── routes.ts      # Modified: pagination + semantic-search route
-├── ui.ts          # Modified: toggle markup/JS, imports SCROLL_JS from ui-scroll.ts
+├── ui.ts          # Modified: toggle markup/JS, thread orchestration; inlines SCROLL_JS + CHATS_JS
 ├── ui-scroll.ts   # New: scroll management JS string constant
+├── ui-chats.ts    # New: chat-list/account-filter rendering (CHATS_JS + buildAccountFilterHtml)
 └── icons.ts       # Unchanged
 ```
 
@@ -167,10 +177,11 @@ sequenceDiagram
 
     Note over B: User scrolls up; IntersectionObserver fires on top sentinel
     B->>B: record firstVisibleMessageId; show loading indicator
-    B->>R: GET /api/messages/42?before=<firstId>&limit=50
-    R-->>B: 200 JSON { messages, has_more }
-    Note over B: prepend messages; restore scroll to firstVisibleMessage
-    Note over B: if !has_more: remove sentinel
+    B->>R: GET /api/messages/42?before=<oldestId>&limit=50
+    R-->>B: 200 JSON { messages (ascending), has_more }
+    Note over B: insert batch in reverse before sentinel.nextSibling<br/>(sentinel stays first child; ascending order preserved)
+    Note over B: restore scroll to firstVisibleMessage
+    Note over B: if !has_more: disconnect observer, remove sentinel
 ```
 
 ### Semantic Search
@@ -209,11 +220,11 @@ sequenceDiagram
 | 2.1 | Auto-scroll to bottom on chat select | UI Page | ui.ts, ui-scroll.ts |
 | 2.2 | Scroll after render | UI Page | ui-scroll.ts |
 | 2.3 | Re-scroll on re-select | UI Page | ui-scroll.ts |
-| 3.1 | Fetch older on scroll-up | UI Page | ui-scroll.ts |
-| 3.2 | Loading indicator + debounce | UI Page | ui-scroll.ts |
-| 3.3 | Restore scroll position after prepend | UI Page | ui-scroll.ts |
-| 3.4 | Remove sentinel when no more | UI Page | ui-scroll.ts |
-| 3.5 | Error + retry on fetch failure | UI Page | ui-scroll.ts |
+| 3.1 | Fetch older on scroll-up (observer `root` = container) | Scroll Manager | ui-scroll.ts |
+| 3.2 | Loading indicator + debounce | Scroll Manager | ui-scroll.ts |
+| 3.3 | Restore scroll position after prepend (reverse insert vs. sentinel) | Scroll Manager | ui-scroll.ts |
+| 3.4 | Remove sentinel when no more (sentinel stays first child) | Scroll Manager | ui-scroll.ts |
+| 3.5 | Error + retry on fetch failure | Scroll Manager | ui-scroll.ts |
 | 4.1 | `/api/semantic-search` route | API Routes | routes.ts |
 | 4.2 | Empty `q` → 200 `[]` | API Routes | routes.ts |
 | 4.3 | Index not built → 200 error object | API Routes | routes.ts |
@@ -225,8 +236,8 @@ sequenceDiagram
 | 5.4 | Semantic results same render as keyword | UI Page | ui.ts |
 | 5.5 | Display index-not-built error | UI Page | ui.ts |
 | 5.6 | Mode persists across searches | UI Page | ui.ts |
-| 6.1 | No external JS libs / no build step | UI Page | ui.ts, ui-scroll.ts |
-| 6.2 | Files under 200 lines | All web files | routes.ts, ui.ts, ui-scroll.ts |
+| 6.1 | No external JS libs / no build step | UI Page | ui.ts, ui-scroll.ts, ui-chats.ts |
+| 6.2 | Files under 200 lines | All web files | routes.ts, ui.ts, ui-scroll.ts, ui-chats.ts |
 | 6.3 | Semantic search ≤ 3 s | API Routes | routes.ts (delegates to vec-db) |
 | 6.4 | No external network from browser | UI Page | ui.ts |
 
@@ -239,8 +250,9 @@ sequenceDiagram
 | Component | Layer | Intent | Req Coverage | Contracts |
 |-----------|-------|--------|--------------|-----------|
 | API Routes (`routes.ts`) | HTTP | Pagination on messages route + new semantic-search route | 1.x, 4.x, 6.3 | API |
-| UI Page (`ui.ts`) | UI | Search toggle markup + mode-aware search fetch | 5.x, 6.x | — |
-| Scroll Manager (`ui-scroll.ts`) | UI | Thread scroll behavior, IntersectionObserver, scroll-anchor restore | 2.x, 3.x, 6.1 | — |
+| UI Page (`ui.ts`) | UI | Page shell, search toggle + mode-aware fetch, thread-open orchestration | 5.x, 6.x | — |
+| Scroll Manager (`ui-scroll.ts`) | UI | Thread scroll behavior, IntersectionObserver (root = container), sentinel-relative insertion, scroll-anchor restore | 2.x, 3.x, 6.1 | — |
+| UI Chats (`ui-chats.ts`) | UI | Account-filter markup + platform-filter/chat-list rendering | 6.1, 6.2 | — |
 
 ---
 
@@ -329,10 +341,11 @@ sequenceDiagram
 - On semantic result: check for `error` field; if present render error banner instead of empty list.
 - Render semantic results with the same HTML template as keyword results (sender, text, timestamp, platform badge, click-to-load-thread).
 - `searchMode` persists in JS module state; does not require `localStorage`.
+- Owns `openThread(chatId)`: fetches the first page, appends messages, calls `scrollToBottom`, then calls `attachScrollSentinel` passing a **message-builder** callback (`m => buildMsgEl(m, currentChatType === 'group')`) — not a DOM-prepend callback. Insertion is owned by the Scroll Manager (see Gap 2 fix).
 - No external CSS or JS resources.
 
 **Implementation Notes**
-- Keep `ui.ts` under 200 lines by extracting scroll JS to `ui-scroll.ts` (imported as a string constant and embedded in the `<script>` block).
+- Keep `ui.ts` under 200 lines by inlining `SCROLL_JS` (from `ui-scroll.ts`) and `CHATS_JS` (from `ui-chats.ts`) as string constants embedded in the `<script>` block, and by importing `buildAccountFilterHtml` from `ui-chats.ts`. Extracting only `ui-scroll.ts` left `ui.ts` at 256 lines; the `ui-chats.ts` extraction is required (Gap 1).
 - Toggle styling: two adjacent `<button>` elements styled as a pill with `.active` class on the selected mode.
 
 ---
@@ -344,19 +357,51 @@ sequenceDiagram
 | Intent | Exports `SCROLL_JS: string` — vanilla JS code string embedded in the HTML page's `<script>` block by `ui.ts` |
 | Requirements | 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.4, 3.5, 6.1 |
 
+**Exported functions** (embedded via `SCROLL_JS`): `scrollToBottom(container)`, `attachScrollSentinel(container, chatId, oldestId, buildEl, hasMore)`, `disconnectScroll()`.
+
 **Responsibilities & Constraints**
 - `scrollToBottom(container)`: scrolls `container` to `scrollHeight` after a `requestAnimationFrame` (ensures DOM is painted before scroll, satisfying Req 2.2).
-- IntersectionObserver on a top sentinel `<div id="scroll-sentinel">`: fires when sentinel enters the viewport.
-- Observer callback: if `isFetching` flag is set, skip (Req 3.2). Otherwise: record `firstVisibleMessage` (first `.message` element in DOM), set `isFetching = true`, show loading indicator, call `loadOlderMessages(chatId, oldestMessageId)`.
-- `loadOlderMessages`: fetches `GET /api/messages/:chatId?before=<oldestId>&limit=50`. On success: prepend messages to thread, restore scroll to `firstVisibleMessage.scrollIntoView()` with `{ block: 'start' }` (Req 3.3). On `has_more === false`: disconnect observer, remove sentinel (Req 3.4). On error: show inline error with retry button (Req 3.5).
-- All state (`isFetching`, `currentObserver`) scoped to the `openThread(chatId)` closure to avoid cross-chat contamination.
+- `attachScrollSentinel` inserts a `<div id="scroll-sentinel">` as the container's first child and observes it. The observer **must set `root: container`** (the `#panel` scroll container), not the default viewport — otherwise it never fires because `#panel` is an inner `overflow-y:auto` element (Gap 3 / Req 3.1, 3.2).
+- Observer options: `{ root: container, threshold: 0, rootMargin: '100px' }`.
+- Observer callback: if `isFetching` flag is set, skip (Req 3.2). Otherwise: record `firstVisible` (first `.msg` element still at/below the container top), set `isFetching = true`, show loading indicator, fetch `GET /api/messages/:chatId?before=<oldestId>&limit=50`.
+- **Insertion is owned here, not by the caller.** The caller passes a `buildEl(msg)` builder. The fetched batch arrives in ascending timestamp order; insert it in **reverse** relative to the sentinel so the sentinel remains the first child and ascending order is preserved (Gap 2 / Req 3.1, 3.4):
+  ```js
+  for (var i = msgs.length - 1; i >= 0; i--) {
+    container.insertBefore(buildEl(msgs[i]), sentinel.nextSibling);
+  }
+  ```
+  Never insert relative to `container.firstChild` (that would displace the sentinel and reverse batch order).
+- Track the batch's new oldest id: `_oldestId = msgs[0].timestamp` (msgs[0] is the oldest of the ascending batch).
+- After insertion, restore scroll so `firstVisible` stays in view (Req 3.3): `firstVisible.scrollIntoView({ block: 'start' })` with `container.scrollTop = firstVisible.offsetTop - container.offsetTop` as fallback.
+- On `has_more === false`: disconnect observer and remove the sentinel (Req 3.4). On error: hide loading, clear `isFetching`, show inline error with a retry button (Req 3.5).
+- Module-scoped `_observer` / `_isFetching`; `disconnectScroll()` is called by the caller before opening a new thread to avoid cross-chat contamination.
 - No imports; pure self-contained JS string.
 
 **Implementation Notes**
-- Sentinel element inserted as the first child of the thread container when a thread is opened.
+- Sentinel element inserted as the first child of the thread container when a thread is opened; it must remain the first child across prepends (do not insert new messages before it).
 - IntersectionObserver threshold `0` with `rootMargin: '100px'` (pre-loads one page before the user reaches the very top).
-- On thread switch: disconnect and null out the previous observer before creating a new one.
-- Risk: `scrollIntoView` with `{ block: 'start' }` may scroll the page body on some browsers. Use `container.scrollTop = firstVisible.offsetTop - container.offsetTop` as fallback.
+- On thread switch: `disconnectScroll()` (disconnect + null the observer) before creating a new one.
+- Risk: `scrollIntoView` with `{ block: 'start' }` may scroll the page body on some browsers. The `container.scrollTop = firstVisible.offsetTop - container.offsetTop` fallback covers this.
+
+---
+
+#### UI Chats (`ui-chats.ts`)
+
+| Field | Detail |
+|-------|--------|
+| Intent | Extract chat-list/account-filter code out of `ui.ts` so every web file stays under 200 lines (Gap 1) |
+| Requirements | 6.1, 6.2 |
+
+**Responsibilities & Constraints**
+- Exports `buildAccountFilterHtml(accounts, selectedAccount?): string` — the server-side helper (moved verbatim from `ui.ts`) that renders the account `<select>` markup, returning `''` when no platform has multiple accounts.
+- Exports `CHATS_JS: string` — vanilla-JS string with the client-side rendering helpers `renderPlatformFilter`, `renderChatList`, `platformLabel`, and `isDirectChat`, embedded by `ui.ts` in the page `<script>` block.
+- `CHATS_JS` operates on the same DOM ids and module-level state (`allChats`, `activeType`, `activePlatform`, `PLATFORM_ICONS`, `MULTI_ACCOUNT_PLATFORMS`) that `ui.ts` defines; the extraction is a pure move, no behavioral change.
+- Chat-item click still calls `openThread(chatId)` defined in `ui.ts`.
+- No new external CSS or JS resources.
+
+**Implementation Notes**
+- This extraction must recover ~60 lines from `ui.ts` (256 → ~195). Verify final `ui.ts` line count is under 200 as part of the task (Req 6.2).
+- Keep the `CHATS_JS`/`SCROLL_JS` pattern identical (raw string inlined at `<script>` build-read time) so no bundler or new route is introduced.
 
 ---
 
@@ -389,11 +434,17 @@ sequenceDiagram
 ### UI Tests (manual / browser)
 
 - Selecting a chat: thread scrolls to bottom; oldest message is at top.
-- Scrolling to the top: older messages are prepended; view does not jump.
-- When all messages are loaded: sentinel disappears and further scrolling does not trigger fetches.
+- Scrolling to the top of `#panel`: older messages are prepended; view does not jump. **The observer must actually fire inside the `#panel` scroll container** (Gap 3 regression).
+- Prepended batch preserves ascending order — the newly loaded block reads oldest-at-top, newest-at-bottom, contiguous with the previously-oldest message (Gap 2 regression: no reversed block).
+- After a prepend, the sentinel is still the container's first child, so a second scroll-up triggers the next page (Gap 2 regression: sentinel not buried).
+- When all messages are loaded (`has_more === false`): sentinel disappears and further scrolling does not trigger fetches.
 - Switching search mode to semantic: search calls `/api/semantic-search`; results render identically.
 - Switching back to keyword: search calls `/api/search`.
 - Semantic search with no index: error banner appears.
+
+### Static / Constraint Checks
+
+- `wc -l src/web/*.ts` confirms `ui.ts`, `ui-scroll.ts`, `ui-chats.ts`, and `routes.ts` are each under 200 lines (Req 6.2, Gap 1).
 
 ### Integration Regression
 

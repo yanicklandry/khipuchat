@@ -138,3 +138,29 @@ _observer = new IntersectionObserver(function(entries) { ... }, {
 - Search toggle (keyword/semantic), mode-aware fetch, error banner for unbuilt index, and result rendering are all correctly implemented in `ui.ts`.
 - `handleListMessages` in `src/mcp.ts` returns `{ messages, has_more }` shape as required.
 - All 967 tests pass.
+
+---
+
+## Design Revision Decisions — 2026-07-13 (folded into design.md)
+
+The gap analysis above was folded back into `design.md` so the design remains the source of truth for the remediation work. Decisions recorded:
+
+### Decision 4: `attachScrollSentinel` owns insertion via a builder callback
+
+**Choice**: Change the fifth argument of `attachScrollSentinel` from a DOM-prepend callback (`prependMessages`) to a message-**builder** callback (`buildEl(msg) => Element`). Insertion happens inside `attachScrollSentinel`, iterating the ascending batch in reverse and inserting each element before `sentinel.nextSibling`.
+
+**Rationale**: The sentinel is closed over inside `attachScrollSentinel`; the caller cannot correctly position inserts relative to it. Moving insertion into the scroll module keeps the sentinel as the container's first child (fixes Gap 2 A and B) with the smallest contract change.
+
+**Alternative rejected**: Returning a `sentinel` handle to the caller. Rejected — leaks internal DOM structure and still forces the caller to replicate reverse-insert logic.
+
+### Decision 5: IntersectionObserver scoped to the scroll container
+
+**Choice**: Pass `{ root: container, threshold: 0, rootMargin: '100px' }` to the observer.
+
+**Rationale**: `#panel` is an inner `overflow-y:auto` element, not the viewport; with the default `root` the sentinel never intersects and load-older never fires (fixes Gap 3).
+
+### Decision 6: Second extraction into `ui-chats.ts`
+
+**Choice**: Extract `buildAccountFilterHtml` (server helper) and the platform-filter/chat-list client JS (`CHATS_JS`) from `ui.ts` into `ui-chats.ts`, mirroring the `ui-scroll.ts` string-constant pattern.
+
+**Rationale**: The original estimate that extracting `ui-scroll.ts` alone would bring `ui.ts` under 200 lines was wrong (256 lines actual). A second pure-move extraction recovers ~60 lines and restores Req 6.2 compliance without a build step.
