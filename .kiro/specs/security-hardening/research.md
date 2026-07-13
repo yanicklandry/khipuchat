@@ -110,3 +110,25 @@ Requirements 1–3 are fully implemented and tested. Only Requirement 4 needs a 
 
 ### Consequence
 - `design.md` reframed from greenfield ("implement all four layers") to reflect actual state (layers 1-3 implemented + tested; R4 is the only build). `tasks.md` was generated against the old greenfield design and is now stale — regenerate after design re-approval.
+
+---
+
+## Re-validation: 2026-07-13
+
+### Current Implementation State
+
+All four requirements are now **fully implemented and covered by tests**. The spec.json reflects `ready_for_implementation: true` with all task items checked ([x]).
+
+| Requirement | File | Verified |
+|---|---|---|
+| R1 — DB encryption (`DB_KEY`) | `src/db.ts:89-98` | Code present; in-memory bypass at line 92 |
+| R2 — Web Basic Auth (`WEB_USER`/`WEB_PASS`) | `src/web/routes.ts:10-16` | Middleware present; `/api/*` only |
+| R3 — MCP bearer token (`MCP_SECRET`) | `src/mcp.ts:58-64` | Bearer check at CallToolRequestSchema handler |
+| R4 — Localhost binding test | `tests/security.test.ts:130-138` | `startServer(createApp(), undefined, 0)` + address assertion |
+| R4 — `startServer` helper | `src/web/server.ts:23-39` | Exported with `host = '127.0.0.1'` default |
+
+All tasks in `tasks.md` are marked complete (Tasks 1, 2, 3 all `[x]`).
+
+### Gap Status: No gaps remain
+
+The implementation is complete. The next step is `/kiro-validate-impl security-hardening` to run full suite verification.
