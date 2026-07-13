@@ -48,9 +48,9 @@ Gap analysis (`research.md`, 2026-07-12) established that layers 1-3 are **alrea
 
 The three runtime layers are already integrated at their natural seams and require no change:
 
-- **DB layer** (`src/db.ts:58-67`): `initDb` opens the DB, then applies `PRAGMA key` when `DB_KEY` is set and the path is not `:memory:`. A wrong key surfaces as a clear error string.
+- **DB layer** (`src/db.ts:89-98`): `initDb` opens the DB, then applies `PRAGMA key` when `DB_KEY` is set and the path is not `:memory:`. A wrong key surfaces as a clear error string.
 - **Web layer** (`src/web/routes.ts:10-16`): a router-level middleware gates only `/api`-prefixed paths behind `express-basic-auth` when both `WEB_USER` and `WEB_PASS` are set. `GET /` is registered on the app in `server.ts`, outside the router, so it is never gated.
-- **MCP layer** (`src/mcp.ts:52-58`): the `CallToolRequestSchema` handler checks `req.params._meta.authorization === Bearer <MCP_SECRET>` before dispatch when `MCP_SECRET` is set.
+- **MCP layer** (`src/mcp.ts:57-64`): the `CallToolRequestSchema` handler checks `req.params._meta.authorization === Bearer <MCP_SECRET>` before dispatch when `MCP_SECRET` is set.
 
 The single structural gap is testability of the bind address: `src/web/server.ts` performs `app.listen(3333, '127.0.0.1', ...)` inside the non-exported `main()`. `createApp()` returns only the Express `Application`, so no test can currently assert the production bind host.
 

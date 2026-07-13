@@ -132,3 +132,20 @@ All tasks in `tasks.md` are marked complete (Tasks 1, 2, 3 all `[x]`).
 ### Gap Status: No gaps remain
 
 The implementation is complete. The next step is `/kiro-validate-impl security-hardening` to run full suite verification.
+
+---
+
+## Design Re-run: 2026-07-13
+
+Re-ran `/kiro-spec-design` against the current codebase. Discovery type: **light** (extension of an existing, already-implemented system).
+
+### Findings
+- The four documented layer contracts in `design.md` were re-verified line-by-line against source and remain accurate:
+  - R1 DB encryption: `src/db.ts:89-98` (`PRAGMA key`, `:memory:` bypass at 92, wrong-key error at 96).
+  - R2 Web Basic Auth: `src/web/routes.ts:10-16` (`/api` gate, both-vars condition, `challenge: true`).
+  - R3 MCP bearer: `src/mcp.ts:57-64` (`_meta.authorization !== Bearer <MCP_SECRET>` → `-32001 Unauthorized`).
+  - R4 `startServer`: `src/web/server.ts:23-39` (default host `127.0.0.1`, `EADDRINUSE` handler preserved).
+- **Correction applied**: refreshed two stale line-number citations in `design.md` Existing Architecture Analysis (`src/db.ts:58-67` → `89-98`; `src/mcp.ts:52-58` → `57-64`). No design decisions changed.
+
+### Metadata note
+- The design re-run did **not** regress `spec.json`. The feature is already `tasks-generated` / `ready_for_implementation: true` with all tasks `[x]` and design previously approved. The design content is unchanged in substance (only stale references refreshed), so resetting `design.approved` to `false` would misrepresent completed, validated work. State preserved pending explicit user direction.
