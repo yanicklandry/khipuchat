@@ -8,7 +8,7 @@ export const SCROLL_JS = `
     });
   }
 
-  function attachScrollSentinel(container, chatId, oldestId, onOlderLoaded, hasMore) {
+  function attachScrollSentinel(container, chatId, oldestId, buildEl, hasMore) {
     var _oldestId = oldestId;
     // Disconnect any previous observer
     disconnectScroll();
@@ -28,10 +28,12 @@ export const SCROLL_JS = `
       if (_isFetching) return;
 
       // Record first visible message before fetching
-      var messages = container.querySelectorAll('.message');
+      var containerRect = container.getBoundingClientRect();
+      var messages = container.querySelectorAll('.msg');
       var firstVisible = null;
       for (var i = 0; i < messages.length; i++) {
-        if (messages[i].getBoundingClientRect().top >= 0) {
+        var msgRect = messages[i].getBoundingClientRect();
+        if (msgRect.bottom > containerRect.top && msgRect.top < containerRect.bottom) {
           firstVisible = messages[i];
           break;
         }
@@ -61,11 +63,14 @@ export const SCROLL_JS = `
           if (loading) loading.style.display = 'none';
 
           if (msgs.length > 0) {
+            // Insert messages in reverse so ascending-order batch ends up in correct order,
+            // with sentinel remaining as first child
+            for (var i = msgs.length - 1; i >= 0; i--) {
+              container.insertBefore(buildEl(msgs[i]), sentinel.nextSibling);
+            }
             _oldestId = msgs[0].timestamp;
-            onOlderLoaded(msgs);
             // Restore scroll position
             if (firstVisible) {
-              var offsetBefore = firstVisible.offsetTop - container.offsetTop;
               firstVisible.scrollIntoView({ block: 'start' });
               // Fallback: manual offset restore
               container.scrollTop = firstVisible.offsetTop - container.offsetTop;
@@ -95,7 +100,7 @@ export const SCROLL_JS = `
           retryBtn.textContent = 'Retry';
           retryBtn.onclick = function() {
             errDiv.remove();
-            attachScrollSentinel(container, chatId, _oldestId, onOlderLoaded, hasMore);
+            attachScrollSentinel(container, chatId, _oldestId, buildEl, hasMore);
           };
           errDiv.appendChild(retryBtn);
           var s = document.getElementById('scroll-sentinel');
@@ -105,7 +110,7 @@ export const SCROLL_JS = `
             container.insertBefore(errDiv, container.firstChild);
           }
         });
-    }, { threshold: 0, rootMargin: '100px' });
+    }, { root: container, threshold: 0, rootMargin: '100px' });
 
     _observer.observe(sentinel);
   }

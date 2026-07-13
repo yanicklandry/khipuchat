@@ -1,39 +1,11 @@
 import { buildPlatformIconMap } from './icons'
 import { SCROLL_JS } from './ui-scroll'
+import { buildAccountFilterHtml, CHATS_JS } from './ui-chats'
 
 const PLATFORM_ICONS_JSON = JSON.stringify(buildPlatformIconMap())
 
 function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
-function buildAccountFilterHtml(
-  accounts: { platform: string; account: string }[],
-  selectedAccount: string | undefined,
-): string {
-  // Determine which platforms have more than one account
-  const platformCounts = new Map<string, number>()
-  for (const { platform } of accounts) {
-    platformCounts.set(platform, (platformCounts.get(platform) ?? 0) + 1)
-  }
-  const isMultiAccount = [...platformCounts.values()].some(c => c > 1)
-  if (!isMultiAccount) return ''
-
-  // Collect distinct account names
-  const accountNames = [...new Set(accounts.map(a => a.account))]
-
-  const options = [
-    `<option value=""${!selectedAccount ? ' selected' : ''}>All Accounts</option>`,
-    ...accountNames.map(name =>
-      `<option value="${escHtml(name)}"${selectedAccount === name ? ' selected' : ''}>${escHtml(name)}</option>`,
-    ),
-  ].join('\n        ')
-
-  return `<div id="account-filter" style="padding:6px 8px;border-bottom:1px solid #ddd;">
-      <select id="account-select" style="padding:4px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;cursor:pointer;" onchange="location.href='/?account='+encodeURIComponent(this.value)">
-        ${options}
-      </select>
-    </div>`
 }
 
 export function buildHtmlPage(
@@ -112,6 +84,7 @@ export function buildHtmlPage(
   </div>
   <script>
     ${SCROLL_JS}
+    ${CHATS_JS}
     const PLATFORM_ICONS = ${PLATFORM_ICONS_JSON};
     const MULTI_ACCOUNT_PLATFORMS = new Set(${multiAccountPlatformsJSON});
     const chatList = document.getElementById('chat-list');
@@ -135,64 +108,12 @@ export function buildHtmlPage(
     });
 
     function ts(t) { return new Date(t * 1000).toLocaleString(); }
-    function isDirectChat(c) { return c.type === 'private' || c.type === 'user'; }
-    function platformLabel(p) {
-      const icon = PLATFORM_ICONS[p];
-      return icon || \`<span style="font-weight:700;font-size:12px">\${esc(p.charAt(0).toUpperCase())}</span>\`;
-    }
-
-    function renderPlatformFilter() {
-      const platformFilter = document.getElementById('platform-filter');
-      const platforms = [...new Set(allChats.map(c => c.platform))].sort();
-      platformFilter.innerHTML = '';
-      const allBtn = document.createElement('button');
-      allBtn.dataset.platform = 'all'; allBtn.textContent = 'All';
-      if (activePlatform === 'all') allBtn.classList.add('active');
-      platformFilter.appendChild(allBtn);
-      platforms.forEach(p => {
-        const btn = document.createElement('button');
-        btn.dataset.platform = p; btn.innerHTML = platformLabel(p); btn.title = p;
-        if (activePlatform === p) btn.classList.add('active');
-        platformFilter.appendChild(btn);
-      });
-    }
-
-    function renderChatList() {
-      chatList.innerHTML = '';
-      let filtered = allChats;
-      if (activeType === 'direct') filtered = filtered.filter(isDirectChat);
-      else if (activeType !== 'all') filtered = filtered.filter(c => c.type === activeType);
-      if (activePlatform !== 'all') filtered = filtered.filter(c => c.platform === activePlatform);
-      filtered.forEach(c => {
-        const el = document.createElement('div');
-        el.className = 'chat-item'; el.dataset.chatId = c.chat_id;
-        const isGroup = c.type === 'group';
-        const typeClass = isGroup ? 'group' : isDirectChat(c) ? 'private' : '';
-        const showAccount = MULTI_ACCOUNT_PLATFORMS.has(c.platform) && c.account;
-        const accountLabel = showAccount ? \` (\${esc(c.account)})\` : '';
-        el.innerHTML = \`<div class="chat-name">\${esc(c.name)}</div>
-          <div class="chat-meta"><span class="badge \${typeClass}">\${platformLabel(c.platform)}\${isGroup ? ' Group' : ''}\${accountLabel}</span>
-          <span>\${c.message_count} msgs</span></div>\`;
-        el.addEventListener('click', () => {
-          document.querySelectorAll('.chat-item').forEach(x => x.classList.remove('active'));
-          el.classList.add('active');
-          currentChatType = c.type;
-          openThread(c.chat_id);
-        });
-        chatList.appendChild(el);
-      });
-    }
 
     async function loadChats() {
       const res = await fetch('/api/chats');
       allChats = await res.json();
       renderPlatformFilter();
       renderChatList();
-    }
-
-    function prependMessages(msgs) {
-      const isGroup = currentChatType === 'group';
-      msgs.forEach(m => { panel.insertBefore(buildMsgEl(m, isGroup), panel.firstChild); });
     }
 
     function buildMsgEl(m, isGroup) {
@@ -216,7 +137,7 @@ export function buildHtmlPage(
       const isGroup = currentChatType === 'group';
       msgs.forEach(m => panel.appendChild(buildMsgEl(m, isGroup)));
       scrollToBottom(panel);
-      attachScrollSentinel(panel, chatId, msgs[0].timestamp, prependMessages, has_more);
+      attachScrollSentinel(panel, chatId, msgs[0].timestamp, function(m) { return buildMsgEl(m, currentChatType === 'group'); }, has_more);
     }
 
     async function doSearch() {
