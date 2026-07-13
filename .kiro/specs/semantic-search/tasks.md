@@ -184,7 +184,7 @@
   - _Depends: 10_
   - _Boundary: SyncEmbedHook (sync-runner.ts)_
 
-- [ ] 13. Tests for gap-closure changes
+- [x] 13. Tests for gap-closure changes
 - [x] 13.1 (P) Unit tests for force-clear helpers
   - Global `clearMessageVectors()` empties `vec_messages`; platform-scoped clear removes only that platform's vectors and leaves others intact
   - Same coverage for `clearChatVectors`
