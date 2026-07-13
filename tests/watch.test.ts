@@ -171,6 +171,23 @@ describe('pollCycle', () => {
     expect(rebuildEmbeddings).not.toHaveBeenCalled()
   })
 
+  it('COUNT query is scoped to both platform and account', async () => {
+    const runBackfill = vi.fn().mockResolvedValue(undefined)
+    const adapter: PlatformAdapter = {
+      platform: 'telegram',
+      account: 'user-123',
+      runBackfill,
+    }
+    const getSpy = vi.fn().mockReturnValue(0)
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({ pluck: vi.fn().mockReturnValue({ get: getSpy }) }),
+    } as unknown as Database.Database
+    await pollCycle(adapter, mockDb)
+    for (const call of getSpy.mock.calls) {
+      expect(call).toEqual(['telegram', 'user-123'])
+    }
+  })
+
   it('resolves and logs when the indexing step throws', async () => {
     vi.mocked(rebuildEmbeddings).mockRejectedValue(new Error('index fail'))
     const runBackfill = vi.fn().mockResolvedValue(undefined)
@@ -192,7 +209,7 @@ describe('isConfigured', () => {
     discord: 'DISCORD_TOKEN',
     telegram: 'TG_API_ID',
     slack: 'SLACK_USER_TOKEN',
-    email: 'IMAP_HOST',
+    email: 'EMAIL_IMAP_HOST',
   }
 
   let savedEnv: Record<string, string | undefined> = {}

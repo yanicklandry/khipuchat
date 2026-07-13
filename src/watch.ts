@@ -41,7 +41,7 @@ const REQUIRED_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
   telegram: ['TG_API_ID', 'TG_API_HASH', 'TG_PHONE'],
   discord: ['DISCORD_TOKEN'],
   slack: ['SLACK_USER_TOKEN'],
-  email: ['IMAP_HOST', 'IMAP_PORT', 'IMAP_USER', 'IMAP_PASS'],
+  email: ['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'],
   signal: ['BEEPER_ACCESS_TOKEN'],
 }
 
@@ -60,31 +60,31 @@ export async function pollCycle(
 ): Promise<void> {
   inFlight++
   try {
-    const countBefore = database.prepare('SELECT COUNT(*) FROM messages WHERE platform = ?').pluck().get(adapter.platform) as number
+    const countBefore = database.prepare('SELECT COUNT(*) FROM messages WHERE platform = ? AND account = ?').pluck().get(adapter.platform, adapter.account) as number
     const since = getPlatformLastSyncedAt(adapter.platform, adapter.account)
     if (adapter.syncIncremental !== undefined && since !== null) {
       await adapter.syncIncremental(database, new Date(since * 1000))
     } else {
       await adapter.runBackfill(database)
     }
-    const countAfter = database.prepare('SELECT COUNT(*) FROM messages WHERE platform = ?').pluck().get(adapter.platform) as number
+    const countAfter = database.prepare('SELECT COUNT(*) FROM messages WHERE platform = ? AND account = ?').pluck().get(adapter.platform, adapter.account) as number
     const newMessages = countAfter - countBefore
     if (newMessages > 0) {
       try {
         await rebuildEmbeddings(adapter.platform)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error(`[${adapter.platform}] index error: ${msg}`)
+        console.error(`[${adapter.platform}/${adapter.account}] index error: ${msg}`)
       }
     }
     if (newMessages > 0) {
-      console.log(`[${adapter.platform}] synced ${newMessages} new messages`)
+      console.log(`[${adapter.platform}/${adapter.account}] synced ${newMessages} new messages`)
     } else {
-      console.log(`[${adapter.platform}] up to date`)
+      console.log(`[${adapter.platform}/${adapter.account}] up to date`)
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    console.error(`[${adapter.platform}] error: ${msg}`)
+    console.error(`[${adapter.platform}/${adapter.account}] error: ${msg}`)
   } finally {
     inFlight--
   }
@@ -170,7 +170,7 @@ async function main(): Promise<void> {
 
   for (const adapter of adapters) {
     const intervalMs = getIntervalMs(adapter.platform)
-    console.log(`[${adapter.platform}] polling every ${intervalMs}ms`)
+    console.log(`[${adapter.platform}/${adapter.account}] polling every ${intervalMs}ms`)
 
     void pollCycle(adapter, db)
     const timer = setInterval(() => { void pollCycle(adapter, db) }, intervalMs)
