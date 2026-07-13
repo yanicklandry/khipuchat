@@ -1,7 +1,8 @@
 {
   "specName": "discord-sync",
   "completedPhases": [
-    "steering"
+    "steering",
+    "discovery"
   ],
   "done": false,
   "completedQueueSpecs": [
