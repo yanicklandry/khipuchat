@@ -106,6 +106,47 @@
 
 ---
 
+# Gap Analysis Update — 2026-07-13
+
+**Discovery Scope**: Brownfield — verification re-run after Req 3.3 fix.
+
+## Analysis Summary
+
+- Req 3.3 (`sender_name`) identified as the sole gap on 2026-07-11 has been resolved: `MessageMapOpts` now carries `senderName?: string | null`, and both `runBackfillImpl` and `runIncrementalImpl` pass `senderName: displayName` when constructing `tableOpts`. `mapMessage` sets `sender_name: isSend === 1 ? null : (opts?.senderName ?? null)`.
+- 64 tests pass in `tests/wechat.test.ts` (up from 58 noted in prior analysis; includes new sender_name assertion tests at lines 255–268).
+- All 15 acceptance criteria across Requirements 1–5 are now met. No remaining gaps.
+- Feature is implementation-complete. No further code changes required.
+
+## Updated Requirement-to-Asset Map
+
+| Req | Summary | Status | Notes |
+|-----|---------|--------|-------|
+| 1.1 | Locate all message databases | Met | `discoverMessageDbs` + `findUserDir` |
+| 1.2 | Missing container → install message | Met | `validateContainer` ENOENT branch |
+| 1.3 | FDA denied → Full Disk Access guidance | Met | `validateContainer` permission error branch |
+| 1.4 | Individual DB error → warn + continue | Met | `openWechatDb` returns null; loop skips |
+| 2.1 | Extract all message records | Met | `runBackfillImpl` / `runIncrementalImpl` |
+| 2.2 | Map: unique ID, timestamp, text, direction | Met | `mapMessage` (V3 + V4) |
+| 2.3 | Store with platform='wechat' | Met | Hardcoded platform literal |
+| 2.4 | One chat record per DB table | Met | `upsertChat(mapChat(...))` per table |
+| 2.5 | No-text messages stored as type='other' | Met | `mapMessage` type logic |
+| 3.1 | Read display names from contacts DB | Met | `buildWechatContactMap` (V3 + V4 schemas) |
+| 3.2 | Contacts DB unavailable → fall back to raw ID | Met | Empty map; caller falls back to table name |
+| 3.3 | Resolved display name as `sender_name` | **Met** (fixed 2026-07-13) | `senderName` in `MessageMapOpts`; Option C applied |
+| 4.1 | `npm run sync:wechat` | Met | `package.json` scripts |
+| 4.2 | No duplicate records on re-run | Met | `INSERT OR IGNORE` in `insertMessage` |
+| 4.3 | New messages additive, existing unchanged | Met | Per-chat `last_synced_at` watermark |
+| 4.4 | Queryable via MCP platform filter | Met | `'wechat'` in Platform union |
+| 5.1 | Local key derivation; no network | Met | `.wechat-keys.json` loaded locally |
+| 5.2 | Clear error on decryption failure | Met | `openWechatDb` logs on `SQLITE_NOTADB` |
+| 5.3 | Never write to WeChat DBs | Met | `{ readonly: true }` everywhere |
+
+## Conclusion
+
+No implementation gaps remain. Feature is ready for final validation (`/kiro-validate-impl`).
+
+---
+
 # Gap Analysis Update — 2026-07-11
 
 **Discovery Scope**: Brownfield — implementation substantially complete; audit against requirements.

@@ -3,7 +3,8 @@
   "completedPhases": [
     "steering",
     "discovery",
-    "init"
+    "init",
+    "requirements"
   ],
   "done": false,
   "completedQueueSpecs": [
