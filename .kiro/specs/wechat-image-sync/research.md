@@ -214,3 +214,41 @@ Extension (integration-focused). Type detection (Req 1, 3, 4) already implemente
 - **Extraction fidelity vs. selected column** — `buildSchemaInfo` selects `strContent` in preference to `Message` for legacy; image XML may reside in the unselected column, yielding null metadata. Mitigation: acceptable under best-effort Req 2.4; SELECT is left unchanged to avoid regressing text extraction. Flagged as a follow-up if real-data sampling shows loss.
 - **Named-param binding regression** — mitigated by the `insertMessage` null-coalescing decision plus a regression test asserting a non-WeChat `Message` (no media keys) still inserts.
 - **Idempotent re-sync** — `insertMessage` ON CONFLICT updates only `is_sender`; media columns are not refreshed on conflict. Acceptable: metadata is immutable for a given message; first insert wins.
+
+---
+
+# Gap Validation Update — 2026-07-13
+
+## Implementation Status: Complete
+
+All gaps identified in the 2026-07-11 analysis are now closed. Verified by running the full test suite.
+
+### Requirement-to-Asset Map (final)
+
+| Requirement | Asset | Status |
+|---|---|---|
+| Req 1: Type detection (Type 4/43/49, local_type 4) | `sync.ts:161-166` (`isImageMessage`) | **CLOSED** |
+| Req 2: Metadata extraction (file path, URL, dimensions) | `src/platforms/wechat/image-meta.ts` (`extractImageMeta`) | **CLOSED** |
+| Req 2.4: Missing metadata does not fail sync | `extractImageMeta` returns `NULL_META` on null/Buffer content | **CLOSED** |
+| Req 3: Cross-schema consistency | Both legacy and V4 produce identical `Message` shape via `mapMessage` | **CLOSED** |
+| Req 4: Backward compatibility | `insertMessage` null-coalesces all media fields; non-WeChat adapters unaffected | **CLOSED** |
+
+### Approach Adopted
+
+Option B (hybrid) was implemented as recommended:
+- `sync.ts`: extended `mapMessage` with `isImageMessage` detection and `extractImageMeta` call (lines 161-182)
+- `src/platforms/wechat/image-meta.ts`: new pure helper (73 lines), regex-based attribute extraction, no new dependencies
+- `src/db.ts`: four flat nullable media columns added to `Message` interface and `messages` table; `insertMessage` null-coalesces keys
+- `src/db-migrations.ts`: idempotent `ALTER TABLE ADD COLUMN` migration for the four columns
+
+### Test Evidence
+
+```
+tests/wechat-image-meta.test.ts  21 tests  PASS
+tests/wechat-image.test.ts       20 tests  PASS
+Total: 41 tests, 0 failures
+```
+
+### No Remaining Research Items
+
+All three carried research items from the design synthesis were resolved during implementation (see Design Synthesis section above).
