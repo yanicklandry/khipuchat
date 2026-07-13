@@ -11,7 +11,6 @@
     "security-hardening",
     "release",
     "sync-watcher",
-    "multi-account",
     "khipu-cli",
     "image-support",
     "signal-platform",
@@ -19,12 +18,13 @@
     "telegram-image-sync"
   ],
   "in-progress": [
-    "web-ui-enhancements"
+    "multi-account"
   ],
   "done": [
     "platform-abstraction",
     "imessage-sync",
     "whatsapp-sync",
-    "incremental-sync"
+    "incremental-sync",
+    "web-ui-enhancements"
   ]
 }

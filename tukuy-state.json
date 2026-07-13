@@ -1,16 +1,6 @@
 {
-  "specName": "web-ui-enhancements",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "multi-account",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
@@ -31,6 +21,7 @@
     "platform-abstraction",
     "imessage-sync",
     "whatsapp-sync",
-    "incremental-sync"
+    "incremental-sync",
+    "web-ui-enhancements"
   ]
 }
