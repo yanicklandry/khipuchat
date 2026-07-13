@@ -149,3 +149,104 @@ await Promise.allSettled(loops)
 | `src/khipu.ts` | **Modify** | Update `sync all` route from `sync-all.ts` to `sync-watcher.ts` |
 
 `src/sync-all.ts` is **not modified** (kept for `npm run sync` backward compat).
+
+---
+
+# Gap Analysis: sync-watcher (2026-07-13) — Post-Implementation Audit
+
+## Analysis Summary
+
+- **Most requirements are implemented**: `src/watch.ts` (182 lines) covers per-platform polling, error isolation, graceful shutdown, `--once` mode, embedding indexing, and interval configuration.
+- **Signal adapter is entirely absent**: `ADAPTER_FACTORIES` in `watch.ts` has no `signal` entry; `isConfigured` also has no signal entry, causing the platform to be silently skipped on every startup.
+- **Message counting is not account-scoped**: The `SELECT COUNT(*) FROM messages WHERE platform = ?` query tallies all accounts for a platform; multi-account setups will produce inflated or incorrect "N new messages" counts.
+- **Startup log omits account name**: Requirement 1.1 specifies "listing each platform/account"; the log currently emits only `[platform] polling every Xms`.
+- **All tasks show `[x]`**: The three gaps above are not covered by any existing task, so implementation must be added outside the current task list.
+
+## Document Status
+
+Post-implementation brownfield audit: `src/watch.ts` read in full, requirements cross-referenced line-by-line, all test files reviewed.
+
+## 1. Requirement-to-Implementation Map
+
+| Requirement | Status | Notes |
+|---|---|---|
+| 1.1 Startup log per platform/account + interval | Partial | Account name absent from log line |
+| 1.2 Skip unconfigured with one-time log | Partial | Signal always skipped; no `isConfigured` or factory entry |
+| 1.3 Immediate first poll | Done | `void pollCycle(adapter, db)` before setInterval |
+| 1.4 `npm run watch` = `khipu sync all` | Done | `package.json` `watch` script present; `khipu.ts` routes `sync all` to `watch.ts` |
+| 2.1 Per-platform independent polling interval | Done | `getIntervalMs` + `setInterval` per adapter |
+| 2.2 Log N new messages | Partial | Count query not account-scoped |
+| 2.3 Log up to date | Done | `console.log` in `pollCycle` |
+| 2.4 Use `syncIncremental` when available | Done | `adapter.syncIncremental !== undefined && since !== null` |
+| 2.5 Use backfill otherwise | Done | `adapter.runBackfill` fallback |
+| 2.6 Iterate per-account via registry | Done | `registry.listAccounts(platform)` loop in `main()` |
+| 3.1-3.3 Error isolation | Done | try/catch in `pollCycle`; `inFlight` counter unaffected |
+| 4.1-4.2 Graceful shutdown | Done | SIGINT/SIGTERM handlers; 30s drain; exit log |
+| 5.1-5.3 Interval configuration | Done | `WATCH_INTERVAL_<PLATFORM>_MS` env var |
+| 6.1-6.3 Index after sync | Done | `rebuildEmbeddings` after new messages; isolated try/catch |
+| 7.1-7.3 `--once` mode | Done | `Promise.all` one-pass then `process.exit(0)` |
+
+## 2. Remaining Gaps
+
+### Gap A: Signal adapter absent from `ADAPTER_FACTORIES` and `isConfigured`
+
+**Location**: `src/watch.ts:37-44` (`REQUIRED_ENV_VARS`) and `src/watch.ts:121-129` (`ADAPTER_FACTORIES`)
+
+`signal` is in `PLATFORMS` (from `sync-all.ts`) but:
+- Not in `LOCAL_ONLY_PLATFORMS` and not in `REQUIRED_ENV_VARS`, so `isConfigured('signal')` always returns `false` (line 50: `if (vars === undefined) return false`).
+- Not in `ADAPTER_FACTORIES`, so even if `isConfigured` were fixed, line 145 would assign `undefined` to `factory`, crashing the loop.
+
+`src/platforms/signal/sync.ts` already exports `createSignalAdapter(account, credentials)` and checks for `BEEPER_ACCESS_TOKEN` internally.
+
+**Options**:
+- **A (recommended)**: Add `signal` to `REQUIRED_ENV_VARS` with `['BEEPER_ACCESS_TOKEN']`; add `createSignalAdapter` to `ADAPTER_FACTORIES`. One-line change each; no new logic.
+- **B**: Add signal to `LOCAL_ONLY_PLATFORMS` (always "configured") + add factory. Simpler `isConfigured` but misleading for operators without Beeper.
+
+### Gap B: Message count not account-scoped
+
+**Location**: `src/watch.ts:61-68`
+
+```ts
+const countBefore = database.prepare('SELECT COUNT(*) FROM messages WHERE platform = ?').pluck().get(adapter.platform) as number
+// ... sync ...
+const countAfter = database.prepare('SELECT COUNT(*) FROM messages WHERE platform = ?').pluck().get(adapter.platform) as number
+```
+
+With multiple accounts for the same platform (e.g., two Discord accounts), both adapters run concurrently. The count query returns the total for the platform, not the account, so the delta `countAfter - countBefore` can over-count or under-count new messages.
+
+**Options**:
+- **A (recommended)**: Add `AND account = ?` to both queries, binding `adapter.account`. Zero risk, no schema change.
+- **B**: Accept platform-level count as an approximation (not correct for multi-account scenarios).
+
+### Gap C: Startup log missing account name
+
+**Location**: `src/watch.ts:169`
+
+```ts
+console.log(`[${adapter.platform}] polling every ${intervalMs}ms`)
+```
+
+Requirement 1.1 says "listing each platform/account". With two Discord accounts both log the same line, making it impossible to distinguish which accounts are active.
+
+**Options**:
+- **A (recommended)**: `[${adapter.platform}/${adapter.account}] polling every ${intervalMs}ms`. Minimal change; consistent with `pollCycle` log format convention.
+- **B**: Keep platform-only log (acceptable if multi-account is rare, but violates the requirement).
+
+## 3. Files Requiring Change
+
+| File | Action | What |
+|---|---|---|
+| `src/watch.ts` | Modify (3 spots) | Add signal to `REQUIRED_ENV_VARS` + `ADAPTER_FACTORIES`; fix count queries; fix startup log |
+| `tests/watch.test.ts` | Modify | Add test cases for signal `isConfigured`; update count-query assertions for account scoping |
+
+## 4. Effort and Risk
+
+- **Effort**: S (half a day) — all three changes are mechanical: 2-line additions and 2-line query edits.
+- **Risk**: Low — no new dependencies, no schema changes, no adapter internals touched.
+
+## 5. Recommended Implementation Path
+
+1. In `watch.ts`: add `signal: ['BEEPER_ACCESS_TOKEN']` to `REQUIRED_ENV_VARS`, add `createSignalAdapter` import + entry to `ADAPTER_FACTORIES` (Option A for Gap A).
+2. In `watch.ts`: scope both count queries to `AND account = ?` bound to `adapter.account` (Option A for Gap B).
+3. In `watch.ts`: update the startup log line to include `adapter.account` (Option A for Gap C).
+4. In `watch.test.ts`: add/update tests to cover signal `isConfigured` and account-scoped counting.
