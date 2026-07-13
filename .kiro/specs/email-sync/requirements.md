@@ -46,7 +46,7 @@ Email Sync connects to an IMAP mailbox, fetches all messages from the INBOX and 
 3. The Email Sync shall store the plain-text body as `text`; if a message has no plain-text part, the Email Sync shall skip it without error.
 4. The Email Sync shall store the `In-Reply-To` header value as `reply_to_external_id` when present.
 5. The Email Sync shall store all messages with `platform = 'email'`.
-6. Messages originating from the configured user's email address (`EMAIL_IMAP_USER`) shall have `is_sender = 1`; all others shall have `is_sender = 0`.
+6. When storing a message, the Email Sync shall mark it as sent if the sender address matches `EMAIL_IMAP_USER`, and as received otherwise.
 
 ---
 
