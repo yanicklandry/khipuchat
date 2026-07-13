@@ -79,23 +79,19 @@ function makeMockClient(
     listChats: vi.fn(() => asyncGen(chats)),
     listChatMessages: vi.fn((chatId: string) => asyncGen(messagesByChat.get(chatId) ?? [])),
     listNewChatMessages: vi.fn(() => asyncGen([])),
-    fetchAttachmentBuffer: vi.fn().mockResolvedValue(null),
   }
 }
 
 // ── Test 1: runBackfillImpl with mixed chat ───────────────────────────────────
 
 describe('runBackfillImpl — mixed chat (text + image)', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     initDb(':memory:')
     vi.clearAllMocks()
-    const { processSignalImageMessages } = await import('../src/platforms/signal/image-sync')
-    vi.mocked(processSignalImageMessages).mockResolvedValue({ stored: 1, failed: 0 })
   })
 
-  it('inserts both text and image rows, dispatches image sync, and logs the image count', async () => {
+  it('inserts both text and image rows and logs the sync counts', async () => {
     const { runBackfillImpl } = await import('../src/platforms/signal/sync')
-    const { processSignalImageMessages } = await import('../src/platforms/signal/image-sync')
 
     const chat = makeSignalChat({ id: 'chat-mixed', title: 'Mixed Chat' })
     const textMsg = makeSignalMessage({ id: 'msg-text-e2e', chatID: 'chat-mixed', type: 'TEXT', text: 'hello' })
@@ -127,16 +123,10 @@ describe('runBackfillImpl — mixed chat (text + image)', () => {
     const textRow = allRows.find(r => r.external_id === 'msg-text-e2e')!
     expect(textRow.type).toBe('text')
 
-    // processSignalImageMessages was called with only the IMAGE message.
-    expect(processSignalImageMessages).toHaveBeenCalledOnce()
-    const [, , imageMsgsArg] = vi.mocked(processSignalImageMessages).mock.calls[0]!
-    expect(imageMsgsArg).toHaveLength(1)
-    expect(imageMsgsArg[0]!.id).toBe('msg-img-e2e')
-
-    // Completion log line includes "images: 1 stored, 0 failed".
+    // Completion log line includes chat and message counts (image processing is signal-image-sync's responsibility).
     const logCall = consoleSpy.mock.calls.find(c => String(c[0]).includes('Sync complete'))
     expect(logCall).toBeDefined()
-    expect(String(logCall![0])).toMatch(/images: 1 stored, 0 failed/)
+    expect(String(logCall![0])).toMatch(/1 chats, 2 messages/)
 
     consoleSpy.mockRestore()
   })

@@ -1,10 +1,33 @@
 import fs from 'fs'
-import type { BeeperMessage, BeeperSignalClient } from './client'
+import { BeeperDesktop } from '@beeper/desktop-api'
+import type { BeeperMessage } from './client'
 import { getDb, getMessageIdByExternalId, updateMessageMedia } from '../../db'
 import { storeMedia } from '../../media-storage'
 import { extractText } from '../../ocr'
 
 type Attachment = NonNullable<BeeperMessage['attachments']>[number]
+
+export interface AttachmentFetcher {
+  fetchAttachmentBuffer(url: string): Promise<Buffer | null>
+}
+
+export function createSignalAttachmentFetcher(accessToken: string): AttachmentFetcher {
+  const beeper = new BeeperDesktop({ accessToken, baseURL: 'http://localhost:23373' })
+  return {
+    async fetchAttachmentBuffer(url: string): Promise<Buffer | null> {
+      try {
+        const response = await beeper.assets.serve({ url })
+        const arrayBuffer = await response.arrayBuffer()
+        const buf = Buffer.from(arrayBuffer)
+        if (buf.length === 0) return null
+        return buf
+      } catch (err) {
+        console.warn(`[signal] fetchAttachmentBuffer failed for url=${url}:`, err instanceof Error ? err.message : String(err))
+        return null
+      }
+    },
+  }
+}
 
 export function extFromMime(mimeType: string | undefined): string {
   if (mimeType === 'image/png') return 'png'
@@ -24,7 +47,7 @@ export function pickImageAttachment(msg: BeeperMessage): Attachment | null {
 }
 
 async function fetchSignalAttachment(
-  client: Pick<BeeperSignalClient, 'fetchAttachmentBuffer'>,
+  client: AttachmentFetcher,
   srcURL: string | undefined,
   id: string | undefined,
 ): Promise<Buffer | null> {
@@ -45,7 +68,7 @@ async function fetchSignalAttachment(
 }
 
 export async function processSignalImageMessages(
-  client: Pick<BeeperSignalClient, 'fetchAttachmentBuffer'>,
+  client: AttachmentFetcher,
   chatId: number,
   imageMsgs: readonly BeeperMessage[],
 ): Promise<{ stored: number; failed: number }> {

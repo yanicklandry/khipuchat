@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createBeeperSignalClient } from '../src/platforms/signal/client'
-import type { BeeperSignalClient } from '../src/platforms/signal/client'
+import { createSignalAttachmentFetcher } from '../src/platforms/signal/image-sync'
 
-// ── fetchAttachmentBuffer ─────────────────────────────────────────────────────
+// ── fetchAttachmentBuffer (owned by signal-image-sync) ────────────────────────
 
 vi.mock('@beeper/desktop-api', () => {
   const mockBeeper = {
@@ -18,10 +17,10 @@ vi.mock('@beeper/desktop-api', () => {
   return { BeeperDesktop, APIConnectionError, AuthenticationError, _mockBeeper: mockBeeper }
 })
 
-describe('BeeperSignalClient.fetchAttachmentBuffer', () => {
-  it('is exposed on the client interface', () => {
-    const client: BeeperSignalClient = createBeeperSignalClient('fake-token')
-    expect(typeof client.fetchAttachmentBuffer).toBe('function')
+describe('createSignalAttachmentFetcher.fetchAttachmentBuffer', () => {
+  it('is exposed on the fetcher', () => {
+    const fetcher = createSignalAttachmentFetcher('fake-token')
+    expect(typeof fetcher.fetchAttachmentBuffer).toBe('function')
   })
 
   it('returns a Buffer when assets.serve returns a response with body', async () => {
@@ -32,8 +31,8 @@ describe('BeeperSignalClient.fetchAttachmentBuffer', () => {
     }
     _mockBeeper.assets.serve.mockResolvedValue(fakeResponse)
 
-    const client = createBeeperSignalClient('fake-token')
-    const result = await client.fetchAttachmentBuffer('beeper://some/asset/url')
+    const fetcher = createSignalAttachmentFetcher('fake-token')
+    const result = await fetcher.fetchAttachmentBuffer('beeper://some/asset/url')
 
     expect(_mockBeeper.assets.serve).toHaveBeenCalledWith({ url: 'beeper://some/asset/url' })
     expect(result).toBeInstanceOf(Buffer)
@@ -44,8 +43,8 @@ describe('BeeperSignalClient.fetchAttachmentBuffer', () => {
     const { _mockBeeper } = await import('@beeper/desktop-api') as any
     _mockBeeper.assets.serve.mockRejectedValue(new Error('Network error'))
 
-    const client = createBeeperSignalClient('fake-token')
-    const result = await client.fetchAttachmentBuffer('beeper://invalid/url')
+    const fetcher = createSignalAttachmentFetcher('fake-token')
+    const result = await fetcher.fetchAttachmentBuffer('beeper://invalid/url')
 
     expect(result).toBeNull()
   })
@@ -54,8 +53,8 @@ describe('BeeperSignalClient.fetchAttachmentBuffer', () => {
     const { _mockBeeper } = await import('@beeper/desktop-api') as any
     _mockBeeper.assets.serve.mockRejectedValue(new Error('Network error'))
 
-    const client = createBeeperSignalClient('fake-token')
-    await expect(client.fetchAttachmentBuffer('beeper://invalid/url')).resolves.toBeNull()
+    const fetcher = createSignalAttachmentFetcher('fake-token')
+    await expect(fetcher.fetchAttachmentBuffer('beeper://invalid/url')).resolves.toBeNull()
   })
 
   it('returns null when response body is empty (zero-length)', async () => {
@@ -65,8 +64,8 @@ describe('BeeperSignalClient.fetchAttachmentBuffer', () => {
     }
     _mockBeeper.assets.serve.mockResolvedValue(emptyResponse)
 
-    const client = createBeeperSignalClient('fake-token')
-    const result = await client.fetchAttachmentBuffer('beeper://empty/asset')
+    const fetcher = createSignalAttachmentFetcher('fake-token')
+    const result = await fetcher.fetchAttachmentBuffer('beeper://empty/asset')
 
     expect(result).toBeNull()
   })
@@ -78,8 +77,8 @@ describe('BeeperSignalClient.fetchAttachmentBuffer', () => {
     }
     _mockBeeper.assets.serve.mockResolvedValue(badResponse)
 
-    const client = createBeeperSignalClient('fake-token')
-    const result = await client.fetchAttachmentBuffer('beeper://bad/body')
+    const fetcher = createSignalAttachmentFetcher('fake-token')
+    const result = await fetcher.fetchAttachmentBuffer('beeper://bad/body')
 
     expect(result).toBeNull()
   })

@@ -16,7 +16,6 @@ import type { Platform, PlatformAdapter } from '../../platforms/types'
 import type { AccountCredentials } from '../../account-registry'
 import type { BeeperChat, BeeperMessage, BeeperSignalClient } from './client'
 import { createBeeperSignalClient } from './client'
-import { processSignalImageMessages } from './image-sync'
 
 export function mapChat(c: BeeperChat, account: string): Chat {
   return {
@@ -54,48 +53,35 @@ export function mapMessage(m: BeeperMessage, chatId: number): Message {
 export async function runBackfillImpl(client: BeeperSignalClient, account = 'default'): Promise<void> {
   let totalChats = 0
   let totalMessages = 0
-  let totalStored = 0
-  let totalFailed = 0
 
   for await (const chat of client.listChats()) {
     const chatId = upsertChat(mapChat(chat, account))
     totalChats++
-
-    const imageMsgs: BeeperMessage[] = []
 
     try {
       for await (const msg of client.listChatMessages(chat.id)) {
         if (msg.isDeleted || msg.isHidden) continue
         insertMessage(mapMessage(msg, chatId))
         totalMessages++
-        if (msg.type === 'IMAGE') imageMsgs.push(msg)
       }
     } catch (err) {
       console.error(`[signal] Error fetching messages for chat ${chat.id}:`, err)
     }
 
-    const { stored, failed } = await processSignalImageMessages(client, chatId, imageMsgs)
-    totalStored += stored
-    totalFailed += failed
-
     if (isIndexed('messages')) await embedNewMessages([chatId])
     if (isIndexed('chats')) await embedNewChats([chatId])
   }
 
-  console.log(`[signal] Sync complete: ${totalChats} chats, ${totalMessages} messages, images: ${totalStored} stored, ${totalFailed} failed`)
+  console.log(`[signal] Sync complete: ${totalChats} chats, ${totalMessages} messages`)
 }
 
 export async function runIncrementalImpl(client: BeeperSignalClient, since: Date, account = 'default'): Promise<void> {
   let totalChats = 0
   let totalMessages = 0
-  let totalStored = 0
-  let totalFailed = 0
 
   for await (const chat of client.listChats()) {
     const chatId = upsertChat(mapChat(chat, account))
     totalChats++
-
-    const imageMsgs: BeeperMessage[] = []
 
     try {
       const lastId = getLastSyncedId(chatId)
@@ -105,7 +91,6 @@ export async function runIncrementalImpl(client: BeeperSignalClient, since: Date
           if (msg.isDeleted || msg.isHidden) continue
           insertMessage(mapMessage(msg, chatId))
           totalMessages++
-          if (msg.type === 'IMAGE') imageMsgs.push(msg)
         }
       } else {
         // Returning chat: fetch only messages since last sync
@@ -113,22 +98,17 @@ export async function runIncrementalImpl(client: BeeperSignalClient, since: Date
           if (msg.isDeleted || msg.isHidden) continue
           insertMessage(mapMessage(msg, chatId))
           totalMessages++
-          if (msg.type === 'IMAGE') imageMsgs.push(msg)
         }
       }
     } catch (err) {
       console.error(`[signal] Error fetching messages for chat ${chat.id}:`, err)
     }
 
-    const { stored, failed } = await processSignalImageMessages(client, chatId, imageMsgs)
-    totalStored += stored
-    totalFailed += failed
-
     if (isIndexed('messages')) await embedNewMessages([chatId])
     if (isIndexed('chats')) await embedNewChats([chatId])
   }
 
-  console.log(`[signal] Incremental sync complete: ${totalChats} chats, ${totalMessages} messages, images: ${totalStored} stored, ${totalFailed} failed`)
+  console.log(`[signal] Incremental sync complete: ${totalChats} chats, ${totalMessages} messages`)
 }
 
 export function createSignalAdapter(account: string, credentials: AccountCredentials): PlatformAdapter {
