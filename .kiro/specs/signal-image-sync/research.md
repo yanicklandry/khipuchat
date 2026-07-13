@@ -205,3 +205,61 @@ _Recorded during `/kiro-spec-design`. Confirms discovery against actual source a
 5. **File extension derived from `mimeType`** with a small map (`image/png`=>`png`, `image/gif`=>`gif`, `image/webp`=>`webp`, default `jpg`). Deterministic per message, keeping `mediaPathFor` idempotency stable.
 6. **Idempotency reuses the Telegram guard**: skip when the DB row already has `media_file_path` (Req 1.3, 3.3); skip OCR when `ocr_text` already present (Req 4.4). `storeMedia` overwrites idempotently on a deterministic path, so a partial prior run is safe to re-run.
 7. **Primary design-time unknown remains** the concrete `srcURL` scheme Beeper emits for Signal attachments (`mxc://` vs `file://`). The two-strategy fetch is specifically structured so either scheme resolves: `serve()` handles all three schemes; the disk fallback handles the `file://` case when `serve()` is unavailable (e.g., Beeper down).
+
+---
+
+## Implementation-State Gap Analysis (2026-07-13)
+
+_Run after design and tasks were approved; most code is already written._
+
+### What Is Already Complete
+
+| Item | File | Verified |
+|------|------|---------|
+| `processSignalImageMessages` + helpers (`extFromMime`, `pickImageAttachment`, `fetchSignalAttachment`) | `src/platforms/signal/image-sync.ts` | Full implementation present |
+| `AttachmentFetcher` interface + `createSignalAttachmentFetcher` (Beeper `assets.serve` wrapper) | `src/platforms/signal/image-sync.ts` | Present; uses separate interface, not `BeeperSignalClient` |
+| `mapMessage` IMAGE => `'image'` classification | `src/platforms/signal/sync.ts:33` | Done; test at `signal.test.ts:129` verifies |
+| Unit tests (`extFromMime`, `pickImageAttachment`) | `tests/signal-image-sync.test.ts` | 14 cases |
+| Integration tests (`processSignalImageMessages`) | `tests/signal-image-sync.test.ts` | Covers all skip, fetch, fallback, OCR, and failure paths |
+| `createSignalAttachmentFetcher` tests | `tests/signal-client-attachment.test.ts` | 5 cases |
+| E2E tests (runBackfillImpl + handleGetImage + FTS) | `tests/signal-image-e2e.test.ts` | Present (see gap below) |
+
+### What Is Missing
+
+**Gap 1 — Sync-loop wiring (Task 3.1 incomplete)**
+
+`runBackfillImpl` and `runIncrementalImpl` in `src/platforms/signal/sync.ts` do NOT:
+- Collect image `BeeperMessage`s into a per-chat array during the insert loop
+- Call `processSignalImageMessages` after each chat's inserts
+- Accumulate or log `{ stored, failed }` counts
+
+The completion log currently emits only `[signal] Sync complete: N chats, M messages`. Req 6.4 requires `images: N stored, M failed` appended.
+
+**Gap 2 — Interface mismatch for wiring**
+
+The design specified adding `fetchAttachmentBuffer` to `BeeperSignalClient` so the existing `client` parameter could be passed directly to `processSignalImageMessages`. The actual implementation places `fetchAttachmentBuffer` in a separate `AttachmentFetcher` interface (in `image-sync.ts`). As a result, `runBackfillImpl(client, ...)` cannot pass `client` to `processSignalImageMessages` — the wiring needs either:
+
+- **Option B (recommended)**: Add an optional `fetcher?: AttachmentFetcher` parameter to `runBackfillImpl` / `runIncrementalImpl`. `createSignalAdapter` constructs `createSignalAttachmentFetcher(token)` and passes it. Zero changes to `image-sync.ts` or `client.ts`.
+- **Option A (original design)**: Add `fetchAttachmentBuffer` to `BeeperSignalClient` in `client.ts`; change `processSignalImageMessages`'s first parameter type; remove `createSignalAttachmentFetcher`. More refactoring, breaks current tests for `createSignalAttachmentFetcher`.
+
+**Gap 3 — E2E test does not verify wiring**
+
+`tests/signal-image-e2e.test.ts` mocks `processSignalImageMessages` entirely, so the test passes regardless of whether `runBackfillImpl` actually calls it. After wiring is added:
+- The mock should be updated (or removed) so the test uses a real `AttachmentFetcher` mock
+- The log assertion should check for `images:` counts
+
+### Recommended Implementation Path
+
+1. In `sync.ts`, add `fetcher?: AttachmentFetcher` to `runBackfillImpl` and `runIncrementalImpl`.
+2. In the per-chat insert loop, collect raw `BeeperMessage`s where the mapped type is `'image'` into a `imageMsgs` array.
+3. After the insert loop, if `fetcher` present: call `processSignalImageMessages(fetcher, chatId, imageMsgs)` and accumulate `stored`/`failed`.
+4. Extend the completion log: `images: ${totalStored} stored, ${totalFailed} failed`.
+5. In `createSignalAdapter`, pass `createSignalAttachmentFetcher(token)` when calling `runBackfillImpl`/`runIncrementalImpl`.
+6. Update `signal-image-e2e.test.ts` to pass a mock fetcher and assert the image counts in the log.
+
+### Effort and Risk
+
+| Dimension | Rating | Justification |
+|-----------|--------|---------------|
+| Effort | **S** (half-day) | Two loop extensions + one log line + one test update; all logic exists |
+| Risk | **Low** | `processSignalImageMessages` never throws; no schema changes; pattern mirrors existing code |
