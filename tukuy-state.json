@@ -1,7 +1,8 @@
 {
   "specName": "image-support",
   "completedPhases": [
-    "steering"
+    "steering",
+    "discovery"
   ],
   "done": false,
   "completedQueueSpecs": [
