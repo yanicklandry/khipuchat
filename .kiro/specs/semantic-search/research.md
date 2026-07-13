@@ -218,6 +218,36 @@ Concrete tasks:
 
 ---
 
+# Post-Implementation Gap Verification (2026-07-12)
+
+**Spec phase at time of check**: tasks-generated / ready_for_implementation
+**All tasks in tasks.md are marked [x]. This section verifies the actual source matches.**
+
+## Verification Results
+
+| Gap identified in design synthesis | Actual source state | Status |
+|------------------------------------|---------------------|--------|
+| `khipu index [--force]` not wired in cli.ts | `cli.ts:266` has `case 'index'` parsing `--force` and calling `rebuildEmbeddings(undefined, force)` | Resolved |
+| `rebuildEmbeddings` had no `force` parameter | `index-embeddings.ts:158` signature is `rebuildEmbeddings(platform?, force?)` with full clear-then-sweep logic | Resolved |
+| `sync-runner.ts` did not pass force flag downstream | `sync-runner.ts:63` calls `rebuildEmbeddings(adapter.platform, force)` | Resolved |
+| `INDEX_NOT_BUILT_MSG` referenced `npm run index:embeddings` | `query-handlers.ts:230` says `'Embedding index not built. Run: khipu index'` | Resolved |
+| MCP tool descriptions referenced `npm run index:embeddings` | `mcp.ts:51-52` descriptions say "Requires khipu index first" | Resolved |
+| Completion count reported this-run rows, not DB totals | `index-embeddings.ts:253-274` queries `vec_messages`/`vec_chats` for DB totals before printing | Resolved |
+| Download log not tied to actual cache absence | `embeddings.ts:12-20` `isCachePresent()` check gates the log line before `pipeline()` | Resolved |
+| Force-rebuild Vitest test missing | `tests/rebuild-embeddings.test.ts:222` has `describe('force=true')` with three test cases | Resolved |
+| Platform adapters missing embed integration | All 7 adapters (imessage, discord, slack, email, whatsapp, signal, wechat) confirmed to call `embedNewMessages` + `embedNewChats` | Resolved |
+
+## Remaining Items
+
+- **Req 5.1 latency ceiling**: No automated benchmark for 2s on 1M messages. Existing tests use `:memory:` DBs with small data. Treat as a manual validation checkpoint before production use at scale.
+- **`isIndexed` design note**: Current implementation gates on `embedding_meta` presence (never-indexed = no row). If a user only runs incremental sync (never `khipu index`), `embedding_meta` rows are never inserted by `embedNewMessages`/`embedNewChats`, so `isIndexed` returns false and the MCP tools surface the "run khipu index" error even though some messages are embedded. This is an acceptable trade-off for this spec (aligns with requirement 3.7/4.8); flagged for a future spec.
+
+## Conclusion
+
+**Implementation complete.** All nine tasks are done and source-verified. The only open item is the manual latency benchmark for Req 5.1.
+
+---
+
 ## 5. Complexity and Risk
 
 | Dimension | Rating | Justification |
