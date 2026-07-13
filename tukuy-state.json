@@ -9,9 +9,10 @@
     "design",
     "validate-design",
     "tasks",
-    "impl"
+    "impl",
+    "validate-impl"
   ],
-  "done": false,
+  "done": true,
   "completedQueueSpecs": [
     "wechat-sync",
     "wechat-image-sync",
@@ -32,6 +33,7 @@
     "imessage-sync",
     "whatsapp-sync",
     "incremental-sync",
-    "web-ui-enhancements"
+    "web-ui-enhancements",
+    "multi-account"
   ]
 }
