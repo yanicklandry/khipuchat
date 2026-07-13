@@ -40,6 +40,8 @@ No linter configured; rely on TypeScript strict mode. Keep source files under 20
 ### Testing
 Vitest. Tests use `:memory:` SQLite database (real DB, not mocked). Test files live in `tests/`.
 
+Surface-parity tests (`surface-e2e.test.ts`, `query-parity.test.ts`) seed a shared `:memory:` DB and run the same queries through all three surfaces (MCP handlers, CLI helpers, web routes) to verify agent-native parity. These are the canonical integration tests for filter and search correctness.
+
 ## Deployment
 
 ### Docker
