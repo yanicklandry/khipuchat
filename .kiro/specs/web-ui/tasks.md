@@ -15,7 +15,7 @@
   - A skeleton test (`GET /` returns 200) passes with `npm test`
   - _Requirements: 1.3_
 
-- [x] 2. Core — API routes and UI components
+- [x] 2. Core — API routes and UI leaf components
 - [x] 2.1 (P) Implement JSON API route handlers
   - Create `src/web/routes.ts` exporting an Express `Router`
   - Optional auth guard: when `WEB_USER` and `WEB_PASS` env vars are both set, apply `express-basic-auth` on `/api/*`; otherwise pass through
@@ -46,10 +46,20 @@
   - _Requirements: 4.1_
   - _Boundary: Scroll Client (ui-scroll.ts)_
 
-- [x] 2.4 Implement the self-contained HTML/CSS/JS UI page
+- [x] 2.4 (P) Implement account-filter markup and sidebar client script
+  - Create `src/web/ui-chats.ts` exporting `buildAccountFilterHtml(accounts, selectedAccount?): string` and `CHATS_JS: string`
+  - `buildAccountFilterHtml`: returns server-rendered `<select>` markup for account switching; returns `''` (nothing rendered) when no platform has more than one account; selecting an option navigates to `/?account=<name>`
+  - `CHATS_JS`: a client script string embedded verbatim into the page; exposes `renderChatList()` (sidebar entries with name, platform badge, group tag, per-account label, message count; wires click-to-open-thread), `renderPlatformFilter()` (platform filter chips), and helpers `isDirectChat()` / `platformLabel()`
+  - Applies the active type filter (all/direct/group) and platform filter client-side over the already-loaded chat list; performs no data fetching of its own
+  - All user-derived strings pass through an HTML-escape helper before insertion
+  - `CHATS_JS` is a non-empty string containing the `renderChatList` function definition
+  - _Requirements: 2.1, 2.2, 2.3, 5.1_
+  - _Boundary: Chats UI (ui-chats.ts)_
+
+- [x] 2.5 Implement the self-contained HTML/CSS/JS UI page
   - Create `src/web/ui.ts` exporting `buildHtmlPage(accounts, selectedAccount?): string` and `HTML_PAGE = buildHtmlPage([])` for backward compatibility
   - Three-zone layout: full-width search bar at top; sidebar (type filter, optional account dropdown, platform filter chips, chat list) and main panel side by side below
-  - Bake `buildPlatformIconMap()` JSON and `SCROLL_JS` inline at call time; contain no `<link>` to external stylesheets, no `<script src="https://...">`, and no external font references
+  - Bake `buildPlatformIconMap()` JSON, `CHATS_JS`, and `SCROLL_JS` inline at call time; contain no `<link>` to external stylesheets, no `<script src="https://...">`, and no external font references
   - Platform badge: inline SVG from the icon map for known platforms; single-letter fallback derived from the raw `platform` string for unknown ones
   - Search mode toggle switches between `/api/search` (keyword) and `/api/semantic-search` (semantic); semantic `{ error }` responses surfaced inline
   - `doSearch()` trims input and returns early when blank, submitting no request
@@ -60,7 +70,7 @@
   - `buildHtmlPage([])` is a non-empty string containing `<html`, `<style`, and `<script`; contains no `https://` references
   - _Requirements: 1.3, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.4, 4.1, 4.2, 4.3, 4.4, 5.1, 5.2, 5.3, 6.1, 6.3_
   - _Boundary: HTML Builder (ui.ts)_
-  - _Depends: 2.2, 2.3_
+  - _Depends: 2.2, 2.3, 2.4_
 
 - [x] 3. Integration — Express server wiring
 - [x] 3.1 Implement the Express server and main entry point
@@ -72,7 +82,7 @@
   - `require.main === module` guard prevents listener start when module is imported in tests
   - `GET /` via supertest returns 200 with `Content-Type: text/html`
   - _Requirements: 1.1, 1.2, 1.4, 6.2_
-  - _Depends: 2.1, 2.4_
+  - _Depends: 2.1, 2.5_
 
 - [x] 4. Validation — test coverage
 - [x] 4.1 API route integration tests
