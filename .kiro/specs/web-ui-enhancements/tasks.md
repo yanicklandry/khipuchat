@@ -138,3 +138,64 @@
   - `src/web/routes.ts`, `src/web/ui.ts`, `src/web/ui-scroll.ts` each under 200 lines (confirmed with `wc -l`).
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.4, 3.5, 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 6.1, 6.2, 6.3, 6.4_
   - _Depends: 4.1, 4.2, 5.2, 2.2_
+
+---
+
+- [ ] 7. Create `src/web/ui-chats.ts` and trim `ui.ts` to under 200 lines (Gap 1)
+- [ ] 7.1 Create `src/web/ui-chats.ts` exporting `buildAccountFilterHtml` and `CHATS_JS`
+  - Move `buildAccountFilterHtml(accounts, selectedAccount?): string` verbatim from `ui.ts` into `ui-chats.ts` as a named export.
+  - Move the client-side chat rendering helpers (`renderPlatformFilter`, `renderChatList`, `platformLabel`, `isDirectChat`) from `ui.ts` into a `CHATS_JS: string` constant exported from `ui-chats.ts`, following the same JS-string-constant pattern as `SCROLL_JS`.
+  - `CHATS_JS` references the same DOM ids and module-level state (`allChats`, `activeType`, `activePlatform`, `PLATFORM_ICONS`, `MULTI_ACCOUNT_PLATFORMS`) that `ui.ts` defines; this is a pure move with no behavioral change.
+  - Chat-item click in `CHATS_JS` still calls `openThread(chatId)` (defined in `ui.ts`); no circular dependency.
+  - `ui-chats.ts` has no server-side runtime imports beyond `./icons` if needed for platform labels.
+  - `ui-chats.ts` is under 200 lines.
+  - _Requirements: 6.1, 6.2_
+  - _Boundary: src/web/ui-chats.ts_
+
+- [ ] 7.2 Update `ui.ts` to import from `ui-chats.ts` and verify line count
+  - Replace the inline `buildAccountFilterHtml` and chat-list/platform-filter rendering code in `ui.ts` with imports: `import { buildAccountFilterHtml, CHATS_JS } from './ui-chats'`.
+  - Inline `${CHATS_JS}` into the `<script>` block of `HTML_PAGE` alongside `${SCROLL_JS}`.
+  - `wc -l src/web/ui.ts` outputs a value under 200 (target: ~195 lines).
+  - No behavioral change: chat list and account filter render identically to before.
+  - _Requirements: 6.2_
+  - _Boundary: src/web/ui.ts_
+  - _Depends: 7.1_
+
+---
+
+- [ ] 8. (P) Fix `ui-scroll.ts`: reverse insertion relative to sentinel and scope observer to container (Gaps 2 & 3)
+- [ ] 8.1 Fix insertion logic and IntersectionObserver root in `attachScrollSentinel`
+  - Change the fifth parameter of `attachScrollSentinel` from a DOM-prepend callback (`onOlderLoaded(msgs)`) to a message-builder callback (`buildEl(msg) => Element`).
+  - Inside the fetch success handler, iterate the ascending-order batch in reverse and insert each built element before `sentinel.nextSibling`: `for (var i = msgs.length - 1; i >= 0; i--) { container.insertBefore(buildEl(msgs[i]), sentinel.nextSibling); }`. Never insert before `container.firstChild`.
+  - Track the new oldest id as `msgs[0].timestamp` (the first element of the ascending batch) after insertion.
+  - Add `root: container` to the `IntersectionObserver` options: `{ root: container, threshold: 0, rootMargin: '100px' }`.
+  - After the fix: the sentinel always remains the first child of the container across all prepend operations; the observer fires when the sentinel scrolls into the visible area of the `#panel` scroll container (not the viewport).
+  - Scroll-anchor restore after prepend: `firstVisible.scrollIntoView({ block: 'start' })` with `container.scrollTop = firstVisible.offsetTop - container.offsetTop` as fallback.
+  - `ui-scroll.ts` remains under 200 lines.
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 6.2_
+  - _Boundary: src/web/ui-scroll.ts_
+
+---
+
+- [ ] 9. Update `ui.ts` to use builder callback with `attachScrollSentinel`
+- [ ] 9.1 Replace `prependMessages` callback with a builder callback in `openThread`
+  - Remove the `prependMessages(msgs)` inner function from `openThread` (which called `panel.insertBefore(buildMsgEl(m, isGroup), panel.firstChild)` in a loop).
+  - Update the `attachScrollSentinel(container, chatId, oldestId, ...)` call to pass a builder callback: `m => buildMsgEl(m, currentChatType === 'group')`.
+  - Insertion is now entirely owned by `attachScrollSentinel` (sentinel stays first child, batch order preserved).
+  - Opening any chat thread triggers the IntersectionObserver inside `#panel`; scrolling to the top of `#panel` loads the next older page.
+  - `ui.ts` remains under 200 lines.
+  - _Requirements: 3.1, 3.3, 3.4, 6.2_
+  - _Boundary: src/web/ui.ts_
+  - _Depends: 7.2, 8.1_
+
+---
+
+- [ ] 10. Re-validate scroll behavior, line counts, and full test suite
+- [ ] 10.1 Run tests and perform manual browser verification of corrected scroll behavior
+  - `npm test` passes with all existing and new tests green (967+ tests).
+  - `wc -l src/web/*.ts` confirms `ui.ts`, `ui-scroll.ts`, `ui-chats.ts`, and `routes.ts` are each under 200 lines.
+  - Manual browser: open a chat with 100+ messages; scroll up inside `#panel` — older messages load without scroll jump; the sentinel remains as the first child of the container after each prepend.
+  - Manual browser: newly prepended batch reads oldest-at-top, newest-at-bottom within the block (ascending order preserved).
+  - Manual browser: after the full history is loaded (`has_more === false`), further scrolling to the top does not trigger additional fetches and the sentinel is gone.
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 6.2_
+  - _Depends: 9.1_
