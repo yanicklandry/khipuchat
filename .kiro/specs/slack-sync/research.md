@@ -108,3 +108,18 @@ The `design.md` was regenerated in merge mode to match the implemented architect
 - **Corrected stale design**: prior draft described a `FetchSlackClient` class and omitted incremental sync. Reality is a `createSlackClient` factory plus `runIncrementalImpl` / `createSlackAdapter`, with `fetchHistory(channelId, oldest?)` driving R5.3. Design now reflects this.
 - **Dead code noted**: `hashStr` in `sync.ts` is exported but unused (legacy); it is intentionally excluded from the design's component set. `mapChat` sets `external_id: conv.id` directly.
 - **Simplification kept**: fixed 1200ms pre-request pacing (≈50 req/min) plus single `Retry-After` retry is sufficient for a local backfill tool; no adaptive rate limiter introduced.
+
+---
+
+## Re-validation — 2026-07-13
+
+Re-ran gap analysis against current codebase state. **No gaps remain.**
+
+Both previously missing tests (identified in the 2026-07-12 analysis as Option B) have been implemented:
+
+- `createSlackClient — 429 retry` (`tests/slack.test.ts:188-218`): stubs `globalThis.fetch`, verifies the Retry-After delay and second fetch call.
+- `createSlackAdapter — missing token` (`tests/slack.test.ts:220-237`): spies on `process.stderr.write` and `process.exit`, confirms exit code 1 and stderr message.
+
+**Test result**: 24/24 passing in 154ms.
+
+All five requirements are satisfied. Implementation is complete and fully tested. Spec status: `implemented`.
