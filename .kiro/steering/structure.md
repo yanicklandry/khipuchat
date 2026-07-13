@@ -10,6 +10,13 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 **Location**: `src/platforms/<name>/`
 **Purpose**: All code specific to one messaging platform
 **Pattern**: Each adapter has at minimum a `sync.ts` (the runnable sync script). Complex platforms add `client.ts` (API wrapper), `contacts.ts` (contact resolution), or `image-meta.ts` (media metadata extraction from platform-specific formats). The adapter exports an object implementing `PlatformAdapter` from `src/platforms/types.ts`; the factory function that constructs it from credentials implements `AdapterFactory` (also from `types.ts`). Adapters use `AccountRegistry` to iterate over configured accounts and call `runPlatformSync` per account.
+
+**`PlatformAdapter` interface** (from `src/platforms/types.ts`):
+- `readonly platform: Platform` — identifies the platform
+- `readonly account: string` — identifies the account within the platform
+- `runBackfill(db)` — full re-read of all history; always required
+- `startListener(db)` — begin continuous watching (called by the watch daemon)
+- `syncIncremental?(db, since)` — optional; if present, called instead of `runBackfill` when incremental mode is active and `since` is known
 **Implemented**: telegram, imessage, wechat, discord, slack, email, whatsapp, signal
 **Example**: `src/platforms/telegram/sync.ts`, `src/platforms/discord/sync.ts`
 

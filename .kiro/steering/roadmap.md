@@ -35,7 +35,7 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 - **Shared seams to watch**: `src/db.ts` (schema), `src/mcp.ts` (tool descriptions), `src/platforms/types.ts` (PlatformAdapter interface)
 
 ## Specs (dependency order)
-- [ ] platform-abstraction -- Generalize schema, reorganize src/platforms/, rename telegram_id→external_id, update MCP tools. Dependencies: none
+- [x] platform-abstraction -- Generalize schema, reorganize src/platforms/, rename telegram_id→external_id, update MCP tools. Dependencies: none
 - [ ] imessage-sync -- Read ~/Library/Messages/chat.db, map to generic schema, add npm run sync:imessage. Dependencies: platform-abstraction
 - [x] wechat-sync -- Read WeChat Mac local SQLite DB directly (no API, no auth), map to generic schema, add npm run sync:wechat. Dependencies: platform-abstraction
 - [x] wechat-image-sync -- Extract and map image messages from WeChat database, store file references. Dependencies: wechat-sync

@@ -1,7 +1,6 @@
 {
   "backlog": [],
   "ready": [
-    "imessage-sync",
     "wechat-sync",
     "wechat-image-sync",
     "semantic-search",
@@ -23,7 +22,9 @@
     "telegram-image-sync"
   ],
   "in-progress": [
-    "platform-abstraction"
+    "imessage-sync"
   ],
-  "done": []
+  "done": [
+    "platform-abstraction"
+  ]
 }
