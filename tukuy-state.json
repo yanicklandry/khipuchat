@@ -1,16 +1,6 @@
 {
-  "specName": "incremental-sync",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "web-ui-enhancements",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
@@ -30,6 +20,7 @@
     "signal-image-sync",
     "platform-abstraction",
     "imessage-sync",
-    "whatsapp-sync"
+    "whatsapp-sync",
+    "incremental-sync"
   ]
 }

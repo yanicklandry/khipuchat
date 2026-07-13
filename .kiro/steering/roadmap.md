@@ -47,7 +47,7 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 - [x] whatsapp-sync -- whatsapp-web.js QR-code session, sync DMs, npm run sync:whatsapp. Dependencies: platform-abstraction
 - [x] security-hardening -- SQLCipher encryption, web UI basic-auth, MCP bearer token, localhost-only binding. Dependencies: web-ui
 - [x] release -- Dockerfile + docker-compose, GitHub Actions CI/publish, SECURITY.md, demo GIF. Dependencies: web-ui, wechat-sync, discord-sync, email-sync, slack-sync, whatsapp-sync, security-hardening
-- [ ] incremental-sync -- Extend PlatformAdapter with lastSyncAt tracking; sync_state table; all sync scripts fetch only messages newer than last successful sync. `--force` full re-read + reindex; per-account sync_state. Dependencies: platform-abstraction.
+- [x] incremental-sync -- Extend PlatformAdapter with lastSyncAt tracking; sync_state table; all sync scripts fetch only messages newer than last successful sync. `--force` full re-read + reindex; per-account sync_state. Dependencies: platform-abstraction.
 - [ ] web-ui-enhancements -- Chat-window scroll layout (oldest top, newest bottom, auto-scroll to newest, load-older on scroll-up) + semantic search input in web UI. Dependencies: web-ui, semantic-search
 - [x] sync-watcher -- Daemon that polls all configured platforms continuously; sync => index => wait; `khipu sync all` entry point; `--once` single-pass. Dependencies: incremental-sync.
 - [x] multi-account -- khipu.config.json account registry; add `account` dimension to schema; per-account sync_state; adapters iterate configured accounts (WeChat excluded). Dependencies: platform-abstraction, incremental-sync

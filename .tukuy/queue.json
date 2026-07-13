@@ -10,7 +10,6 @@
     "slack-sync",
     "security-hardening",
     "release",
-    "web-ui-enhancements",
     "sync-watcher",
     "multi-account",
     "khipu-cli",
@@ -20,11 +19,12 @@
     "telegram-image-sync"
   ],
   "in-progress": [
-    "incremental-sync"
+    "web-ui-enhancements"
   ],
   "done": [
     "platform-abstraction",
     "imessage-sync",
-    "whatsapp-sync"
+    "whatsapp-sync",
+    "incremental-sync"
   ]
 }
