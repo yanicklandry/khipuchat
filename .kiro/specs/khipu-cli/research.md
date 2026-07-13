@@ -86,5 +86,83 @@
 
 ## References
 - `src/khipu.ts`, `src/cli.ts`, `src/query-handlers.ts`, `src/db.ts`, `src/mcp.ts`, `src/watch.ts`, `src/sync-runner.ts`, `src/account-registry.ts`, `src/platforms/*/sync.ts` — verified in-repo during discovery.
-</content>
-</invoke>
+
+---
+
+# Implementation Gap Validation: khipu-cli (2026-07-13)
+
+## Analysis Summary
+
+- **Scope**: Post-implementation verification against all 10 requirements
+- **Approach**: Direct code inspection of all modified and new source files + test inventory
+- **Finding**: All in-boundary requirements are implemented. No gaps remain within spec scope.
+- **Residual adjacencies**: 4 out-of-scope stubs confirmed absent by design (sync-watcher, incremental-sync, multi-account, semantic-search)
+
+## Per-Requirement Coverage
+
+| Req | Summary | File(s) | Status |
+|-----|---------|---------|--------|
+| 1.1 | bin registration | `package.json` (`bin: { khipu: bin/khipu }`), `bin/khipu` shim | Implemented |
+| 1.2 | Root --help / subcommand list | `khipu.ts` `resolveCommand`, `USAGE` constant | Implemented |
+| 1.3 | Per-subcommand --help | `khipu.ts` `isHelpFlag` detection + `SUBCOMMAND_USAGE` map | Implemented |
+| 1.4 | Unknown subcommand error + non-zero exit | `khipu.ts` default error branch | Implemented |
+| 1.5 | npm link + tsx, no build step | `bin/khipu` spawns `tsx src/khipu.ts` via `process.execPath` | Implemented |
+| 2.1 | Sync status: list platform/account/timestamp | `khipu-sync-status.ts` `printSyncStatus()` | Implemented |
+| 2.2 | Omit platforms with no accounts | `khipu-sync-status.ts` `accounts.length === 0` guard | Implemented |
+| 2.3 | "never" for unsynced accounts | `khipu-sync-status.ts` `formatTimestamp(null)` | Implemented |
+| 3.1 | sync all daemon | `khipu.ts` routes `sync all` → `watch.ts` | Implemented |
+| 3.2 | sync all --once exits after one pass | forwarded to `watch.ts` argv | Implemented (behavior in watch.ts) |
+| 3.3 | --force forwarded via argv pass-through | argv.slice(2) forwarded | Implemented (effect in adjacent specs) |
+| 3.4 | SIGINT/SIGTERM clean exit | inherited from `watch.ts` | Implemented |
+| 4.1 | khipu sync <platform> one-shot | `khipu.ts` platform routing | Implemented |
+| 4.2 | khipu sync <platform>@<account> | `khipu.ts` `@` split + forward `--account` | Implemented |
+| 4.3 | --force forwarded | argv rest forwarded | Implemented |
+| 4.4 | Unknown platform error | `!PLATFORM_SET.has(platform)` → error listing PLATFORMS | Implemented |
+| 4.5 | Unconfigured account error | `!configuredAccounts.includes(account)` via injected `listAccounts` | Implemented |
+| 5.1 | khipu index incremental | routes to `index-embeddings.ts` | Implemented |
+| 5.2 | khipu index --force full rebuild | argv pass-through with `--force` | Implemented |
+| 5.3 | Index progress output | already emitted by `index-embeddings.ts` | Implemented |
+| 6.1 | khipu mcp starts MCP server | routes to `mcp.ts` | Implemented |
+| 6.2 | MCP SIGINT/SIGTERM clean exit | inherited from `mcp.ts` | Implemented |
+| 7.1 | khipu web starts web server + prints URL | routes to `web/server.ts` | Implemented |
+| 7.2-7.3 | Web server keeps running + clean SIGTERM | inherited from `web/server.ts` | Implemented |
+| 8.1 | khipu search <query> displays results | `cli.ts` `search` case | Implemented |
+| 8.2-8.6 | All 6 filter flags on search | `cli-filters.ts` `parseQueryFilters` | Implemented |
+| 8.7 | Parity with MCP for same query+filters | shared `handleSearchMessages(query, QueryFilters)` seam | Implemented |
+| 8.8 | Empty results: message + exit 0 | `cli.ts` "No results found." branch | Implemented |
+| 8.9 | Missing query: usage + non-zero exit | `cli.ts` usage guard | Implemented |
+| 9.1 | khipu list chats | `khipu-list.ts` `chats` dispatch | Implemented |
+| 9.2 | khipu list messages | `khipu-list.ts` `messages` dispatch | Implemented |
+| 9.3 | All 6 filters on list chats/messages | `cli-filters.ts` + `handleListChats`/`handleListArchiveMessages` | Implemented |
+| 9.4 | Parity with MCP for same filters | shared `QueryFilters` seam in `query-handlers.ts` | Implemented |
+| 9.5 | Bare list: usage + non-zero exit | `khipu-list.ts` guard on missing sub-subcommand | Implemented |
+| 9.6 | Empty results: message + exit 0 | `khipu-list.ts` "No chats/messages found." | Implemented |
+| 10.1 | All 6 flags on every query subcommand | `cli-filters.ts` shared by `cli.ts` and `khipu-list.ts` | Implemented |
+| 10.2 | Same platform values as MCP | `PLATFORMS` from `sync-all.ts` used everywhere | Implemented |
+| 10.3 | Invalid filter value: error + non-zero | `parseQueryFilters` `{ ok: false, error }` propagated | Implemented |
+| 10.4 | No unilateral capability drift | `QueryFilters` in `query-handlers.ts`; MCP extended to match; parity test in `tests/query-parity.test.ts` | Implemented |
+
+## Out-of-Boundary Stubs (Confirmed Absent by Design)
+
+| Stub | Owned By | CLI Responsibility |
+|------|----------|-------------------|
+| Daemon polling loop / per-platform intervals | `sync-watcher` | Router forwards argv to `watch.ts`; behavior lives in that file |
+| `--force` deep re-read effect inside daemon | `incremental-sync` | Flag forwarded; no implementation in this spec |
+| `--account` honored inside per-platform sync scripts | `multi-account` | Router validates + forwards `--account`; sync scripts hardcode `account='default'` |
+| Embedding computation inside `khipu index` | `semantic-search` | Router calls `index-embeddings.ts`; implementation lives there |
+
+## Test Inventory
+
+| Test File | Coverage |
+|-----------|----------|
+| `tests/khipu.test.ts` | `resolveCommand` unit tests: all routing branches, @account validation, --help detection |
+| `tests/cli-filters.test.ts` | `parseQueryFilters` and `parseDateArg` unit tests |
+| `tests/khipu-sync-status.test.ts` | `printSyncStatus` unit tests |
+| `tests/khipu-list.test.ts` | `runList` unit tests including empty results, usage error |
+| `tests/query-parity.test.ts` | Integration parity: CLI filter path vs MCP arg coercion |
+| `tests/khipu-e2e.test.ts` | E2E smoke: --help, sync status, search, list commands |
+
+## Conclusion
+
+The implementation is complete within this spec's boundary. All 10 requirements are satisfied by the existing code. The spec is ready for `/kiro-validate-impl` or implementation handoff to adjacent specs (`sync-watcher`, `incremental-sync`, `multi-account`, `semantic-search`) whose stubs are forwarded correctly.
+
