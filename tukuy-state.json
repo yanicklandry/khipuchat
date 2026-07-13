@@ -1,6 +1,8 @@
 {
   "specName": "platform-abstraction",
-  "completedPhases": [],
+  "completedPhases": [
+    "steering"
+  ],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
