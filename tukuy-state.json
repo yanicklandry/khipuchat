@@ -1,6 +1,8 @@
 {
   "specName": "multi-account",
-  "completedPhases": [],
+  "completedPhases": [
+    "steering"
+  ],
   "done": false,
   "completedQueueSpecs": [
     "wechat-sync",
