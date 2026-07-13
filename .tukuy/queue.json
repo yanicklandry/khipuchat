@@ -1,10 +1,8 @@
 {
   "backlog": [],
-  "ready": [
-    "wechat-image-sync"
-  ],
+  "ready": [],
   "in-progress": [
-    "wechat-sync"
+    "wechat-image-sync"
   ],
   "done": [
     "platform-abstraction",
@@ -25,6 +23,7 @@
     "image-support",
     "signal-platform",
     "signal-image-sync",
-    "telegram-image-sync"
+    "telegram-image-sync",
+    "wechat-sync"
   ]
 }

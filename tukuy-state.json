@@ -1,16 +1,6 @@
 {
-  "specName": "wechat-sync",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "wechat-image-sync",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
@@ -31,6 +21,7 @@
     "image-support",
     "signal-platform",
     "signal-image-sync",
-    "telegram-image-sync"
+    "telegram-image-sync",
+    "wechat-sync"
   ]
 }
