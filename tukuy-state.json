@@ -1,7 +1,8 @@
 {
   "specName": "web-ui-enhancements",
   "completedPhases": [
-    "steering"
+    "steering",
+    "discovery"
   ],
   "done": false,
   "completedQueueSpecs": [
