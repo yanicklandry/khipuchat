@@ -362,3 +362,40 @@ The gap analysis above was verified against the current source. Three seams were
 - `tesseract.js` WASM worker init latency (~500ms) — mitigated: lazy singleton worker, terminated at process end.
 - GramJS `downloadMedia` type surface — mitigated: cast the raw msg through `unknown`; buffer output via `{ }` default return.
 - Large base64 image over MCP stdio — accepted: required by 6.1; typical 100 KB–2 MB.
+
+---
+
+# Post-Implementation Gap Validation (2026-07-13)
+
+**Spec phase at time of validation**: tasks-generated (all subtasks marked complete)
+
+## Current State vs. Requirements
+
+| Requirement | Component | Status | Notes |
+|---|---|---|---|
+| 1. Telegram image download | `src/platforms/telegram/image-sync.ts` | Implemented | `processImageMessages` with per-image try/catch, idempotency check, 1s sleep between downloads |
+| 1. Sync path wiring | `src/platforms/telegram/sync.ts` | Implemented | All three paths (backfill, incremental, live listener) collect image msgs and call `processImageMessages`; `terminateOcr()` called at process end |
+| 2. Platform-agnostic storage | `src/media-storage.ts` | Implemented | `storeMedia` / `mediaPathFor`; convention `media/<platform>/<chatId>/<externalId>.<ext>`; `MEDIA_DIR` env override for tests |
+| 2. `.gitignore` + Docker volume | `.gitignore`, `docker-compose.yml` | Implemented | `media/` excluded from VCS; `media-data` named volume on both services |
+| 3. `ocr_text` schema migration | `src/db-migrations.ts` | Implemented | Column added with `columnExists` guard; stale 1-column FTS dropped and recreated via `applyFtsSchema` |
+| 3. OCR module | `src/ocr.ts` | Implemented | Lazy singleton worker; returns `null` on failure/empty; `terminateOcr()` for clean shutdown |
+| 4. FTS integration | `src/db-migrations.ts`, `src/db.ts` | Implemented | Two-column FTS (`text`, `ocr_text`); insert/update/delete triggers; `applyFtsSchema` shared between `createSchema` and migration |
+| 5. Semantic embedding | `src/index-embeddings.ts` | Implemented | `HAS_CONTENT` predicate covers both text and ocr_text; `buildEmbedInput` joins non-null values; existing vec guard prevents re-embedding |
+| 6. `get_image` MCP tool | `src/image-handlers.ts`, `src/mcp.ts` | Implemented | Five-field result (`message_id`, `file_path`, `content_base64`, `ocr_text`, `ocr_available`); registered and dispatched in `mcp.ts` |
+| 7. Best-effort reliability | All sync paths | Implemented | Try/catch per image; failures logged and skipped; `updateMessageMedia` only touches media/ocr columns |
+
+## Remaining Gaps
+
+None. All requirements are covered by current implementation.
+
+## Effort & Risk
+
+- **Actual effort**: M (approximately 3-5 days of implementation across 10 tasks)
+- **Residual risk**: Low. All known risks from the design-phase refinements were mitigated in implementation.
+  - FTS migration is guarded and automatically rebuilt at startup.
+  - Singleton OCR worker is terminated correctly in all sync exit paths.
+  - Embedding idempotency is preserved by the existing `vec_messages` guard.
+
+## Recommendation
+
+Ready for implementation validation (`/kiro-validate-impl telegram-image-sync`).
