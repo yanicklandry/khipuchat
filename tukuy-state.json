@@ -1,6 +1,8 @@
 {
   "specName": "image-support",
-  "completedPhases": [],
+  "completedPhases": [
+    "steering"
+  ],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
