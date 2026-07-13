@@ -2,7 +2,8 @@
   "specName": "web-ui",
   "completedPhases": [
     "steering",
-    "discovery"
+    "discovery",
+    "init"
   ],
   "done": false,
   "completedQueueSpecs": [
