@@ -182,3 +182,22 @@ Two fixes needed before marking implementation fully compliant:
 2. **`sync.ts` `processFolder`**: skip insertion when `raw.text` is null; add a corresponding test.
 
 Run `/kiro-validate-impl email-sync` after both are applied.
+
+---
+
+# Design Refresh & Synthesis (2026-07-13)
+
+**Trigger**: `/kiro-spec-design email-sync` re-run in merge mode against the live implementation. `design.md` (originally 2026-05-06) was rewritten to match the code that now exists and to encode the two open gaps as explicit design commitments.
+
+## Synthesis Outcomes
+
+- **Generalization**: incremental sync is not a separate code path but the backfill pipeline parameterized by `EmailSearchCriteria { since }`. `syncIncremental` and `runBackfill` share `runBackfillImpl`; the client narrows the fetch via IMAP `SEARCH since`. One interface, one implementation.
+- **Build vs. adopt**: adopt RFC 5322 `Message-ID` / `In-Reply-To` headers for identity and threading rather than parsing `References`; reuse `hashStr` (FNV-1a), `runPlatformSync`, `upsertChat` / `insertMessage`, and the embedding re-index helpers rather than reimplementing. Only `imapflow` is new.
+- **Simplification**: two files (`client.ts` protocol I/O, `sync.ts` domain). The `EmailClient` seam has one real implementation plus the test mock; the indirection is justified solely by testability without a live IMAP connection, so it stays.
+
+## Design-vs-Implementation Divergences the refreshed design now asserts
+
+1. **Req 3.3 (skip no-plain-text)**: `design.md` specifies a `raw.text === null` guard between `mapMessage` and `insertMessage`, with the message counter incremented only on actual insertion. Current `sync.ts` `processFolder` still inserts unconditionally. **Design is now the source of truth; code must be brought into line.**
+2. **`account-registry.ts` legacy keys**: `design.md` records `LEGACY_ENV_VARS.email = ['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS']` (no `IMAP_PORT`). Current line 36 still uses the wrong `IMAP_*` keys.
+
+Both are covered by the earlier gap analyses above; the refreshed design makes them non-optional. Resolve via `/kiro-validate-impl email-sync` (or a targeted `/kiro-impl` pass) rather than re-implementing from scratch.
