@@ -70,10 +70,22 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 
 **Parity mechanism**: `routes.ts` calls exported handler functions from `mcp.ts` directly (`handleListChats`, `handleSearchMessages`, `handleListMessages`). This is how agent-native parity is enforced at the code level: the same logic runs for MCP tools and web API routes.
 
+### Binary Entry Point
+**Location**: `bin/khipu`
+**Purpose**: Executable Node.js shim registered in `package.json#bin`; resolves and spawns `tsx src/khipu.ts`; propagates child exit code. After `npm link`, `khipu` is on PATH for both local dev and Docker.
+
 ### Scripts
 **Location**: `scripts/`
 **Purpose**: Platform-specific setup helpers that can't be expressed as npm scripts
 **Pattern**: Shell scripts and compiled C helpers for one-time or privileged operations (e.g., WeChat key extraction requires a native binary)
+
+### CI/CD Workflows
+**Location**: `.github/workflows/`
+**Files**: `ci.yml` (test gate on push/PR to main), `release.yml` (multi-arch Docker image on `v*` tags)
+
+### Documentation Assets
+**Location**: `docs/`
+**Purpose**: Static assets for README (demo screenshots/GIFs)
 
 ### Tests
 **Location**: `tests/`

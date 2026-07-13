@@ -1,16 +1,6 @@
 {
-  "specName": "release",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "sync-watcher",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
@@ -24,6 +14,7 @@
     "discord-sync",
     "email-sync",
     "slack-sync",
-    "security-hardening"
+    "security-hardening",
+    "release"
   ]
 }

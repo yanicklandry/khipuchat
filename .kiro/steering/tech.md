@@ -40,6 +40,26 @@ No linter configured; rely on TypeScript strict mode. Keep source files under 20
 ### Testing
 Vitest. Tests use `:memory:` SQLite database (real DB, not mocked). Test files live in `tests/`.
 
+## Deployment
+
+### Docker
+Two-stage build (Alpine builder + runtime). The runtime image runs `npm link` so `khipu` is on PATH; the default `CMD` is `khipu mcp` (stdio MCP server).
+
+`docker-compose.yml` defines two services sharing named volumes:
+- `web` (`khipu web`, port `127.0.0.1:3333`)
+- `sync` (poll loop: `khipu sync all` every `$SYNC_INTERVAL` seconds, default 3600)
+
+Shared volumes: `db-data` (database), `hf-cache` (HuggingFace ONNX model), `media-data` (image attachments).
+
+Claude Desktop can connect via stdio with:
+```bash
+docker run -i --rm -v khipuchat_db-data:/app/khipuchat.db <image> khipu mcp
+```
+
+### CI/CD (GitHub Actions)
+- `ci.yml`: triggers on push/PR to `main`; runs `npm ci` + `npm test` on `ubuntu-latest`, Node 20
+- `release.yml`: triggers on `v*` tags; multi-arch build (`linux/amd64,linux/arm64`) via QEMU + Buildx; pushes to `ghcr.io` using `GITHUB_TOKEN` only (no manual secrets); tags image with version + `latest`
+
 ## Common Commands
 
 After `npm link` (or `npm install -g .`), the `khipu` binary is the primary entry point:
