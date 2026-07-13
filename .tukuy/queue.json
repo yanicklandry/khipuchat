@@ -1,0 +1,29 @@
+{
+  "backlog": [],
+  "ready": [
+    "imessage-sync",
+    "wechat-sync",
+    "wechat-image-sync",
+    "semantic-search",
+    "web-ui",
+    "discord-sync",
+    "email-sync",
+    "slack-sync",
+    "whatsapp-sync",
+    "security-hardening",
+    "release",
+    "incremental-sync",
+    "web-ui-enhancements",
+    "sync-watcher",
+    "multi-account",
+    "khipu-cli",
+    "image-support",
+    "signal-platform",
+    "signal-image-sync",
+    "telegram-image-sync"
+  ],
+  "in-progress": [
+    "platform-abstraction"
+  ],
+  "done": []
+}
