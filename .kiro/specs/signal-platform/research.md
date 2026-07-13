@@ -247,3 +247,38 @@ The OpenAPI `securitySchemes` expose both `bearerAuth` (HTTP bearer) and `oauth2
 ### 6.7 `startListener` — RESOLVED: no-op
 
 Beeper exposes `/v1/ws`, but real-time ingestion is out of scope for this spec (requirements Boundary Context). `startListener` is implemented as a no-op, consistent with the Discord and Slack adapters.
+
+---
+
+## Post-Implementation Gap Validation (2026-07-13)
+
+All 975 tests pass (43 test files). The signal adapter is fully implemented in the codebase. This section records the validation findings.
+
+### Implementation confirmed present
+
+| Component | File | Status |
+|---|---|---|
+| `BeeperSignalClient` interface + `createBeeperSignalClient` | `src/platforms/signal/client.ts` (125 lines) | Complete |
+| `mapChat`, `mapMessage`, `runBackfillImpl`, `runIncrementalImpl`, `createSignalAdapter` | `src/platforms/signal/sync.ts` (176 lines) | Complete |
+| `processSignalImageMessages` (signal-image-sync spec scope) | `src/platforms/signal/image-sync.ts` (112 lines) | Complete |
+| `'signal'` in `Platform` union | `src/platforms/types.ts:4` | Registered |
+| `'signal'` in `PLATFORMS` array | `src/sync-all.ts:4` | Registered |
+| `khipu sync signal` routing | `src/khipu.ts` via shared `PLATFORM_SET` | Routing correct |
+
+### Remaining gaps (test coverage only)
+
+**Gap 1 — `makeMockSignalClient` missing `fetchAttachmentBuffer`** (`tests/signal.test.ts:269-280`)
+TypeScript strict mode would flag this as a missing required interface method. `tsx` strips types at runtime so tests pass, but a `tsc --noEmit` pass would fail. Fix: add `fetchAttachmentBuffer: vi.fn().mockResolvedValue(null)` to the mock factory.
+
+**Gap 2 — Signal absent from `query-parity.test.ts` seed data**
+The cross-platform parity test only seeds Telegram and iMessage. A Signal chat + message seed row would close Req 6.5 in that dedicated test file (it is already covered in `signal.test.ts` "Signal platform query parity" describe block).
+
+**Gap 3 — Signal absent from `surface-e2e.test.ts` seed data**
+The agent-native parity test (MCP handler vs web route vs CLI) does not include a Signal row. The routes call the same handler functions so it would pass, but it is not explicitly asserted.
+
+### Effort and risk
+
+| Dimension | Rating | Justification |
+|---|---|---|
+| Effort | S (less than 1 day) | Three targeted test-file edits; no production code changes needed |
+| Risk | Low | All three gaps are additive; no schema or API surface changes required |
