@@ -137,3 +137,18 @@ The implementation is complete. Proceed to `/kiro-validate-impl discord-sync` to
 ## Next Steps
 
 All tasks complete. Proceed to `/kiro-validate-impl discord-sync` for final feature-level integration validation.
+
+---
+
+# Design Update — 2026-07-13
+
+**Context**: `/kiro-spec-design` re-run in merge mode against as-built code. requirements.md carries six requirements (R6 Multi-Account Support added), but design.md only documented and traced R1–R5. Closed that coverage gap without changing any code.
+
+**Synthesis**: Multi-account is not new Discord logic — it reuses the shared `AdapterFactory` seam. `createDiscordAdapter(account, credentials)` already matches `AdapterFactory`, so the shared `runAllAccountsSync` / `watch.ts` loop drives per-account processing. The only Discord-owned contribution to R6 is (a) exposing the factory and (b) threading `account` into `mapChat`. Iteration, per-`(platform, account)` state keying, and per-account `try/catch` isolation live out of boundary in `sync-runner.ts` / `watch.ts`.
+
+**Design.md changes**:
+- Boundary: added `AdapterFactory` / `runAllAccountsSync` / `watch.ts` as read-only dependencies and out-of-boundary orchestration; noted factory conformance under "This Spec Owns"; added `AccountCredentials`/`DISCORD_TOKEN`-key and `runAllAccountsSync` revalidation triggers.
+- Added "Multi-Account Support" subsection mapping 6.1/6.2/6.3 to the factory seam, `mapChat` account threading, and `(platform, account)` state keying + failure isolation.
+- Extended Requirements Traceability with 5.4, 6.1, 6.2, 6.3; added `--force` note to the entry-point description; added a multi-account testing item (noting iteration is covered by shared `runAllAccountsSync` tests, out of boundary).
+
+**Verified against code**: `createDiscordAdapter` in `ADAPTER_FACTORIES` (`watch.ts:123`); `runAllAccountsSync` per-account `try/catch` (`sync-runner.ts:77-89`); `(platform, account)` last-synced keying (`sync-runner.ts:42,59`); `account` threaded via `mapChat` (`sync.ts:19-30,71,108`).

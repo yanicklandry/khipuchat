@@ -8,6 +8,7 @@ Discord Sync fetches DM and guild text channels via the Discord REST API and map
 - Backfill all DM and text-channel messages accessible to the configured bot token.
 - Support incremental re-sync (only messages newer than the last run) without duplicating records.
 - Respect Discord rate limits; never hard-fail on a single 429.
+- Process each configured Discord account independently, with per-account sync state and failure isolation.
 - Zero new runtime dependencies.
 
 ### Non-Goals
@@ -20,26 +21,29 @@ Discord Sync fetches DM and guild text channels via the Discord REST API and map
 
 ### This Spec Owns
 - `src/platforms/discord/client.ts`: `DiscordClient` interface + `createDiscordClient` fetch implementation.
-- `src/platforms/discord/sync.ts`: row mappers, backfill/incremental runners, adapter factory, entry point.
+- `src/platforms/discord/sync.ts`: row mappers, backfill/incremental runners, the `createDiscordAdapter` per-account factory (conforming to `AdapterFactory`), the default-account `discordAdapter` instance, entry point.
 - `"sync:discord"` script in `package.json`.
 
 ### Out of Boundary
-- `src/platforms/types.ts`: `'discord'` and `PlatformAdapter` already present; consumed read-only.
-- `src/db.ts`, `src/sync-runner.ts`, `src/account-registry.ts`, `src/vec-db.ts`, `src/index-embeddings.ts`: consumed read-only.
+- `src/platforms/types.ts`: `'discord'`, `PlatformAdapter`, and `AdapterFactory` already present; consumed read-only.
+- `src/db.ts`, `src/sync-runner.ts`, `src/account-registry.ts`, `src/vec-db.ts`, `src/index-embeddings.ts`, `src/watch.ts`: consumed read-only.
+- Multi-account orchestration itself: iterating `registry.listAccounts('discord')` and per-account error isolation live in the shared `runAllAccountsSync` / `watch.ts` loop, not in this spec. This spec only supplies a per-account `AdapterFactory`.
 - MCP / CLI / Web UI tool changes.
 
 ### Allowed Dependencies
 - `src/db.ts`: `initDb`, `upsertChat`, `insertMessage`, types `Chat`, `Message`.
-- `src/sync-runner.ts`: `runPlatformSync` (backfill-vs-incremental orchestration + last-synced bookkeeping).
+- `src/sync-runner.ts`: `runPlatformSync` (backfill-vs-incremental orchestration + per-`(platform, account)` last-synced bookkeeping); `runAllAccountsSync` (per-account iteration + error isolation) consumes this spec's factory.
 - `src/account-registry.ts`: `AccountCredentials`.
 - `src/vec-db.ts`: `isIndexed`; `src/index-embeddings.ts`: `embedNewMessages`, `embedNewChats`.
-- `src/platforms/types.ts`: `Platform`, `PlatformAdapter`.
+- `src/platforms/types.ts`: `Platform`, `PlatformAdapter`, `AdapterFactory`.
+- `src/watch.ts`: registers `createDiscordAdapter` in `ADAPTER_FACTORIES` (consumer of this spec's factory export).
 - Node 18+ built-in `fetch`.
 
 ### Revalidation Triggers
 - Discord API version changes (currently v10).
-- `Chat` / `Message` / `PlatformAdapter` interface changes.
-- `runPlatformSync` mode-selection contract changes.
+- `Chat` / `Message` / `PlatformAdapter` / `AdapterFactory` interface changes.
+- `runPlatformSync` mode-selection or `runAllAccountsSync` per-account contract changes.
+- `AccountCredentials` shape or the `DISCORD_TOKEN` field key changing in the registry.
 
 ## File Structure Plan
 
@@ -145,7 +149,15 @@ Returns a `PlatformAdapter`:
 - `syncIncremental(db, since)`: same token guard; else `runIncrementalImpl(createDiscordClient(token), since, account)`.
 - `startListener(db)`: no-op (REST-only scope).
 
-`discordAdapter` is the default-account instance built from `process.env.DISCORD_TOKEN`. `main()` calls `initDb('./khipuchat.db')` then `runPlatformSync(discordAdapter, db, process.argv)`, which selects backfill vs. incremental from the stored last-synced timestamp and records the new one. `main()` runs only when the module is the entry point.
+`discordAdapter` is the default-account instance built from `process.env.DISCORD_TOKEN`. `main()` calls `initDb('./khipuchat.db')` then `runPlatformSync(discordAdapter, db, process.argv)`, which selects backfill vs. incremental from the stored last-synced timestamp and records the new one. Passing `--force` (via `parseSyncArgs`) forces backfill mode regardless of last-synced state, satisfying the full re-read requirement. `main()` runs only when the module is the entry point.
+
+### Multi-Account Support (`sync.ts` factory + shared loop)
+
+`createDiscordAdapter(account, credentials)` is the seam that satisfies Requirement 6. It matches the shared `AdapterFactory` signature, so the multi-account loop can build one adapter per configured account without any Discord-specific branching:
+
+- **Per-account processing (6.1)**: `watch.ts` registers `discord: createDiscordAdapter` in `ADAPTER_FACTORIES`. The shared loop (`runAllAccountsSync` / `watch.ts` startup) iterates `registry.listAccounts('discord')` and calls the factory once per account with that account's `AccountCredentials` (its own `DISCORD_TOKEN`). The single-account `khipu sync discord` entry point (`main`) uses only the `'default'` account.
+- **Distinct account identifier (6.2)**: the `account` string is threaded into `mapChat(channel, account)` and stored on every `Chat` row, so chats (and their messages) from different accounts are distinguishable in the archive.
+- **Independent sync state and failure isolation (6.3)**: last-synced bookkeeping is keyed on `(platform, account)` via `getPlatformLastSyncedAt` / `setPlatformLastSyncedAt`, so each account advances independently. `runAllAccountsSync` wraps each account's `runPlatformSync` in its own `try/catch`, recording an `AccountSyncOutcome` per account so a failure on one account does not abort the others.
 
 ## Requirements Traceability
 
@@ -164,6 +176,10 @@ Returns a `PlatformAdapter`:
 | 5.1 | `main` + `package.json` | `npm run sync:discord` |
 | 5.2 | `insertMessage` INSERT OR IGNORE | no duplicate rows on repeat |
 | 5.3 | `runIncrementalImpl` + `runPlatformSync` | incremental `after` cursor stores only new messages |
+| 5.4 | `runPlatformSync` + `parseSyncArgs` | `--force` forces backfill mode regardless of last-synced state |
+| 6.1 | `createDiscordAdapter` (as `AdapterFactory`) + shared loop | one adapter built per configured account |
+| 6.2 | `mapChat(channel, account)` | `account` stored on every chat row |
+| 6.3 | `runAllAccountsSync` + `(platform, account)` last-synced key | per-account state; per-account `try/catch` isolates failures |
 
 ## Error Handling
 
@@ -185,3 +201,4 @@ Returns a `PlatformAdapter`:
 - **Integration (`runIncrementalImpl`)**: `after` cursor derived from `since` fetches only newer messages; forward paging advances the cursor.
 - **Idempotency**: running a backfill twice yields no duplicate rows (INSERT OR IGNORE).
 - **Rate limit**: mock 429 with `Retry-After` triggers exactly one retry and then succeeds.
+- **Multi-account (`createDiscordAdapter`)**: adapter carries the given `account`; empty `DISCORD_TOKEN` triggers the stderr guard + `process.exit(1)`. Per-account iteration and failure isolation (6.1/6.3) are verified by the shared `runAllAccountsSync` tests (out of this spec's boundary); `account` threading onto rows (6.2) is covered via `mapChat`.
