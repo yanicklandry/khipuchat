@@ -279,6 +279,18 @@ describe('resolveCommand — per-subcommand --help', () => {
     expect(result.message).toContain('sync')
   })
 
+  it("resolveCommand(['sync', '--help']) message exposes --once flag", () => {
+    const result = resolveCommand(['sync', '--help'])
+    expect(result.kind).toBe('help')
+    expect(result.message).toContain('--once')
+  })
+
+  it("resolveCommand(['--help']) root usage exposes 'sync all [--once]'", () => {
+    const result = resolveCommand(['--help'])
+    expect(result.kind).toBe('help')
+    expect(result.message).toContain('--once')
+  })
+
   it("resolveCommand(['--help']) returns kind: help with exitCode 0 and message contains 'khipu'", () => {
     const result = resolveCommand(['--help'])
     expect(result.kind).toBe('help')
