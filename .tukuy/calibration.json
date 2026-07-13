@@ -2982,5 +2982,13 @@
     "actualDurationMs": 105980,
     "idleDurationMs": 0,
     "estimatedTokens": 80000
+  },
+  {
+    "phase": "steering",
+    "timestamp": "2026-07-13T18:42:44.940Z",
+    "estimatedDurationMs": 87799.28947368421,
+    "actualDurationMs": 53047,
+    "idleDurationMs": 0,
+    "estimatedTokens": 50000
   }
 ]

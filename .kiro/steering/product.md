@@ -1,6 +1,6 @@
 # Product Overview
 
-KhipuChat is a self-hosted multi-platform message archive. It syncs conversations from Telegram, iMessage, Discord, Slack, WhatsApp, WeChat, and email into a local SQLite database, then lets you browse them in a web UI or query them with Claude via MCP.
+KhipuChat is a self-hosted multi-platform message archive. It syncs conversations from Telegram, iMessage, Discord, Slack, WhatsApp, WeChat, Signal, and email into a local SQLite database, then lets you browse them in a web UI or query them with Claude via MCP.
 
 ## Core Capabilities
 
