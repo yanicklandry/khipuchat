@@ -111,5 +111,5 @@ Existing `npm run` scripts may remain as thin wrappers during transition but are
 - [x] signal-platform
 - [x] signal-image-sync
 - [x] telegram-image-sync
-- [ ] wechat-sync
+- [x] wechat-sync
 - [ ] wechat-image-sync
