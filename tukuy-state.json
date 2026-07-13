@@ -10,7 +10,7 @@
     "validate-design",
     "tasks"
   ],
-  "done": true,
+  "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
     "imessage-sync",
