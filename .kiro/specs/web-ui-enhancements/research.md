@@ -56,3 +56,85 @@
 - **Generalization**: Pagination (`before` + `limit`) is a standard cursor-based pattern. Implementing it once in `handleListMessages` + route handler is sufficient; no generic pagination abstraction is needed.
 - **Build vs. Adopt**: IntersectionObserver is a Web Platform API (no library needed). All other capabilities are already in the codebase.
 - **Simplification**: The scroll sentinel approach (one `<div>` at the top, one observer) is the minimum viable implementation. No scroll-position tracking library, no virtual list.
+
+---
+
+## Gap Analysis — 2026-07-13 (post-partial-implementation)
+
+### Current Implementation State
+
+All server-side work is complete and all 967 tests pass. Client-side scroll behavior has functional gaps.
+
+| File | Lines | Status |
+|------|-------|--------|
+| `src/web/routes.ts` | 135 | Complete. Pagination and `/api/semantic-search` implemented. Under 200 lines. |
+| `src/web/ui-scroll.ts` | 119 | Exists. Scroll helpers extracted. Under 200 lines. |
+| `src/web/ui.ts` | 256 | Complete feature set, BUT **exceeds 200-line limit (req 6.2)**. |
+
+### Gap 1: `ui.ts` Exceeds 200-Line Limit (req 6.2 violation)
+
+`ui.ts` is 256 lines after extracting scroll logic to `ui-scroll.ts`. The original research doc estimated 233 lines before extraction, expecting the extraction would bring it under 200. That estimate was wrong — extraction only moved the scroll JS but `ui.ts` accumulated additional code (toggle markup, mode-aware search, account filter helper, platform filter rendering).
+
+**Required action**: Extract `buildAccountFilterHtml` and the platform-filter + chat-list rendering helpers into a `src/web/ui-chats.ts` sub-module, exporting the HTML string or a render function. This should recover ~60 lines, bringing `ui.ts` to ~195 lines.
+
+### Gap 2: `prependMessages` Reverses Insertion Order and Displaces the Sentinel
+
+`prependMessages` in `ui.ts` (line 193–196):
+
+```js
+function prependMessages(msgs) {
+  const isGroup = currentChatType === 'group';
+  msgs.forEach(m => { panel.insertBefore(buildMsgEl(m, isGroup), panel.firstChild); });
+}
+```
+
+**Bug A: Reversed order.** `msgs` arrives in ascending timestamp order (oldest first, per req 1.1). Inserting each message before `panel.firstChild` causes every new element to leapfrog the previous one — the final DOM order has the NEWEST message of the batch at the top and the OLDEST at the bottom of the prepended block.
+
+**Bug B: Sentinel displacement.** When the sentinel is the first child, `panel.firstChild === sentinel`. The first `insertBefore` call moves the new message element before the sentinel, making the message the new `firstChild`. All subsequent inserts push that message further down. After the loop the sentinel is no longer the first child of the container — it is buried after all newly prepended messages. The `IntersectionObserver` watches the sentinel but the sentinel is now mid-content, so subsequent scroll-up events will not reliably re-trigger loading.
+
+**Required fix**: Iterate `msgs` in reverse and always insert relative to the sentinel (not `firstChild`):
+
+```js
+// Inside the onOlderLoaded callback in ui-scroll.ts (has sentinel in closure):
+for (let i = msgs.length - 1; i >= 0; i--) {
+  container.insertBefore(buildMsgEl(msgs[i], isGroup), sentinel.nextSibling);
+}
+```
+
+Because `prependMessages` in `ui.ts` does not have access to `sentinel` (it is closed over inside `attachScrollSentinel`), the cleanest fix is to change the `onOlderLoaded` callback contract: instead of passing a DOM-manipulation callback, pass a message-builder callback and do the insertion inside `attachScrollSentinel` where `sentinel` is in scope. Alternatively, expose `sentinel` via a returned handle.
+
+### Gap 3: `IntersectionObserver` Uses Viewport Root Instead of Scroll Container
+
+In `ui-scroll.ts` (line 108):
+
+```js
+_observer = new IntersectionObserver(function(entries) { ... }, { threshold: 0, rootMargin: '100px' });
+```
+
+No `root` is specified, so the browser uses the viewport as the intersection root. The scrollable element is `#panel` (`overflow-y: auto`), which is a scrollable div inside the page — not the viewport itself. For the observer to fire when the sentinel scrolls into the visible area of `#panel`, the observer must use `root: container`.
+
+**Required fix**:
+
+```js
+_observer = new IntersectionObserver(function(entries) { ... }, {
+  root: container,
+  threshold: 0,
+  rootMargin: '100px'
+});
+```
+
+### Summary of Required Actions
+
+| # | Gap | Requirement | Severity | Action |
+|---|-----|-------------|----------|--------|
+| 1 | `ui.ts` 256 lines | 6.2 | Medium | Extract `buildAccountFilterHtml` + chat-list helpers into `ui-chats.ts` |
+| 2 | Prepend order reversed; sentinel displaced | 3.1, 3.3, 3.4 | High | Fix insertion loop in `attachScrollSentinel`; keep sentinel as first child |
+| 3 | Observer root = viewport, not panel | 3.1, 3.2 | High | Add `root: container` to `IntersectionObserver` options |
+
+### What Is Complete and Correct
+
+- All API routes (pagination, semantic search, error handling) are implemented and tested.
+- `ui-scroll.ts` structure (`scrollToBottom`, `attachScrollSentinel`, `disconnectScroll`) is sound; only the insertion logic and observer root need fixing.
+- Search toggle (keyword/semantic), mode-aware fetch, error banner for unbuilt index, and result rendering are all correctly implemented in `ui.ts`.
+- `handleListMessages` in `src/mcp.ts` returns `{ messages, has_more }` shape as required.
+- All 967 tests pass.
