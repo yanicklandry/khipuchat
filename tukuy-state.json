@@ -9,9 +9,10 @@
     "design",
     "validate-design",
     "tasks",
-    "impl"
+    "impl",
+    "validate-impl"
   ],
-  "done": false,
+  "done": true,
   "completedQueueSpecs": [
     "platform-abstraction",
     "imessage-sync",
@@ -32,6 +33,7 @@
     "signal-platform",
     "signal-image-sync",
     "telegram-image-sync",
-    "wechat-sync"
+    "wechat-sync",
+    "wechat-image-sync"
   ]
 }
