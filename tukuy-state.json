@@ -1,16 +1,6 @@
 {
-  "specName": "web-ui-enhancements",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "sync-watcher",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
@@ -26,6 +16,7 @@
     "security-hardening",
     "signal-image-sync",
     "wechat-sync",
-    "khipu-cli"
+    "khipu-cli",
+    "web-ui-enhancements"
   ]
 }
