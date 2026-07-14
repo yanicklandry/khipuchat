@@ -166,3 +166,57 @@
 
 The implementation is complete within this spec's boundary. All 10 requirements are satisfied by the existing code. The spec is ready for `/kiro-validate-impl` or implementation handoff to adjacent specs (`sync-watcher`, `incremental-sync`, `multi-account`, `semantic-search`) whose stubs are forwarded correctly.
 
+---
+
+# Gap Analysis: khipu-cli (2026-07-14)
+
+## Analysis Summary
+
+- **Approach**: Re-verification against requirements after prior implementation; direct code inspection of all relevant source files
+- **Finding**: Implementation is fully complete. Zero gaps remain within this spec's boundary.
+- **Effort**: S (already implemented)
+- **Risk**: Low — all requirements satisfied structurally, parity guaranteed by shared `QueryFilters` seam
+
+## Requirement-to-Asset Map
+
+| Requirement | Asset | Gap |
+|---|---|---|
+| 1.1 bin registration | `package.json` `bin.khipu` + `bin/khipu` shim | None |
+| 1.2 Root --help output | `src/khipu.ts` `USAGE` + `resolveCommand` | None |
+| 1.3 Per-subcommand --help | `src/khipu.ts` `SUBCOMMAND_USAGE` map | None |
+| 1.4 Unknown subcommand error + exit 1 | `src/khipu.ts` default error branch | None |
+| 1.5 npm link + tsx, no build step | `bin/khipu` spawns `tsx src/khipu.ts` | None |
+| 2.1-2.3 Sync status listing | `src/khipu-sync-status.ts` `printSyncStatus()` | None |
+| 3.1-3.4 Daemon, --once, --force, SIGINT | `src/watch.ts` wired via `khipu.ts` router | None (--force/SIGINT behavior inherited) |
+| 4.1-4.5 Per-platform one-shot + @account | `src/khipu.ts` `@`-split + `listAccounts` validation | None |
+| 5.1-5.3 Index subcommand + progress | Routes to `src/index-embeddings.ts` | None |
+| 6.1-6.2 MCP subcommand + SIGTERM | Routes to `src/mcp.ts` | None |
+| 7.1-7.3 Web subcommand + URL + SIGTERM | Routes to `src/web/server.ts` | None |
+| 8.1-8.9 search + 6 filters + parity | `src/cli.ts` + `src/cli-filters.ts` + shared `handleSearchMessages` | None |
+| 9.1-9.6 list chats/messages + 6 filters | `src/khipu-list.ts` + `src/cli-filters.ts` | None |
+| 10.1-10.4 Filter parity contract | `QueryFilters` in `src/query-handlers.ts`; shared by MCP and CLI; parity test in `tests/query-parity.test.ts` | None |
+
+## Implementation Approach: Retrospective
+
+**Option B (Dedicated entry scripts + shared filter parser)** was selected and fully executed:
+- `src/khipu.ts` — pure command router (spawns child scripts, never touches DB)
+- `src/khipu-list.ts` — `list chats | messages` entry point
+- `src/khipu-sync-status.ts` — `sync` (bare) entry point
+- `src/cli-filters.ts` — shared `--platform/--account/--since/--until/--type/--limit` parser
+- `src/query-handlers.ts` — extended with `QueryFilters` contract; parity seam for MCP and CLI
+
+All files stay under the 200-line limit. Router remains pure and unit-testable via `resolveCommand(argv, deps)`.
+
+## Out-of-Boundary Stubs (Confirmed Absent by Design)
+
+| Stub | Owned By |
+|------|----------|
+| Daemon polling loop / per-platform intervals | `sync-watcher` spec |
+| `--force` deep re-read effect inside daemon | `incremental-sync` spec |
+| `--account` honored inside per-platform sync scripts | `multi-account` spec |
+| Embedding computation inside `khipu index` | `semantic-search` spec |
+
+## Recommendations for Design Phase
+
+None required: design and tasks are already approved. Implementation is complete. Next step is `/kiro-validate-impl khipu-cli` for final cross-task consistency and full test-suite verification.
+
