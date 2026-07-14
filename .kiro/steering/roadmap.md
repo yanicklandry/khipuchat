@@ -70,3 +70,13 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 
 ## Direct Implementation Candidates
 - [ ] mcp-test-script -- `scripts/test-mcp.sh` bash script with sample queries for every MCP tool + `.claude/skills/mcp-testing/SKILL.md`. Pure tooling, no spec needed.
+
+## Future Candidates (not yet scoped)
+- Zalo platform adapter
+- Facebook Messenger adapter
+- Facebook Groups (research needed: API access model)
+- SMS sync (research needed: macOS/Android bridge)
+- React web UI (vs current plain HTML; tradeoff: complexity vs richer UX)
+- Remote/cloud deployment option (Mac Mini, VPS)
+- Local Ollama integration (alternative to Claude for MCP queries)
+- Slack multi-account support (currently single account)

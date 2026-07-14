@@ -1,16 +1,6 @@
 {
-  "specName": "release",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "image-support",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
@@ -29,6 +19,7 @@
     "khipu-cli",
     "web-ui-enhancements",
     "sync-watcher",
-    "signal-platform"
+    "signal-platform",
+    "release"
   ]
 }
