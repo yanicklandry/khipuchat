@@ -107,6 +107,14 @@
   - _Requirements: 5.1, 5.2, 5.3_
   - _Boundary: watch.test.ts_
 
+- [ ] 7.4 (P) Unit test `isConfigured`
+  - Test: returns `false` when a network platform's required env vars are all absent or empty strings.
+  - Test: returns `true` when at least one required env var for a network platform is set to a non-empty string.
+  - Test: returns `true` unconditionally for local-only platforms (imessage, whatsapp, wechat).
+  - All three cases pass in `vitest run`.
+  - _Requirements: 1.2_
+  - _Boundary: watch.test.ts_
+
 - [x] 7.2 (P) Unit test `pollCycle` routing, indexing, and error isolation
   - Test: when adapter has `syncIncremental` and `getPlatformLastSyncedAt` returns a number, `syncIncremental` is called.
   - Test: when adapter lacks `syncIncremental`, `runBackfill` is called.
