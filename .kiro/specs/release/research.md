@@ -268,3 +268,37 @@ Every requirement maps to a present, correct artifact. Summary of findings:
 ### Recommended Next Step
 
 Run `/kiro-validate-impl release` to formally verify the complete implementation and close parent tasks 1-4.
+
+---
+
+## Fresh Codebase Verification (kiro-validate-gap, 2026-07-14)
+
+**Trigger**: User invoked `/kiro-validate-gap release` directly. Full re-inspection of all release artifacts.
+
+### Confirmed Complete (no change since 2026-07-13 scan)
+
+All infrastructure artifacts verified present and correct:
+- `Dockerfile`: multi-stage, node:20-alpine, `npm link`, `CMD ["khipu","mcp"]`, `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true`
+- `docker-compose.yml`: `web` + `sync` services, 3 named volumes (db-data, hf-cache, media-data), `env_file: .env`, comprehensive env var comments
+- `.github/workflows/ci.yml`: push+PR to main, ubuntu-latest, Node 20, `npm ci && npm test`
+- `.github/workflows/release.yml`: `v*` tags, QEMU + Buildx, ghcr.io push, `GITHUB_TOKEN`, version + latest tags
+- `SECURITY.md`: private reporting workflow, `yanick.landry@gmail.com` contact
+- `package.json` bin: `"khipu": "bin/khipu"` present
+- `bin/khipu`: Node shim resolving project-local tsx and `src/khipu.ts`
+- README: Docker quickstart, `npm link` docs, `khipu.config.json` multi-account section, iMessage full-scan note
+
+### Residual Gap (confirmed): demo asset
+
+`docs/demo.png` is 2,710 bytes. A real web UI screenshot would be 100 KB+. This is a placeholder. The requirement letter is met (file exists, < 5 MB, linked from README) but the spirit (prospective users see the tool) is not. **Replace before tagging a release.**
+
+### Additional Observation: `npm run cli` in README
+
+README line ~140: `Run any MCP tool from the terminal with \`npm run cli <tool> [args]\`.` with `npm run cli get_image <message_id>` as the example. This `npm run cli` reference was not flagged by the 2026-07-13 scan (requirement 5.3 targets `npm run sync:*` and raw `tsx` invocations specifically). Since `khipu get_image <message_id>` is the correct public form (khipu.ts routes unknown subcommands to cli.ts), this line is a minor inconsistency but does not block the release.
+
+### `.env.example` scope
+
+`.env.example` contains only 4 Telegram vars. The docker-compose.yml comments are the canonical env var reference (requirement 1.6 ✅). No requirement demands `.env.example` be comprehensive, so this is not a gap.
+
+### Conclusion
+
+Implementation is complete. The single actionable item before a release tag is replacing `docs/demo.png` with a real screenshot or GIF of the web UI.
