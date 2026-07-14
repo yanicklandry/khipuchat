@@ -112,4 +112,4 @@ Existing `npm run` scripts may remain as thin wrappers during transition but are
 - [x] signal-image-sync
 - [x] telegram-image-sync
 - [x] wechat-sync
-- [ ] wechat-image-sync
+- [x] wechat-image-sync
