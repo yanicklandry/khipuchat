@@ -2,7 +2,8 @@
   "specName": "image-support",
   "completedPhases": [
     "steering",
-    "discovery"
+    "discovery",
+    "init"
   ],
   "done": false,
   "completedQueueSpecs": [
