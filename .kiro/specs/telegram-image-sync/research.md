@@ -399,3 +399,29 @@ None. All requirements are covered by current implementation.
 ## Recommendation
 
 Ready for implementation validation (`/kiro-validate-impl telegram-image-sync`).
+
+---
+
+# Re-Run Gap Validation (2026-07-14)
+
+**Spec phase**: implemented + implementation_validated
+
+Fresh codebase read confirms all components are in place. No gaps found.
+
+## Verified Components
+
+| File | Purpose | Status |
+|---|---|---|
+| `src/media-storage.ts` | `storeMedia` / `mediaPathFor`; path convention `media/<platform>/<chatId>/<externalId>.<ext>`; `MEDIA_DIR` env override | Present, correct |
+| `src/ocr.ts` | Lazy singleton `tesseract.js` worker; `extractText` never throws; `terminateOcr` for shutdown | Present, correct |
+| `src/image-handlers.ts` | `handleGetImage` returning `GetImageResult` discriminated union; validates `type === 'image'`; handles missing file path and ENOENT | Present, correct |
+| `src/platforms/telegram/image-sync.ts` | `processImageMessages`: idempotency check on `media_file_path`, download, store, OCR, persist, 1s sleep between downloads, per-image try/catch | Present, correct |
+| `src/db.ts` | `ocr_text` in `Message` interface + schema; `applyFtsSchema` shared helper; `updateMessageMedia`; FTS insert/update triggers | Present, correct |
+| `src/index-embeddings.ts` | `HAS_CONTENT` covers both `text` and `ocr_text`; `buildEmbedInput` joins non-null values; `ocr_text` selected in all batch queries | Present, correct |
+| `src/mcp.ts` | `get_image` tool registered; `handleGetImage` imported and dispatched; re-exported from module | Present, correct |
+| `docker-compose.yml` | `media-data` named volume mounted on both `web` and `sync` services; declared in top-level `volumes` | Present, correct |
+| `.gitignore` | `media/` excluded | Present, correct |
+
+## Conclusion
+
+Implementation fully covers all 7 requirements. No gaps remain. The feature is ready for production use.
