@@ -253,6 +253,68 @@ Requirement 1.1 says "listing each platform/account". With two Discord accounts 
 
 ---
 
+# Gap Analysis: sync-watcher (2026-07-14) — Final Closure Audit
+
+## Analysis Summary
+
+- **All prior gaps closed**: The three gaps flagged in the 2026-07-13 audit (A: signal absent, B: count not account-scoped, C: startup log missing account) are all resolved in the current `src/watch.ts`.
+- **Implementation is complete**: All 20 requirement acceptance criteria (1.1-7.3) map to working code in `src/watch.ts` (182 lines).
+- **Tests are comprehensive**: `tests/watch.test.ts` covers `pollCycle`, `isConfigured`, `getIntervalMs`, startup adapter selection, error isolation, and `--once` mode.
+- **No remaining gaps**: The spec is implementation-ready with no open issues.
+
+## Document Status
+
+Brownfield closure audit: `src/watch.ts` read line-by-line against the 2026-07-13 gap list and against all 20 acceptance criteria.
+
+## Gap Resolution Verification
+
+### Gap A: Signal adapter absent (CLOSED)
+
+Current `src/watch.ts:45` includes `signal: ['BEEPER_ACCESS_TOKEN']` in `REQUIRED_ENV_VARS`.
+Current `src/watch.ts:130` includes `signal: createSignalAdapter` in `ADAPTER_FACTORIES`.
+Import at line 15 confirms `createSignalAdapter` is pulled from `src/platforms/signal/sync`.
+
+### Gap B: Message count not account-scoped (CLOSED)
+
+Current `src/watch.ts:63-64`:
+```ts
+database.prepare('SELECT COUNT(*) FROM messages WHERE platform = ? AND account = ?')
+  .pluck().get(adapter.platform, adapter.account)
+```
+Both `platform` and `account` are bound; confirmed in `tests/watch.test.ts` lines 174-189.
+
+### Gap C: Startup log missing account name (CLOSED)
+
+Current `src/watch.ts:173`:
+```ts
+console.log(`[${adapter.platform}/${adapter.account}] polling every ${intervalMs}ms`)
+```
+Format is consistent with all other `pollCycle` log lines.
+
+## Full Requirement Coverage
+
+| Req | Status | Evidence |
+|---|---|---|
+| 1.1 Startup log per platform/account + interval | Done | `watch.ts:173` |
+| 1.2 Skip unconfigured; one-time log | Done | `watch.ts:139-147` |
+| 1.3 Immediate first poll | Done | `watch.ts:175 void pollCycle(adapter, db)` |
+| 1.4 `npm run watch` = `khipu sync all` | Done | `package.json:27`, `khipu.ts:151-156` |
+| 2.1-2.3 Per-interval polling + log | Done | `watch.ts:172-177`, `pollCycle` |
+| 2.4-2.5 Incremental/backfill routing | Done | `watch.ts:65-68` |
+| 2.6 Account registry iteration | Done | `watch.ts:136-153` |
+| 3.1-3.3 Error isolation | Done | `watch.ts:85-89 try/catch` |
+| 4.1-4.2 Graceful shutdown | Done | `watch.ts:101-115` |
+| 5.1-5.3 Interval config via env | Done | `watch.ts:29-36` |
+| 6.1-6.3 Index after sync | Done | `watch.ts:73-79` |
+| 7.1-7.3 Single-pass `--once` | Done | `watch.ts:156-169` |
+
+## Effort and Risk
+
+- **Effort**: Done (0 remaining).
+- **Risk**: None — feature is already live.
+
+---
+
 # Design Regeneration (2026-07-13)
 
 ## Trigger
