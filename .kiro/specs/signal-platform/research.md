@@ -282,3 +282,33 @@ The agent-native parity test (MCP handler vs web route vs CLI) does not include 
 |---|---|---|
 | Effort | S (less than 1 day) | Three targeted test-file edits; no production code changes needed |
 | Risk | Low | All three gaps are additive; no schema or API surface changes required |
+
+---
+
+## Re-validation Gap Analysis (2026-07-14)
+
+**Context**: Pre-design gap analysis run before `/kiro-spec-design` to confirm current codebase state.
+
+### Findings
+
+The Signal adapter is **fully implemented**. All 56 `tests/signal.test.ts` tests pass. Related suites (`tests/khipu.test.ts`, `tests/sync-all.test.ts`) also pass (110 tests total across the three suites).
+
+Every requirement is satisfied by existing code. The gap between requirements and codebase is **zero**.
+
+The three gaps previously flagged in the 2026-07-13 section (mock missing `fetchAttachmentBuffer`, Signal absent from `query-parity.test.ts` and `surface-e2e.test.ts`) are the only remaining items. These are test-coverage gaps, not production-code gaps.
+
+### Status summary per requirement
+
+| Req | Status |
+|---|---|
+| 1 — Signal platform registration | DONE (`Platform` union + `PLATFORMS` array + CLI routing) |
+| 2 — Beeper Desktop connectivity | DONE (`createBeeperSignalClient`, error wrapping, per-chat isolation) |
+| 3 — Chat and message backfill | DONE (`runBackfillImpl`, idempotent via `upsertChat`/`insertMessage`) |
+| 4 — Incremental sync | DONE (`runIncrementalImpl` with `getLastSyncedId` branch logic) |
+| 5 — Message content and metadata | DONE (`mapMessage` with all required fields; `media_*` null in text path) |
+| 6 — Query parity via existing surfaces | DONE (no changes to MCP/CLI/Web; existing handlers return Signal data) |
+| 7 — Graceful degradation | DONE (Beeper error wrapping, per-chat try/catch, `process.exit(1)` on missing token) |
+
+### Recommendation
+
+Run `/kiro-validate-impl signal-platform` for full integration validation, then close the spec.
