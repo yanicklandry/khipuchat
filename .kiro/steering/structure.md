@@ -46,7 +46,7 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 **Key files**:
 - `src/media-storage.ts` — file path convention (`<MEDIA_DIR>/<platform>/<chatId>/<externalId>.<ext>`) + `storeMedia()`; idempotent, no DB contact
 - `src/ocr.ts` — tesseract.js singleton worker; `extractText(Buffer|string)` never throws (returns null on failure); `terminateOcr()` for process shutdown
-- `src/image-handlers.ts` — MCP `get_image` tool handler; reads `media_file_path` + `ocr_text` from DB, returns base64 content
+- `src/image-handlers.ts` — MCP `get_image` tool handler; returns `GetImageResult`, a discriminated union on `file_available` (`GetImageResultAvailable` with base64 content vs `GetImageResultUnavailable` with error string); validates `type === 'image'` before file access; both arms carry `ocr_text`
 - `src/platforms/telegram/image-sync.ts` — Telegram-specific: downloads photo messages via GramJS `client.downloadMedia()`, stores via `storeMedia`, runs OCR, writes `media_file_path` + `ocr_text` back to DB
 - `src/platforms/signal/image-sync.ts` — Signal-specific: fetches attachments via Beeper's attachment API, stores via `storeMedia`, runs OCR; follows same interface as telegram image-sync
 - `src/platforms/wechat/image-meta.ts` — WeChat-specific: extracts image file path and dimensions from WeChat XML message content; no download step (images are already on local disk); called inline from wechat `sync.ts`
@@ -54,6 +54,7 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 **Pattern**: Two variants for platform image handling:
 - **Remote images** (Telegram, Signal): implement `image-sync.ts` — downloads from API, calls `storeMedia`, runs OCR
 - **Local images** (WeChat): implement `image-meta.ts` — extracts metadata from message content and integrates into `sync.ts` directly; no download needed since files are already on disk
+- **Contact resolution** (iMessage, WeChat): implement `contacts.ts` — resolves opaque platform IDs to display names; WeChat reads from the `WCContactRecord` table in the same local SQLite DB
 
 ### Sync Infrastructure
 **Location**: `src/`
