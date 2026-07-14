@@ -35,7 +35,7 @@ Single Node.js process per role (MCP server, web server, sync scripts). All pers
 TypeScript strict mode. No `any`. DB row types are typed interfaces in `src/db.ts`. Platform type is a union (`'telegram' | 'imessage' | ...`) defined in `src/platforms/types.ts`.
 
 ### Code Quality
-No linter configured; rely on TypeScript strict mode. Keep source files under 200 lines.
+No linter configured; rely on TypeScript strict mode. Target source files under 200 lines; several core files (db.ts, vec-db.ts, cli.ts, query-handlers.ts, khipu.ts, index-embeddings.ts) currently exceed this and are candidates for extraction when they grow further.
 
 ### Testing
 Vitest. Tests use `:memory:` SQLite database (real DB, not mocked). Test files live in `tests/`.
