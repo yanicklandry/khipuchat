@@ -107,7 +107,7 @@
   - _Requirements: 5.1, 5.2, 5.3_
   - _Boundary: watch.test.ts_
 
-- [ ] 7.4 (P) Unit test `isConfigured`
+- [x] 7.4 (P) Unit test `isConfigured`
   - Test: returns `false` when a network platform's required env vars are all absent or empty strings.
   - Test: returns `true` when at least one required env var for a network platform is set to a non-empty string.
   - Test: returns `true` unconditionally for local-only platforms (imessage, whatsapp, wechat).
