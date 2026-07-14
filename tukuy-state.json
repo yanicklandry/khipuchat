@@ -1,16 +1,6 @@
 {
-  "specName": "sync-watcher",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl"
-  ],
+  "specName": "signal-platform",
+  "completedPhases": [],
   "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
@@ -27,6 +17,7 @@
     "signal-image-sync",
     "wechat-sync",
     "khipu-cli",
-    "web-ui-enhancements"
+    "web-ui-enhancements",
+    "sync-watcher"
   ]
 }
