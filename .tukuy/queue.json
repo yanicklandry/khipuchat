@@ -1,13 +1,22 @@
 {
   "backlog": [],
-  "ready": [],
-  "in-progress": [],
+  "ready": [
+    "web-ui-enhancements",
+    "sync-watcher",
+    "signal-platform",
+    "release",
+    "image-support",
+    "telegram-image-sync",
+    "wechat-image-sync"
+  ],
+  "in-progress": [
+    "khipu-cli"
+  ],
   "done": [
     "platform-abstraction",
     "imessage-sync",
     "whatsapp-sync",
     "incremental-sync",
-    "web-ui-enhancements",
     "multi-account",
     "semantic-search",
     "web-ui",
@@ -15,14 +24,7 @@
     "email-sync",
     "slack-sync",
     "security-hardening",
-    "release",
-    "sync-watcher",
-    "khipu-cli",
-    "image-support",
-    "signal-platform",
     "signal-image-sync",
-    "telegram-image-sync",
-    "wechat-sync",
-    "wechat-image-sync"
+    "wechat-sync"
   ]
 }

@@ -1,20 +1,16 @@
-# tukuy --spec incremental-sync 
-# tukuy --spec multi-account   
-# tukuy --spec sync-watcher    
-# tukuy --spec semantic-search 
-# tukuy --spec khipu-cli       
-# tukuy --spec release
+#!/usr/bin/env bash
+set -euo pipefail
 
-tukuy --spec semantic-search 
-tukuy --spec khipu-cli 
-tukuy --spec web-ui-enhancements 
-tukuy --spec sync-watcher
-tukuy --spec signal-platform 
+# Runs tukuy on the specs that still have open tasks.
+# Fully-completed specs are intentionally omitted:
+#   done: discord-sync, email-sync, imessage-sync, incremental-sync,
+#         multi-account, platform-abstraction, security-hardening,
+#         semantic-search, signal-image-sync, slack-sync, web-ui,
+#         wechat-sync, whatsapp-sync
 
-tukuy --spec image-support 
-tukuy --spec telegram-image-sync 
-tukuy --spec signal-image-sync 
-
-tukuy --spec release 
-
-tukuy --spec wechat-image-sync 
+# The 8 incomplete specs are queued in .tukuy/queue.json (ready list), in
+# dependency order. Queue mode processes them one by one, re-running each
+# spec's pipeline; already-approved phases no-op and /kiro-impl finishes the
+# remaining tasks. Queue mode resets per-spec run state, which avoids the
+# stale-state pitfalls of `tukuy --spec`.
+tukuy

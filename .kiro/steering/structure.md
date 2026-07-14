@@ -41,7 +41,7 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 - `src/khipu-sync-status.ts` — runnable entry point for `khipu sync` (status view); reads `sync_state` and prints per-platform/account sync timestamps
 
 ### Media Infrastructure
-**Location**: `src/` (shared) + `src/platforms/<name>/image-sync.ts` (platform-specific download)
+**Location**: `src/` (shared) + platform-specific helpers under `src/platforms/<name>/`
 **Purpose**: Shared image storage, OCR, and MCP retrieval established by telegram-image-sync; reusable by future platforms
 **Key files**:
 - `src/media-storage.ts` — file path convention (`<MEDIA_DIR>/<platform>/<chatId>/<externalId>.<ext>`) + `storeMedia()`; idempotent, no DB contact
@@ -49,8 +49,11 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 - `src/image-handlers.ts` — MCP `get_image` tool handler; reads `media_file_path` + `ocr_text` from DB, returns base64 content
 - `src/platforms/telegram/image-sync.ts` — Telegram-specific: downloads photo messages via GramJS `client.downloadMedia()`, stores via `storeMedia`, runs OCR, writes `media_file_path` + `ocr_text` back to DB
 - `src/platforms/signal/image-sync.ts` — Signal-specific: fetches attachments via Beeper's attachment API, stores via `storeMedia`, runs OCR; follows same interface as telegram image-sync
+- `src/platforms/wechat/image-meta.ts` — WeChat-specific: extracts image file path and dimensions from WeChat XML message content; no download step (images are already on local disk); called inline from wechat `sync.ts`
 
-**Pattern**: Platform adapters implement `image-sync.ts` for platform-specific download logic. Shared infrastructure (`media-storage.ts`, `ocr.ts`, `image-handlers.ts`) is reused across all platforms.
+**Pattern**: Two variants for platform image handling:
+- **Remote images** (Telegram, Signal): implement `image-sync.ts` — downloads from API, calls `storeMedia`, runs OCR
+- **Local images** (WeChat): implement `image-meta.ts` — extracts metadata from message content and integrates into `sync.ts` directly; no download needed since files are already on disk
 
 ### Sync Infrastructure
 **Location**: `src/`

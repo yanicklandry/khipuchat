@@ -1,24 +1,12 @@
 {
-  "specName": "wechat-image-sync",
-  "completedPhases": [
-    "steering",
-    "discovery",
-    "init",
-    "requirements",
-    "validate-gap",
-    "design",
-    "validate-design",
-    "tasks",
-    "impl",
-    "validate-impl"
-  ],
-  "done": true,
+  "specName": "khipu-cli",
+  "completedPhases": [],
+  "done": false,
   "completedQueueSpecs": [
     "platform-abstraction",
     "imessage-sync",
     "whatsapp-sync",
     "incremental-sync",
-    "web-ui-enhancements",
     "multi-account",
     "semantic-search",
     "web-ui",
@@ -26,14 +14,7 @@
     "email-sync",
     "slack-sync",
     "security-hardening",
-    "release",
-    "sync-watcher",
-    "khipu-cli",
-    "image-support",
-    "signal-platform",
     "signal-image-sync",
-    "telegram-image-sync",
-    "wechat-sync",
-    "wechat-image-sync"
+    "wechat-sync"
   ]
 }
