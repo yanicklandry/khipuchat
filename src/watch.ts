@@ -60,14 +60,14 @@ export async function pollCycle(
 ): Promise<void> {
   inFlight++
   try {
-    const countBefore = database.prepare('SELECT COUNT(*) FROM messages WHERE platform = ? AND account = ?').pluck().get(adapter.platform, adapter.account) as number
+    const countBefore = database.prepare('SELECT COUNT(*) FROM messages m JOIN chats c ON m.chat_id = c.id WHERE c.platform = ? AND c.account = ?').pluck().get(adapter.platform, adapter.account) as number
     const since = getPlatformLastSyncedAt(adapter.platform, adapter.account)
     if (adapter.syncIncremental !== undefined && since !== null) {
       await adapter.syncIncremental(database, new Date(since * 1000))
     } else {
       await adapter.runBackfill(database)
     }
-    const countAfter = database.prepare('SELECT COUNT(*) FROM messages WHERE platform = ? AND account = ?').pluck().get(adapter.platform, adapter.account) as number
+    const countAfter = database.prepare('SELECT COUNT(*) FROM messages m JOIN chats c ON m.chat_id = c.id WHERE c.platform = ? AND c.account = ?').pluck().get(adapter.platform, adapter.account) as number
     const newMessages = countAfter - countBefore
     if (newMessages > 0) {
       try {

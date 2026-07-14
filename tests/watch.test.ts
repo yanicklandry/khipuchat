@@ -171,7 +171,7 @@ describe('pollCycle', () => {
     expect(rebuildEmbeddings).not.toHaveBeenCalled()
   })
 
-  it('COUNT query is scoped to both platform and account', async () => {
+  it('COUNT query is scoped to both platform and account via JOIN chats', async () => {
     const runBackfill = vi.fn().mockResolvedValue(undefined)
     const adapter: PlatformAdapter = {
       platform: 'telegram',
@@ -179,10 +179,12 @@ describe('pollCycle', () => {
       runBackfill,
     }
     const getSpy = vi.fn().mockReturnValue(0)
-    const mockDb = {
-      prepare: vi.fn().mockReturnValue({ pluck: vi.fn().mockReturnValue({ get: getSpy }) }),
-    } as unknown as Database.Database
+    const prepareSpy = vi.fn().mockReturnValue({ pluck: vi.fn().mockReturnValue({ get: getSpy }) })
+    const mockDb = { prepare: prepareSpy } as unknown as Database.Database
     await pollCycle(adapter, mockDb)
+    for (const call of prepareSpy.mock.calls) {
+      expect(call[0]).toContain('JOIN chats')
+    }
     for (const call of getSpy.mock.calls) {
       expect(call).toEqual(['telegram', 'user-123'])
     }
