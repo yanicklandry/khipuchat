@@ -1,7 +1,8 @@
 {
   "specName": "telegram-image-sync",
   "completedPhases": [
-    "steering"
+    "steering",
+    "discovery"
   ],
   "done": false,
   "completedQueueSpecs": [
