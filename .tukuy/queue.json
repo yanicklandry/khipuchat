@@ -1,11 +1,7 @@
 {
   "backlog": [],
-  "ready": [
-    "wechat-image-sync"
-  ],
-  "in-progress": [
-    "telegram-image-sync"
-  ],
+  "ready": [],
+  "in-progress": [],
   "done": [
     "platform-abstraction",
     "imessage-sync",
@@ -25,6 +21,8 @@
     "sync-watcher",
     "signal-platform",
     "release",
-    "image-support"
+    "image-support",
+    "telegram-image-sync",
+    "wechat-image-sync"
   ]
 }
