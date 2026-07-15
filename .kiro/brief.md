@@ -9,7 +9,7 @@ KhipuChat works but does not feel like a finished, operable tool:
 - Each platform assumes a single account. Real users have multiple Slack workspaces, and often more than one Telegram or WhatsApp account.
 
 ## Current State
-- Commands are npm scripts: `npm run sync`, `sync:telegram`, `sync:imessage`, `sync:wechat`, `sync:discord`, `sync:slack`, `sync:email`, `sync:whatsapp`, `mcp`, `web`, `cli`, `index:embeddings`, plus a specced-but-unbuilt `watch` daemon (`sync-watcher`).
+- Commands are npm scripts: `npm run sync`, `sync:telegram`, `sync:imessage`, `sync:discord`, `sync:slack`, `sync:email`, `sync:whatsapp`, `mcp`, `web`, `cli`, `index:embeddings`, plus a specced-but-unbuilt `watch` daemon (`sync-watcher`).
 - `incremental-sync` (specced) makes each adapter fetch only messages newer than `sync_state.last_synced_at`, with a `--backfill` flag for a full scan.
 - `sync-watcher` (specced) adds a long-running `npm run watch` daemon that polls all configured platforms. It does **not** run embedding indexing after each poll.
 - `semantic-search` provides local ONNX embeddings + `npm run index:embeddings`.
@@ -21,7 +21,7 @@ KhipuChat works but does not feel like a finished, operable tool:
 - Sync is incremental by default everywhere; `khipu sync all` runs continuously as a service (sync => index => wait), and can do a single pass for cron via `--once`.
 - Running one platform (`khipu sync telegram`) is a one-shot, for debugging only.
 - A single `--force` flag re-reads every message from the source AND rebuilds embeddings.
-- Every platform except WeChat supports multiple named accounts, configured in a config file.
+- Every platform supports multiple named accounts, configured in a config file.
 
 ## Usage Surfaces (priority order)
 The tool is consumed three ways; specs must reflect this priority (also recorded in steering/roadmap.md):
@@ -37,7 +37,7 @@ Agent-native parity: whatever the archive can answer via MCP should be answerabl
 4. All chats fetch only new messages (incremental). If a source cannot filter server-side, document in README that it is slower.
 5. Optional `--force` flag re-reads all messages (and rebuilds embeddings), instead of only new ones.
 6. Individual `khipu sync <platform>` is for debugging; normal operation is `khipu sync all` run as a service or cron job.
-7. All platforms except WeChat support multiple accounts (Slack most common; also multiple Telegram / WhatsApp).
+7. All platforms support multiple accounts (Slack most common; also multiple Telegram / WhatsApp).
 
 ## Decisions (confirmed with operator)
 - **`khipu sync all` execution model**: daemon by default (loops sync => index => wait forever). `--once` performs a single pass and exits, for cron. `khipu sync <platform>` is always one-shot.
@@ -64,12 +64,11 @@ Existing `npm run` scripts may remain as thin wrappers during transition but are
   - New `khipu` bin + subcommand router; `bin` field in package.json; `npm link` dev workflow.
   - `khipu sync all` daemon that runs indexing after each successful platform/account sync (extends `sync-watcher`).
   - `--force` flag semantics (full re-read + reindex), reconciled with `incremental-sync`.
-  - Multi-account support: `khipu.config.json`, account dimension in schema, per-account `sync_state`, adapters iterating configured accounts (WeChat excluded).
+  - Multi-account support: `khipu.config.json`, account dimension in schema, per-account `sync_state`, adapters iterating configured accounts.
   - README documentation of incremental-only behavior and any per-platform slow-path (client-side filtering).
 - **Out**:
   - Sending messages on any platform.
   - New platform integrations beyond those already on the roadmap.
-  - Multi-account for WeChat (explicitly excluded — direct local-DB read, single install).
   - Cloud sync / hosted service.
 
 ## New Specs
@@ -111,5 +110,3 @@ Existing `npm run` scripts may remain as thin wrappers during transition but are
 - [x] signal-platform
 - [x] signal-image-sync
 - [x] telegram-image-sync
-- [x] wechat-sync
-- [x] wechat-image-sync

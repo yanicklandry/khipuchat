@@ -76,7 +76,7 @@ khipu sync                 # incremental by default; pass --force for full re-re
 # Sync a single platform
 khipu sync telegram
 khipu sync imessage
-# (same pattern: discord, slack, email, wechat, whatsapp)
+# (same pattern: discord, slack, email, whatsapp)
 
 # Rebuild embeddings index
 khipu index
@@ -108,4 +108,4 @@ npm test
 - **MCP bearer token optional**: `MCP_SECRET` env var enables Bearer token auth on every MCP tool call (checked via `_meta.authorization`); omitting it leaves MCP open (stdio only by default)
 - **Incremental sync**: `sync_state` table tracks last successful sync per (platform, account); `runPlatformSync` in `sync-runner.ts` chooses incremental vs full mode; `--force` triggers full re-read + FTS + embeddings rebuild. All adapters delegate to this shared runner.
 - **Media fields**: `messages` schema includes `media_file_path`, `media_url`, `media_width`, `media_height` columns (nullable) for image and media messages; added via migration using `columnExists` from `src/db-migrations.ts`.
-- **Multi-account**: `khipu.config.json` is the canonical account registry (optional). When absent, the system falls back to legacy single-account env-var resolution. WeChat is limited to one account. The `account` column on messages/chats distinguishes accounts within a platform.
+- **Multi-account**: `khipu.config.json` is the canonical account registry (optional). When absent, the system falls back to legacy single-account env-var resolution. The `account` column on messages/chats distinguishes accounts within a platform.

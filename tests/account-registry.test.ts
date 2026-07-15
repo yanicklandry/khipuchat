@@ -77,13 +77,6 @@ describe('loadRegistry — absent config file', () => {
     expect(reg.listAccounts('imessage')).toEqual(['default'])
   })
 
-  it('returns empty list for wechat (no env vars)', () => {
-    const env: NodeJS.ProcessEnv = {}
-    const reg = loadRegistry('/nonexistent/khipu.config.json', env)
-    // wechat uses local DB, no env vars, so always returns ['default']
-    expect(reg.listAccounts('wechat')).toEqual(['default'])
-  })
-
   it('returns empty list for whatsapp (no env vars)', () => {
     const env: NodeJS.ProcessEnv = {}
     const reg = loadRegistry('/nonexistent/khipu.config.json', env)
@@ -227,23 +220,6 @@ describe('loadRegistry — validation errors', () => {
     }
     expect(caught).toBeDefined()
     expect((caught as { kind: string }).kind).toBe('empty_name')
-  })
-
-  it('throws wechat_multi_account when wechat config contains more than one account', () => {
-    const configPath = writeTmpConfig({
-      wechat: [
-        { name: 'personal' },
-        { name: 'work' },
-      ],
-    })
-    let caught: unknown
-    try {
-      loadRegistry(configPath, {})
-    } catch (err) {
-      caught = err
-    }
-    expect(caught).toBeDefined()
-    expect((caught as { kind: string }).kind).toBe('wechat_multi_account')
   })
 
   it('treats account names case-sensitively — Work and work are distinct, not duplicates', () => {

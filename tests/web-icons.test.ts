@@ -5,7 +5,7 @@ describe('buildPlatformIconMap', () => {
   const map = buildPlatformIconMap()
 
   it('includes an icon for each known platform', () => {
-    for (const platform of ['telegram', 'wechat', 'discord', 'whatsapp', 'imessage', 'email']) {
+    for (const platform of ['telegram', 'discord', 'whatsapp', 'imessage', 'email']) {
       expect(map[platform], `missing icon for ${platform}`).toBeTruthy()
     }
   })

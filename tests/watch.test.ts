@@ -45,10 +45,6 @@ vi.mock('../src/platforms/whatsapp/sync', () => ({
   createWhatsAppAdapter: vi.fn(),
 }))
 
-vi.mock('../src/platforms/wechat/sync', () => ({
-  wechatAdapter: { platform: 'wechat', sync: vi.fn().mockResolvedValue(undefined) },
-}))
-
 import { getIntervalMs, DEFAULT_INTERVAL_MS, pollCycle } from '../src/watch'
 import { getPlatformLastSyncedAt } from '../src/db'
 import { rebuildEmbeddings } from '../src/index-embeddings'
@@ -239,7 +235,6 @@ describe('isConfigured', () => {
     const { isConfigured } = await import('../src/watch')
     expect(isConfigured('imessage')).toBe(true)
     expect(isConfigured('whatsapp')).toBe(true)
-    expect(isConfigured('wechat')).toBe(true)
   })
 
   it('returns true when any required credential env var is set', async () => {

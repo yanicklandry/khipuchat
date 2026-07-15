@@ -566,7 +566,7 @@ describe('insertMessage — media fields', () => {
   let chatId: number
 
   beforeEach(() => {
-    chatId = upsertChat({ external_id: '1', account: 'default', name: 'WeChat User', type: 'user', username: null, platform: 'wechat' })
+    chatId = upsertChat({ external_id: '1', account: 'default', name: 'Signal User', type: 'user', username: null, platform: 'signal' })
   })
 
   it('persists all four media fields when provided', () => {
@@ -580,7 +580,7 @@ describe('insertMessage — media fields', () => {
       timestamp: T + 1,
       is_sender: 0,
       reply_to_external_id: null,
-      platform: 'wechat',
+      platform: 'signal',
       media_file_path: '/tmp/img.jpg',
       media_url: 'https://cdn.example.com/img.jpg',
       media_width: 1920,

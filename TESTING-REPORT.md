@@ -25,7 +25,7 @@ _Generated 2026-07-14. Scope: current `master`, focus on recently-added image-sy
 
 Well-covered (unit + e2e): `db`, `db-migrations`, `vec-db`, `embeddings`, `ocr`, `media-storage`, `image-handlers`, `mcp`, `cli`, `cli-filters`, `khipu*`, `query-handlers`, `sync-runner`, `sync-all`, `watch`, `account-registry`, `config`/`saveSessionString`, and all platform `sync.ts` modules (mocked clients).
 
-New image-sync features — **unit-tested with mocked transports**: `telegram/image-sync`, `signal/image-sync`, `wechat/image-meta`. Image support is only implemented for **telegram, signal, wechat** (whatsapp/discord/slack/email/imessage do not store media yet).
+New image-sync features — **unit-tested with mocked transports**: `telegram/image-sync`, `signal/image-sync`. Image support is only implemented for **telegram, signal** (whatsapp/discord/slack/email/imessage do not store media yet).
 
 ### Remaining untested code (and why)
 
@@ -48,7 +48,6 @@ You have **Telegram** and **WhatsApp** configured. The unit tests mock every tra
 For each: set the env vars (or `khipu.config.json` entry), run the sync, then verify import + idempotency + web UI rendering.
 
 - [ ] **Signal** — `BEEPER_ACCESS_TOKEN`, Beeper Desktop running. Also verify **Signal image sync** (implemented, only mock-tested). `npm run sync:signal`.
-- [ ] **WeChat** — macOS WeChat app + `WECHAT_CONTAINER` path; single-account only. Verify **WeChat image meta** handling. `npm run setup:wechat` then `npm run sync:wechat`.
 - [ ] **Discord** — `DISCORD_TOKEN`. `npm run sync:discord`.
 - [ ] **Slack** — `SLACK_USER_TOKEN` (per-account for multi-account). `npm run sync:slack`.
 - [ ] **Email/IMAP** — `EMAIL_IMAP_HOST`, `EMAIL_IMAP_USER`, `EMAIL_IMAP_PASS`. `npm run sync:email`.

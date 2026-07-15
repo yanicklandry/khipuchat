@@ -6,7 +6,7 @@ set -euo pipefail
 #   done: discord-sync, email-sync, imessage-sync, incremental-sync,
 #         multi-account, platform-abstraction, security-hardening,
 #         semantic-search, signal-image-sync, slack-sync, web-ui,
-#         wechat-sync, whatsapp-sync
+#         whatsapp-sync
 
 # The 8 incomplete specs are queued in .tukuy/queue.json (ready list), in
 # dependency order. Queue mode processes them one by one, re-running each

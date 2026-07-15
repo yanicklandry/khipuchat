@@ -1,6 +1,5 @@
 import {
   siTelegram,
-  siWechat,
   siDiscord,
   siWhatsapp,
   siImessage,
@@ -9,7 +8,6 @@ import {
 
 const KNOWN: Record<string, { svg: string }> = {
   telegram: siTelegram,
-  wechat: siWechat,
   discord: siDiscord,
   whatsapp: siWhatsapp,
   imessage: siImessage,

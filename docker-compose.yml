@@ -46,9 +46,6 @@ volumes:
 #   EMAIL_IMAP_USER=
 #   EMAIL_IMAP_PASS=
 #
-# WeChat (optional -- macOS only, set path to WeChat container):
-#   WECHAT_CONTAINER=
-#
 # WhatsApp (optional -- path for LocalAuth session data):
 #   WHATSAPP_SESSION=
 #

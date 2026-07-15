@@ -12,7 +12,6 @@ export type RegistryError =
   | { kind: 'missing_env'; account: string; platform: Platform; variable: string }
   | { kind: 'duplicate_name'; platform: Platform; name: string }
   | { kind: 'empty_name'; platform: Platform }
-  | { kind: 'wechat_multi_account' }
 
 export interface AccountRegistry {
   listAccounts(platform: Platform): readonly string[]
@@ -25,7 +24,6 @@ export interface AccountRegistry {
 const LOCAL_ONLY_PLATFORMS: ReadonlySet<Platform> = new Set([
   'imessage',
   'whatsapp',
-  'wechat',
 ])
 
 /** Env vars each platform reads from in a legacy (no config file) install. */
@@ -134,11 +132,6 @@ function buildConfigAccounts(
       }
 
       accounts.push({ name, fields })
-    }
-
-    if (platform === 'wechat' && accounts.length > 1) {
-      const err: RegistryError = { kind: 'wechat_multi_account' }
-      throw Object.assign(new Error('WeChat does not support multiple accounts'), err)
     }
 
     map.set(platform, accounts)

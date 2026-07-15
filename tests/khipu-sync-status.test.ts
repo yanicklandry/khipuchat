@@ -37,9 +37,8 @@ describe('printSyncStatus', () => {
     printSyncStatus(registry, getLastSynced)
 
     const output = logLines.join('\n')
-    // imessage, wechat, etc. have no accounts — should not appear
+    // imessage, etc. have no accounts — should not appear
     expect(output).not.toContain('imessage')
-    expect(output).not.toContain('wechat')
     expect(output).not.toContain('discord')
     expect(output).not.toContain('slack')
     expect(output).not.toContain('email')

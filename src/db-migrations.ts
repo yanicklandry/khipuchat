@@ -69,7 +69,7 @@ export function runMigrations(database: Database.Database): void {
   if (!indexExists(database, 'ux_chats_identity'))
     database.exec('CREATE UNIQUE INDEX IF NOT EXISTS ux_chats_identity ON chats(platform, account, external_id)')
 
-  // Add media columns to messages (wechat-image-sync)
+  // Add media columns to messages (image sync)
   if (!columnExists(database, 'messages', 'media_file_path'))
     database.exec('ALTER TABLE messages ADD COLUMN media_file_path TEXT')
   if (!columnExists(database, 'messages', 'media_url'))

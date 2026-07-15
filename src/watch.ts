@@ -11,7 +11,6 @@ import { createIMessageAdapter } from './platforms/imessage/sync'
 import { createTelegramAdapter } from './platforms/telegram/sync'
 import { createSlackAdapter } from './platforms/slack/sync'
 import { createWhatsAppAdapter } from './platforms/whatsapp/sync'
-import { wechatAdapter } from './platforms/wechat/sync'
 import { createSignalAdapter } from './platforms/signal/sync'
 
 // ---- Constants ----
@@ -35,7 +34,7 @@ export function getIntervalMs(platform: Platform): number {
   return DEFAULT_INTERVAL_MS
 }
 
-const LOCAL_ONLY_PLATFORMS: ReadonlySet<Platform> = new Set(['imessage', 'whatsapp', 'wechat'])
+const LOCAL_ONLY_PLATFORMS: ReadonlySet<Platform> = new Set(['imessage', 'whatsapp'])
 
 const REQUIRED_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
   telegram: ['TG_API_ID', 'TG_API_HASH', 'TG_PHONE'],
@@ -119,7 +118,6 @@ process.on('SIGTERM', () => { void shutdown() })
 
 // ---- Startup ----
 
-// Wechat has no factory; wrap singleton so the loop is uniform
 const ADAPTER_FACTORIES: Record<Platform, AdapterFactory> = {
   telegram: createTelegramAdapter,
   discord: createDiscordAdapter,
@@ -127,7 +125,6 @@ const ADAPTER_FACTORIES: Record<Platform, AdapterFactory> = {
   email: createEmailAdapter,
   imessage: createIMessageAdapter,
   whatsapp: createWhatsAppAdapter,
-  wechat: (_account, _credentials) => wechatAdapter,
   signal: createSignalAdapter,
 }
 

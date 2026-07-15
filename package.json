@@ -10,7 +10,6 @@
     "sync": "tsx src/sync-all.ts",
     "sync:telegram": "tsx src/platforms/telegram/sync.ts",
     "sync:imessage": "tsx src/platforms/imessage/sync.ts",
-    "sync:wechat": "tsx src/platforms/wechat/sync.ts",
     "sync:discord": "tsx src/platforms/discord/sync.ts",
     "sync:slack": "tsx src/platforms/slack/sync.ts",
     "sync:email": "tsx src/platforms/email/sync.ts",
@@ -23,7 +22,6 @@
     "index:embeddings": "tsx src/index-embeddings.ts",
     "cli": "tsx src/cli.ts",
     "web": "tsx src/web/server.ts",
-    "setup:wechat": "bash scripts/setup-wechat.sh",
     "watch": "tsx src/watch.ts"
   },
   "dependencies": {

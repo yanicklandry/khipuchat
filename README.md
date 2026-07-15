@@ -1,6 +1,6 @@
 # KhipuChat
 
-Self-hosted multi-platform message archive + MCP server. Sync Telegram, iMessage, Discord, Slack, WhatsApp, WeChat, and email into a local SQLite database, then browse them in a web UI or query them with Claude.
+Self-hosted multi-platform message archive + MCP server. Sync Telegram, iMessage, Discord, Slack, WhatsApp, and email into a local SQLite database, then browse them in a web UI or query them with Claude.
 
 ![KhipuChat web UI](docs/demo.png)
 
@@ -174,7 +174,6 @@ When `khipu.config.json` is absent, the single-account env-var resolution is use
 
 **Platform notes:**
 
-- WeChat is limited to one account.
 - iMessage reads the local `chat.db` and always performs a full scan (cannot filter server-side). All other platforms sync incrementally using `sync_state` tracking.
 
 ## Contributing

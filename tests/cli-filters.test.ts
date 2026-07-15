@@ -102,7 +102,7 @@ describe('parseQueryFilters', () => {
   })
 
   it('accepts all valid platform values', () => {
-    const platforms = ['telegram', 'imessage', 'discord', 'slack', 'whatsapp', 'wechat', 'email']
+    const platforms = ['telegram', 'imessage', 'discord', 'slack', 'whatsapp', 'email']
     for (const platform of platforms) {
       const result = parseQueryFilters(['--platform', platform])
       expect(result.ok).toBe(true)

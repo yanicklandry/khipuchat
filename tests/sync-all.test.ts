@@ -39,10 +39,10 @@ describe('runAllPlatforms', () => {
     vi.restoreAllMocks()
   })
 
-  it('spawns exactly 8 children, one per platform', async () => {
+  it('spawns exactly 7 children, one per platform', async () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms([])
-    expect(spawnMock).toHaveBeenCalledTimes(8)
+    expect(spawnMock).toHaveBeenCalledTimes(7)
   })
 
   it('spawns platforms in fixed serial order: telegram first, signal last', async () => {
@@ -59,10 +59,10 @@ describe('runAllPlatforms', () => {
 
     expect(order[0]).toBe('telegram')
     expect(order[order.length - 1]).toBe('signal')
-    expect(new Set(order).size).toBe(8) // all unique
+    expect(new Set(order).size).toBe(7) // all unique
   })
 
-  it('forwards --force flag to all 8 children', async () => {
+  it('forwards --force flag to all 7 children', async () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms(['--force'])
 
@@ -72,7 +72,7 @@ describe('runAllPlatforms', () => {
     }
   })
 
-  it('forwards --backfill flag to all 8 children', async () => {
+  it('forwards --backfill flag to all 7 children', async () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms(['--backfill'])
 
@@ -108,8 +108,8 @@ describe('runAllPlatforms', () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms([])
 
-    // All 8 must have been spawned despite the first failing
-    expect(spawnMock).toHaveBeenCalledTimes(8)
+    // All 7 must have been spawned despite the first failing
+    expect(spawnMock).toHaveBeenCalledTimes(7)
   })
 
   it('returns true (aggregate success) when all children exit 0', async () => {
