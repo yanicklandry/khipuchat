@@ -1,6 +1,6 @@
 import { TelegramClient } from 'telegram'
 import { StringSession } from 'telegram/sessions'
-import { NewMessage } from 'telegram/events'
+import { NewMessage, NewMessageEvent } from 'telegram/events'
 import Database from 'better-sqlite3-multiple-ciphers'
 import { config, saveSessionString, type Config } from '../../config'
 import { initDb, getDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, setPlatformLastSyncedAt, type Chat, type Message, type MessageType } from '../../db'
@@ -44,6 +44,10 @@ interface MsgLike {
   peerId?: { className: string; userId?: bigint; chatId?: bigint; channelId?: bigint }
   media?: unknown; replyTo?: { replyToMsgId?: number }; out?: boolean
 }
+
+// The gramjs entity argument accepted by client.getMessages(). Our structural
+// EntityLike is intentionally narrower, so we bridge to the library's type here.
+type TgEntityArg = Parameters<TelegramClient['getMessages']>[0]
 
 function detectType(msg: MsgLike): MessageType {
   if (!msg.media) return 'text'
@@ -116,7 +120,7 @@ export async function runBackfill(
   firstRunLimit = 200,
   account = 'default',
 ): Promise<void> {
-  const dialogs = await client.getDialogs({ limit: 500 }) as Array<{ entity: EntityLike; date?: number }>
+  const dialogs = await client.getDialogs({ limit: 500 }) as unknown as Array<{ entity: EntityLike; date?: number }>
 
   // Load per-chat last_synced_at so we can skip dialogs with no new activity
   const syncedAt = new Map<string, number>()
@@ -153,7 +157,7 @@ export async function runBackfill(
       if (lastId === null) {
         // First-time sync: fetch only the most recent messages (no full history trawl)
         const msgs = await withTimeout(
-          client.getMessages(dialogs[i].entity, { limit: firstRunLimit }) as Promise<MsgLike[]>,
+          client.getMessages(dialogs[i].entity as unknown as TgEntityArg, { limit: firstRunLimit }) as unknown as Promise<MsgLike[]>,
           15000,
         )
         for (const msg of msgs) {
@@ -169,7 +173,7 @@ export async function runBackfill(
         let offsetId = parseInt(lastId, 10)
         while (true) {
           const msgs = await withTimeout(
-            client.getMessages(dialogs[i].entity, { limit: pageSize, offsetId, reverse: true }) as Promise<MsgLike[]>,
+            client.getMessages(dialogs[i].entity as unknown as TgEntityArg, { limit: pageSize, offsetId, reverse: true }) as unknown as Promise<MsgLike[]>,
             15000,
           )
           for (const msg of msgs) {
@@ -200,7 +204,7 @@ export async function runBackfill(
 }
 
 export function startListener(client: TelegramClient): void {
-  client.addEventHandler(async (event: NewMessage.Event) => {
+  client.addEventHandler(async (event: NewMessageEvent) => {
     const msg = event.message as unknown as MsgLike
     const chatId = getPeerChatId(msg.peerId)
     if (chatId === null) return
@@ -227,7 +231,7 @@ export async function syncIncrementalImpl(
   account = 'default',
 ): Promise<void> {
   const sinceTs = Math.floor(since.getTime() / 1000)
-  const dialogs = await client.getDialogs({ limit: 500 }) as Array<{ entity: EntityLike; date?: number }>
+  const dialogs = await client.getDialogs({ limit: 500 }) as unknown as Array<{ entity: EntityLike; date?: number }>
 
   let totalSynced = 0
   let checked = 0
@@ -252,7 +256,7 @@ export async function syncIncrementalImpl(
       const imageMsgs: MsgLike[] = []
       if (lastId === null) {
         const msgs = await withTimeout(
-          client.getMessages(dialogs[i].entity, { limit: firstRunLimit }) as Promise<MsgLike[]>,
+          client.getMessages(dialogs[i].entity as unknown as TgEntityArg, { limit: firstRunLimit }) as unknown as Promise<MsgLike[]>,
           15000,
         )
         for (const msg of msgs) {
@@ -268,7 +272,7 @@ export async function syncIncrementalImpl(
         let offsetId = parseInt(lastId, 10)
         while (true) {
           const msgs = await withTimeout(
-            client.getMessages(dialogs[i].entity, { limit: pageSize, offsetId, reverse: true }) as Promise<MsgLike[]>,
+            client.getMessages(dialogs[i].entity as unknown as TgEntityArg, { limit: pageSize, offsetId, reverse: true }) as unknown as Promise<MsgLike[]>,
             15000,
           )
           for (const msg of msgs) {

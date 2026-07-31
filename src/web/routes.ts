@@ -42,7 +42,7 @@ router.get('/api/search', (req: Request, res: Response) => {
 
 router.get('/api/messages/:chatId', (req: Request, res: Response) => {
   try {
-    const chatId = parseInt(req.params['chatId'] ?? '', 10)
+    const chatId = parseInt(String(req.params['chatId'] ?? ''), 10)
     if (isNaN(chatId)) {
       res.status(400).json({ error: 'invalid chatId' })
       return

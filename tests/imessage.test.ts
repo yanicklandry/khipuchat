@@ -145,7 +145,7 @@ describe('resolveContactName', () => {
   beforeEach(() => { vi.mocked(execSync).mockReset() })
 
   it('returns display name when execSync returns a result', () => {
-    vi.mocked(execSync).mockReturnValue('Jane Doe\n' as unknown as Buffer)
+    vi.mocked(execSync).mockReturnValue('Jane Doe\n')
     const name = resolveContactName('+61412345678', '/fake/AddressBook.sqlitedb')
     expect(name).toBe('Jane Doe')
   })
@@ -168,8 +168,8 @@ describe('buildContactMap', () => {
   beforeEach(() => {
     vi.mocked(execSync).mockReset()
     vi.mocked(execSync)
-      .mockReturnValueOnce('Alice\n' as unknown as Buffer)
-      .mockReturnValueOnce('Bob\n' as unknown as Buffer)
+      .mockReturnValueOnce('Alice\n')
+      .mockReturnValueOnce('Bob\n')
       .mockImplementation(() => { throw new Error('not found') })
   })
 

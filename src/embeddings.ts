@@ -2,8 +2,14 @@ import os from 'os'
 import path from 'path'
 import { readdirSync } from 'node:fs'
 
-// Lazily import to avoid loading the heavy ONNX runtime at module load time
-type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers').pipeline>>
+// Lazily import to avoid loading the heavy ONNX runtime at module load time.
+// The library's own pipeline() return type is a union too large to represent
+// (TS2590), so we model only the feature-extraction shape we actually call.
+type FeatureExtractionOutput = { data: Float32Array; dims: number[] }
+type Pipeline = (
+  texts: string[],
+  options?: { pooling?: 'mean' | 'cls' | 'none'; normalize?: boolean }
+) => Promise<FeatureExtractionOutput>
 
 const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2'
 
@@ -30,10 +36,10 @@ async function getPipeline(): Promise<Pipeline> {
     console.log(`Downloading embedding model (~90 MB on first run)...`)
   }
 
-  _pipeline = await pipeline('feature-extraction', MODEL_NAME, {
+  _pipeline = (await pipeline('feature-extraction', MODEL_NAME, {
     dtype: 'fp32',
     device: 'cpu',
-  } as Parameters<typeof pipeline>[2])
+  } as Parameters<typeof pipeline>[2])) as unknown as Pipeline
 
   // After first successful load, go offline — no re-downloads on subsequent calls
   env.allowRemoteModels = false
@@ -63,8 +69,8 @@ export async function embed(texts: string[]): Promise<Float32Array[]> {
     if (batch.length === 0) continue
 
     const output = await extractor(batch, { pooling: 'mean', normalize: true })
-    const flat = output.data as Float32Array
-    const dims = output.dims as number[]
+    const flat = output.data
+    const dims = output.dims
     const vecLen = dims[dims.length - 1] // 384
 
     for (let j = 0; j < batch.length; j++) {

@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "bin": {
     "khipu": "bin/khipu"
   },
@@ -17,6 +20,7 @@
     "mcp": "tsx src/mcp.ts",
     "setup-claude": "tsx src/setup-claude.ts",
     "setup-sync": "tsx src/setup-sync.ts",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run --pool=forks --poolOptions.forks.singleFork",
     "test:watch": "vitest --pool=forks --poolOptions.forks.singleFork",
     "index:embeddings": "tsx src/index-embeddings.ts",

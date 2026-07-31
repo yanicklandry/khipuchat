@@ -21,6 +21,10 @@
     "signal-platform",
     "release",
     "image-support",
-    "telegram-image-sync"
-  ]
+    "telegram-image-sync",
+    "tsconfig-typecheck-fix",
+    "node-engines-pin"
+  ],
+  "failed": [],
+  "retryCount": {}
 }

@@ -43,7 +43,7 @@ interface MockMessage {
   date: number
   fromId: MockPeer
   peerId: MockPeer
-  media: undefined
+  media: unknown
   replyTo: undefined
   out: boolean
 }

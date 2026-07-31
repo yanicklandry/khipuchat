@@ -89,7 +89,7 @@ export async function runBackfillImpl(client: EmailClient, userEmail: string, cr
     process.stderr.write('[email] Sent folder not found — only INBOX synced.\n')
   }
 
-  const chatIds = Array.from(seenChats)
+  const chatIds = Array.from(seenChats.values())
   if (isIndexed('messages')) await embedNewMessages(chatIds)
   if (isIndexed('chats')) await embedNewChats(chatIds)
   console.log(`[email] Sync complete: ${seenChats.size} threads, ${totalMessages} messages imported.`)

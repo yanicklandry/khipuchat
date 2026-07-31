@@ -81,6 +81,7 @@ describe('pollCycle', () => {
       platform: 'telegram',
       account: 'test-account',
       runBackfill: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
       syncIncremental,
     }
     const mockDb = makeMockDb(10, 10) // no new messages
@@ -96,6 +97,7 @@ describe('pollCycle', () => {
       platform: 'discord',
       account: 'test-account',
       runBackfill,
+      startListener: vi.fn(),
     }
     const mockDb = makeMockDb(5, 5)
     await pollCycle(adapter, mockDb)
@@ -108,6 +110,7 @@ describe('pollCycle', () => {
       platform: 'slack',
       account: 'test-account',
       runBackfill: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
       syncIncremental: vi.fn().mockRejectedValue(new Error('sync failed')),
     }
     const mockDb = makeMockDb(0, 0)
@@ -123,6 +126,7 @@ describe('pollCycle', () => {
       platform: 'email',
       account: 'test-account',
       runBackfill,
+      startListener: vi.fn(),
     }
     const mockDb = makeMockDb(0, 0)
     // Resolving is itself the evidence: if inFlight were stuck > 0, drain logic would hang
@@ -135,6 +139,7 @@ describe('pollCycle', () => {
       platform: 'telegram',
       account: 'test-account',
       runBackfill: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
       syncIncremental: vi.fn().mockRejectedValue(new Error('boom')),
     }
     const mockDb = makeMockDb(0, 0)
@@ -149,6 +154,7 @@ describe('pollCycle', () => {
       platform: 'discord',
       account: 'test-account',
       runBackfill,
+      startListener: vi.fn(),
     }
     const mockDb = makeMockDb(10, 15) // 5 new messages
     await pollCycle(adapter, mockDb)
@@ -161,6 +167,7 @@ describe('pollCycle', () => {
       platform: 'email',
       account: 'test-account',
       runBackfill,
+      startListener: vi.fn(),
     }
     const mockDb = makeMockDb(7, 7) // 0 new messages
     await pollCycle(adapter, mockDb)
@@ -173,6 +180,7 @@ describe('pollCycle', () => {
       platform: 'telegram',
       account: 'user-123',
       runBackfill,
+      startListener: vi.fn(),
     }
     const getSpy = vi.fn().mockReturnValue(0)
     const prepareSpy = vi.fn().mockReturnValue({ pluck: vi.fn().mockReturnValue({ get: getSpy }) })
@@ -193,6 +201,7 @@ describe('pollCycle', () => {
       platform: 'slack',
       account: 'test-account',
       runBackfill,
+      startListener: vi.fn(),
     }
     const mockDb = makeMockDb(0, 3) // 3 new messages -> triggers rebuildEmbeddings
     const stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -287,11 +296,13 @@ describe('Integration: startup adapter selection', () => {
       platform: 'discord',
       account: 'test-account',
       runBackfill: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
     }
     const telegramAdapter: PlatformAdapter = {
       platform: 'telegram',
       account: 'test-account',
       runBackfill: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
     }
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
@@ -335,11 +346,13 @@ describe('Integration: error isolation across adapters', () => {
       platform: 'slack',
       account: 'account-a',
       runBackfill: vi.fn().mockRejectedValue(new Error('adapter-a always fails')),
+      startListener: vi.fn(),
     }
     const successAdapter: PlatformAdapter = {
       platform: 'email',
       account: 'account-b',
       runBackfill: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
     }
 
     const stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -375,16 +388,19 @@ describe('Integration: --once mode single-pass behavior', () => {
       platform: 'discord',
       account: 'account-a',
       runBackfill: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
     }
     const adapterB: PlatformAdapter = {
       platform: 'email',
       account: 'account-b',
       runBackfill: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
     }
     const adapterC: PlatformAdapter = {
       platform: 'slack',
       account: 'account-c',
       runBackfill: vi.fn().mockRejectedValue(new Error('slack error')),
+      startListener: vi.fn(),
     }
 
     const stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -428,6 +444,7 @@ describe('Integration: --once mode single-pass behavior', () => {
       platform: 'discord',
       account: 'test',
       runBackfill: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
     }
 
     vi.spyOn(console, 'log').mockImplementation(() => undefined)
