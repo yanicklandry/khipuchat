@@ -52,27 +52,27 @@ describe('hashStr', () => {
 
 describe('mapChat', () => {
   it('sets platform to slack', () => {
-    expect(mapChat(makeConv()).platform).toBe('slack')
+    expect(mapChat(makeConv(), 'default').platform).toBe('slack')
   })
 
   it('sets type=private for DM (is_im=true)', () => {
-    expect(mapChat(makeConv({ is_im: true, user: 'U001' })).type).toBe('private')
+    expect(mapChat(makeConv({ is_im: true, user: 'U001' }), 'default').type).toBe('private')
   })
 
   it('sets type=group for group DM (is_mpim=true)', () => {
-    expect(mapChat(makeConv({ is_mpim: true })).type).toBe('group')
+    expect(mapChat(makeConv({ is_mpim: true }), 'default').type).toBe('group')
   })
 
   it('sets type=user for regular channel', () => {
-    expect(mapChat(makeConv()).type).toBe('user')
+    expect(mapChat(makeConv(), 'default').type).toBe('user')
   })
 
   it('uses channel name when available', () => {
-    expect(mapChat(makeConv({ name: 'general' })).name).toBe('general')
+    expect(mapChat(makeConv({ name: 'general' }), 'default').name).toBe('general')
   })
 
   it('falls back to user id for DMs without name', () => {
-    expect(mapChat(makeConv({ is_im: true, name: null, user: 'U999' })).name).toBe('U999')
+    expect(mapChat(makeConv({ is_im: true, name: null, user: 'U999' }), 'default').name).toBe('U999')
   })
 })
 
@@ -225,7 +225,7 @@ describe('createSlackAdapter — missing token', () => {
   it('exits with code 1 and writes to stderr when SLACK_USER_TOKEN is absent', async () => {
     const db = initDb(':memory:')
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number) => { throw new Error('process.exit') })
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => { throw new Error('process.exit') })
 
     const adapter = createSlackAdapter('default', { name: 'default', fields: { SLACK_USER_TOKEN: '' } })
 

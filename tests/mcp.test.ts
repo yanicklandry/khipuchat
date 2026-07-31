@@ -489,7 +489,7 @@ describe('handleSemanticSearchMessages', () => {
 
     const result = await handleSemanticSearchMessages('greeting', {})
     expect(Array.isArray(result)).toBe(true)
-    const results = result as { id: number; text: string; distance: number }[]
+    const results = result as unknown as { id: number; text: string; distance: number }[]
     expect(results.length).toBeGreaterThan(0)
     expect(results.every(r => r.distance <= 0.7)).toBe(true)
   })

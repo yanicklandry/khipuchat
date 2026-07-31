@@ -283,7 +283,7 @@ describe('createDiscordAdapter — missing token', () => {
   it('exits with code 1 and writes to stderr when DISCORD_TOKEN is absent', async () => {
     const db = initDb(':memory:')
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number) => { throw new Error('process.exit') })
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => { throw new Error('process.exit') })
 
     const adapter = createDiscordAdapter('default', { name: 'default', fields: { DISCORD_TOKEN: '' } })
 

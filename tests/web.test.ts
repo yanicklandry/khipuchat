@@ -411,6 +411,8 @@ describe('GET /api/semantic-search', () => {
         text: 'Hello there',
         timestamp: 1700000000,
         platform: 'imessage',
+        account: 'default',
+        type: 'text',
         distance: 0.1,
       },
     ])

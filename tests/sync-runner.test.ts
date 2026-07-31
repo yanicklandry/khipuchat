@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest'
 import { parseSyncArgs, runPlatformSync, runAllAccountsSync } from '../src/sync-runner'
 import type { PlatformAdapter, AdapterFactory } from '../src/platforms/types'
 import type { AccountRegistry, AccountCredentials } from '../src/account-registry'
@@ -7,7 +7,7 @@ import Database from 'better-sqlite3-multiple-ciphers'
 // ── parseSyncArgs ─────────────────────────────────────────────────────────────
 
 describe('parseSyncArgs', () => {
-  let stderrSpy: ReturnType<typeof vi.spyOn>
+  let stderrSpy: MockInstance
 
   beforeEach(() => {
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
@@ -67,7 +67,7 @@ function makeInMemoryDb(): Database.Database {
 
 describe('runPlatformSync', () => {
   let db: Database.Database
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
+  let stdoutSpy: MockInstance
 
   beforeEach(() => {
     db = makeInMemoryDb()
@@ -294,7 +294,7 @@ function makeRegistry(
 
 describe('runAllAccountsSync', () => {
   let db: Database.Database
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
+  let stdoutSpy: MockInstance
 
   beforeEach(() => {
     db = makeInMemoryDb()
