@@ -115,3 +115,60 @@ Confirmed `simple-icons` exposes `siMessenger` (title "Messenger") and `siFacebo
 - `src/platforms/signal/{client,sync,image-sync}.ts`; `.kiro/specs/signal-platform/{design,tasks,research}.md`.
 - Beeper Developer Docs — Accounts resource: https://developers.beeper.com/desktop-api-reference/resources/accounts
 - Beeper Messenger network guide: https://help.beeper.com/en_US/chat-networks/messenger
+
+---
+
+## Gap Analysis (post-design/tasks verification pass, 2026-08-17)
+
+Design and tasks are already generated and approved (`spec.json` phase `tasks-generated`, `ready_for_implementation: true`). This pass re-verifies the design/tasks' assumptions against the current codebase state and formalizes the gap analysis output checklist. No implementation has started: `src/platforms/facebook/` does not exist yet.
+
+### Requirement-to-Asset Map
+
+| Requirement | Existing Asset | Gap |
+|---|---|---|
+| R1 Platform registration | `Platform` union (`src/platforms/types.ts:4`), `PLATFORMS` (`src/sync-all.ts:4`), `ADAPTER_FACTORIES`/`REQUIRED_ENV_VARS` (`src/watch.ts`), `KNOWN` icon map (`src/web/icons.ts`) | **Missing** — confirmed `facebook` absent from all four live in the current codebase (verified by direct read, 2026-08-17) |
+| R2 Beeper connectivity/scoping | `src/platforms/signal/client.ts` (network-filter pattern), `@beeper/desktop-api` (installed) | **Missing** (no `facebook/client.ts` yet) — pattern to clone is Constraint-satisfied, not Unknown |
+| R3 Backfill | `db.ts` `upsertChat`/`insertMessage` (idempotent by unique key), `signal/sync.ts` `runBackfillImpl` pattern | **Missing** file, **Constraint**: must reuse `db.ts` unmodified |
+| R4 Incremental sync | `sync-runner.ts` `runPlatformSync`, `db.ts` `getLastSyncedId` | **Missing** file; sync-runner itself is a reusable **Asset**, no gap there |
+| R5 Content/metadata + image OCR | `signal/image-sync.ts` pattern, `media-storage.ts` `storeMedia`, `ocr.ts` `extractText` | **Missing** file; shared media/OCR pipeline is a confirmed **Asset**, unmodified |
+| R6 Query parity | MCP tools, CLI, Web UI query paths (all platform-agnostic, read `platform` column generically) | **No gap** — confirmed these paths do not enumerate platforms explicitly; writing `platform='facebook'` rows is sufficient |
+| R7 Graceful degradation | Signal's fatal-error / no-op / per-chat-isolation pattern | **Missing** file; pattern is a confirmed **Asset** to clone |
+| R8 Legacy env-var registry | `account-registry.ts:30` `LEGACY_ENV_VARS` | **Missing** entries for both `facebook` and `signal` — confirmed by direct read: `signal` is also absent today, corroborating the design's consistency-fix decision |
+
+**Unknown carried forward**: the exact Beeper `network` string for Messenger (`FACEBOOK_NETWORK`) remains unverified — no Messenger account was connected on the probed machine. This is already tracked as Task 0 in `tasks.md` with a candidate-set fallback, so it is a scoped implementation-time research item, not a design blocker.
+
+### Implementation Approach Options
+
+**Option A — Extend `signal/*` with a shared Beeper-adapter base**: Rejected in the original research (see Synthesis outcomes above) and reaffirmed here — a shared base would couple two independently-owned specs (`signal-platform` and `facebook-messenger`) for marginal duplication savings across ~400 lines total. Not recommended.
+
+**Option B — New `src/platforms/facebook/` component, structurally cloning `signal/*` (chosen by design.md)**: Confirmed still the right call. Three new files (`client.ts`, `sync.ts`, `image-sync.ts`), each under 200 lines, zero shared-code changes beyond the seven registration points. Clean separation, independently testable and mockable, matches every other platform's existing structure (`telegram/`, `discord/`, `slack/`, `whatsapp/`, `email/`, `imessage/`, `signal/`).
+- ✅ Zero risk to existing platforms (Signal untouched except the shared `LEGACY_ENV_VARS` fix)
+- ✅ Directly reuses a proven, already-shipped pattern (Signal has been in production)
+- ❌ Some duplication with `signal/*` (acceptable per the project's existing precedent of one file set per platform)
+
+**Option C — Hybrid**: Not applicable; the feature has no phased-rollout need (text+image ship together per requirements) and no partial-extension component exists to combine with new code.
+
+**Recommendation**: Option B, exactly as already captured in `design.md`. No change to the approved design is warranted by this verification pass.
+
+### Effort & Risk
+
+- **Effort: S–M (3–5 days)**. Justification: the pattern is proven and shipped (Signal), no new dependencies, no schema changes, no shared-code redesign — only mechanical cloning plus 7 small registration edits and the one runtime-verification task.
+- **Risk: Low–Medium**. Justification: architecturally Low (clone of a working adapter, compile-enforced registration via `Record<Platform, AdapterFactory>`); the one Medium factor is the unverified `FACEBOOK_NETWORK` string, fully mitigated by a candidate-set match, a clean no-op fallback when no account is found, and an explicit verification task gating the client filter.
+
+### Verification of Prior Research Against Current Codebase (2026-08-17)
+
+Direct inspection confirms every claim in the original research/design remains accurate:
+- `src/platforms/facebook/` does not exist — implementation has not started.
+- `Platform` union (`types.ts:4`) has no `facebook` member; `signal` is present.
+- `PLATFORMS` array (`sync-all.ts:4`) has no `'facebook'`; `signal` is present.
+- `watch.ts` `ADAPTER_FACTORIES`/`REQUIRED_ENV_VARS` register `signal` but not `facebook` — matches expected gap.
+- `account-registry.ts` `LEGACY_ENV_VARS` (line 30) has neither `signal` nor `facebook` — confirms the R8 consistency fix is still needed exactly as designed.
+- `web/icons.ts` `KNOWN` map has no `facebook`/`signal`-style Beeper icon entry yet for facebook.
+- `package.json` has `sync:signal`... actually confirms `sync:telegram/imessage/discord/slack/email/whatsapp` present; no `sync:facebook` script yet (consistent with design).
+
+No drift detected. Design and tasks remain implementation-ready as written.
+
+### Next Steps
+
+- No design revision needed; `design.md` and `tasks.md` are current and consistent with the live codebase.
+- Proceed directly to `/kiro-impl facebook-messenger`, starting with Task 0 (runtime verification of `FACEBOOK_NETWORK`) as the hard prerequisite for Task 2 (`client.ts`).
