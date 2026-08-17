@@ -1,10 +1,11 @@
 {
   "backlog": [],
   "ready": [
-    "setup-wizard",
     "facebook-messenger"
   ],
-  "in-progress": [],
+  "in-progress": [
+    "setup-wizard"
+  ],
   "done": [
     "platform-abstraction",
     "imessage-sync",
@@ -24,9 +25,7 @@
     "signal-platform",
     "release",
     "image-support",
-    "telegram-image-sync",
-    "tsconfig-typecheck-fix",
-    "node-engines-pin"
+    "telegram-image-sync"
   ],
   "failed": [],
   "retryCount": {}

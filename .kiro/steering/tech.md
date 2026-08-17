@@ -7,7 +7,7 @@ Single Node.js process per role (MCP server, web server, sync scripts). All pers
 ## Core Technologies
 
 - **Language**: TypeScript 5, strict mode, `noImplicitAny`
-- **Runtime**: Node.js 20+, executed with `tsx` (no build step in development)
+- **Runtime**: Node.js 24 (exact, pinned via `package.json#engines` `>=24 <25`, `.nvmrc`, and `.npmrc` `engine-strict=true`), executed with `tsx` (no build step in development). The pin exists because `better-sqlite3-multiple-ciphers` is a native module built against a specific Node ABI.
 - **Database**: `better-sqlite3-multiple-ciphers` — synchronous SQLite with optional SQLCipher encryption; all DB operations are synchronous by design
 - **MCP**: `@modelcontextprotocol/sdk` — communicates via stdio only (never HTTP)
 - **Embeddings**: `@huggingface/transformers` with local ONNX model (all-MiniLM-L6-v2) + `sqlite-vec` for vector similarity search
@@ -59,7 +59,7 @@ docker run -i --rm -v khipuchat_db-data:/app/khipuchat.db <image> khipu mcp
 ```
 
 ### CI/CD (GitHub Actions)
-- `ci.yml`: triggers on push/PR to `main`; runs `npm ci` + `npm test` on `ubuntu-latest`, Node 20
+- `ci.yml`: triggers on push/PR to `main`; runs `npm ci` + `npm test` on `ubuntu-latest`, Node 20 — **drift**: this is stale against the Node 24 engine pin (`package.json#engines`, `.nvmrc`, `engine-strict=true`); update to Node 24 to match local dev
 - `release.yml`: triggers on `v*` tags; multi-arch build (`linux/amd64,linux/arm64`) via QEMU + Buildx; pushes to `ghcr.io` using `GITHUB_TOKEN` only (no manual secrets); tags image with version + `latest`
 
 ## Common Commands
