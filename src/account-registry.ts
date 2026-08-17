@@ -32,6 +32,8 @@ const LEGACY_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
   discord: ['DISCORD_TOKEN'],
   slack: ['SLACK_USER_TOKEN'],
   email: ['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'],
+  signal: ['BEEPER_ACCESS_TOKEN'],
+  facebook: ['BEEPER_ACCESS_TOKEN'],
 }
 
 // ── $VAR resolution ───────────────────────────────────────────────────────────

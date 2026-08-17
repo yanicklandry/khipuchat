@@ -172,3 +172,17 @@ No drift detected. Design and tasks remain implementation-ready as written.
 
 - No design revision needed; `design.md` and `tasks.md` are current and consistent with the live codebase.
 - Proceed directly to `/kiro-impl facebook-messenger`, starting with Task 0 (runtime verification of `FACEBOOK_NETWORK`) as the hard prerequisite for Task 2 (`client.ts`).
+
+---
+
+## Task 0 Outcome: FACEBOOK_NETWORK runtime verification (2026-08-17, kiro-impl session)
+
+No machine with a Facebook Messenger account connected in Beeper Desktop was available in this
+implementation session (the `beeper` MCP connector also requires interactive OAuth authorization
+that isn't possible in a headless run). Per the task's documented fallback: the candidate-set
+match remains in effect, and `FACEBOOK_NETWORK` in `src/platforms/facebook/client.ts` stays at
+its default value `'facebookgo'`, with `FACEBOOK_NETWORK_CANDIDATES = ['facebook', 'facebookgo',
+'meta']` matched case-insensitively so the adapter still resolves correctly if the real value
+turns out to be any of the three. Whoever first connects a real Messenger account in Beeper
+Desktop should confirm the observed `network` string and, if it differs from `'facebookgo'`,
+update the constant (Revalidation Trigger in design.md already covers this).

@@ -4,6 +4,7 @@ import {
   siWhatsapp,
   siImessage,
   siGmail,
+  siMessenger,
 } from 'simple-icons'
 
 const KNOWN: Record<string, { svg: string }> = {
@@ -12,6 +13,7 @@ const KNOWN: Record<string, { svg: string }> = {
   whatsapp: siWhatsapp,
   imessage: siImessage,
   email: siGmail,
+  facebook: siMessenger,
 }
 
 /** Resize a simple-icons SVG string to the given pixel size, use currentColor fill, and strip

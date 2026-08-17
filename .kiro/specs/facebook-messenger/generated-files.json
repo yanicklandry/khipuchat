@@ -1,6 +1,55 @@
 {
   "slug": "facebook-messenger",
-  "implCompletedAt": "2026-08-17T16:48:29.686Z",
-  "files": [],
+  "implCompletedAt": "2026-08-17T18:15:37.475Z",
+  "files": [
+    {
+      "path": "package.json",
+      "sha256": "9707705670a9281a325387ef2e86b2f4d5d004bb32e7290ebde8278a5ffd56ff"
+    },
+    {
+      "path": "src/account-registry.ts",
+      "sha256": "fddd65bde9f41fbc422bebc40d38a365fe4d8c7ee096f7f2fb183a2922b7f146"
+    },
+    {
+      "path": "src/platforms/types.ts",
+      "sha256": "a19b514ceb8621150b09278c94069ed47224c284cfb90244471578afb993f439"
+    },
+    {
+      "path": "src/sync-all.ts",
+      "sha256": "cbb5ee2fccde6cd9b8aa7383117c717ffaf9d3a5607984d57bc2aeca30ef4648"
+    },
+    {
+      "path": "src/watch.ts",
+      "sha256": "e7f22c34a00acac7ae644ee6e48b8cee226de86215b2c367a09a47e03794b0b2"
+    },
+    {
+      "path": "src/web/icons.ts",
+      "sha256": "4b32d63e23fb56d706c7b4ae8508d086ae0f98826fdbde9264898f94981487b7"
+    },
+    {
+      "path": "tests/sync-all.test.ts",
+      "sha256": "adc40baf1124f632d29f503b26ebee5cca0f35a66ee5e35c6fcfddc45bd55536"
+    },
+    {
+      "path": "src/platforms/facebook/client.ts",
+      "sha256": "a8165287fcc41615f7be39f0a64200102532f3bca7750a395c66c0910d77aab6"
+    },
+    {
+      "path": "src/platforms/facebook/image-sync.ts",
+      "sha256": "e5afec47b3fe506cf57648ff10cd549e7c56c02177b61bfeb0a297c424b45770"
+    },
+    {
+      "path": "src/platforms/facebook/sync.ts",
+      "sha256": "cb86b3697b5aadda6998d2b46d7be82af1cd626f2c1a4af40be0fde224092619"
+    },
+    {
+      "path": "tests/facebook-image-sync.test.ts",
+      "sha256": "1325b520a9b0333f17c23efbbef5c7a65d723f68be8a9b97aefb8f7d0db6831b"
+    },
+    {
+      "path": "tests/facebook.test.ts",
+      "sha256": "9e04c02818835ec38a439a903a37ac9ae788b6c15a53f98306958df08a930f3e"
+    }
+  ],
   "acknowledgement": null
 }

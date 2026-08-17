@@ -12,6 +12,7 @@ import { createTelegramAdapter } from './platforms/telegram/sync'
 import { createSlackAdapter } from './platforms/slack/sync'
 import { createWhatsAppAdapter } from './platforms/whatsapp/sync'
 import { createSignalAdapter } from './platforms/signal/sync'
+import { createFacebookAdapter } from './platforms/facebook/sync'
 
 // ---- Constants ----
 
@@ -42,6 +43,7 @@ const REQUIRED_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
   slack: ['SLACK_USER_TOKEN'],
   email: ['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'],
   signal: ['BEEPER_ACCESS_TOKEN'],
+  facebook: ['BEEPER_ACCESS_TOKEN'],
 }
 
 /** Returns true if the platform appears to be configured (credentials present). */
@@ -126,6 +128,7 @@ const ADAPTER_FACTORIES: Record<Platform, AdapterFactory> = {
   imessage: createIMessageAdapter,
   whatsapp: createWhatsAppAdapter,
   signal: createSignalAdapter,
+  facebook: createFacebookAdapter,
 }
 
 async function main(): Promise<void> {
