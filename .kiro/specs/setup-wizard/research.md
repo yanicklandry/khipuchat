@@ -123,3 +123,69 @@
 - [Slack tokens](https://docs.slack.dev/authentication/tokens/) — user token + scopes
 - [Beeper Desktop API auth](https://developers.beeper.com/desktop-api/auth) — access token path
 - [Gmail IMAP settings](https://developers.google.com/workspace/gmail/imap/imap-smtp) — IMAP host + app password
+
+---
+
+## Gap Analysis (2026-08-17)
+
+### Current State Investigation
+- **Nothing from this spec is implemented yet.** Confirmed by direct filesystem checks: no
+  `scripts/` directory exists at all (only `go.sh` at repo root, unrelated), no `docs/TOKENS.md`,
+  no `src/setup-env.ts`, and `.env.example` still lists only the four Telegram variables
+  (`TELEGRAM_API_ID/API_HASH/PHONE_NUMBER/SESSION_STRING`). `git log` on the three target paths
+  returns nothing.
+- **Router seam confirmed unchanged**: `src/khipu.ts` still dispatches via a static
+  `OPERATIONAL_SCRIPTS: Record<string, string>` map (`mcp`, `web`, `setup-claude`, `setup-sync`,
+  `index`) consumed by `resolveCommand`/`spawnScript`; `USAGE` is a plain template string listing
+  those same five. Adding `'setup-env': 'setup-env.ts'` to the map plus one `USAGE` line is a
+  two-line, additive change — matches the design's "Bash-only + TS wrapper" decision exactly.
+- **Variable set reconfirmed against current source** (not just steering docs):
+  - `src/account-registry.ts` `LEGACY_ENV_VARS`: `TELEGRAM_API_ID/API_HASH/PHONE_NUMBER`,
+    `DISCORD_TOKEN`, `SLACK_USER_TOKEN`, `EMAIL_IMAP_HOST/USER/PASS`.
+  - `src/watch.ts`: signal maps to `BEEPER_ACCESS_TOKEN`.
+  - `src/db.ts`: `DB_KEY` (optional, SQLCipher). `src/mcp.ts`: `MCP_SECRET` (optional, bearer
+    auth). `src/web/routes.ts`: `WEB_USER`/`WEB_PASS` (optional, basic auth) — grep-verified these
+    are read exactly where design.md and requirements.md say, no drift since discovery.
+  - `src/config.ts#saveSessionString` still writes `TELEGRAM_SESSION_STRING` automatically at
+    first Telegram login, confirming it must stay excluded from the prompt table.
+- **facebook-messenger spec** exists in `.kiro/specs/` as planned-but-not-built; it also rides on
+  `BEEPER_ACCESS_TOKEN` per its brief, so no new variable is needed for it in this table.
+
+### Requirement-to-Asset Map
+| Requirement | Asset today | Gap |
+|---|---|---|
+| R1 (CLI discoverability) | `OPERATIONAL_SCRIPTS` map, `USAGE` string in `src/khipu.ts` | Missing: `setup-env` entry + usage line + `src/setup-env.ts` wrapper |
+| R2 (detect missing/empty) | none — no `scripts/` dir | Missing: bash engine entirely |
+| R3 (acquisition guidance) | verified URLs/click-paths already captured above in this file | Missing: encoding into the `var_table` bash function |
+| R4 (optional skip) | n/a | Missing |
+| R5 (idempotent merge) | n/a (no comparable merge logic exists anywhere in the repo — `config.ts#saveSessionString` is the closest analog but it's a single-key regex replace, not a general merge) | Missing |
+| R6/R7 (single table -> docs) | n/a | Missing: `--emit-docs` mode + `docs/TOKENS.md` |
+| R8 (`.env.example`) | 4 Telegram-only lines | Missing: 9+ more vars with comment links |
+| R9 (bash 3.2, no network) | n/a | Constraint to honor during implementation, not a gap |
+
+No unknowns remain — the design and tasks documents already resolved every "Research Needed" item
+from the original discovery pass (click-paths verified with sources, routing seam identified,
+merge strategy decided). This gap analysis found no drift between those decisions and current
+`main`.
+
+### Implementation Approach
+**Option B (new components) remains correct and is what design.md/tasks.md already specify**: all
+new logic lives in a new `scripts/setup-env.sh` + thin `src/setup-env.ts` wrapper; the only edits
+to existing files are the two-line `OPERATIONAL_SCRIPTS`/`USAGE` addition in `src/khipu.ts` and the
+content expansion of `.env.example`. No existing component is complex enough, or in-scope enough,
+to extend instead.
+
+### Effort & Risk
+- **Effort: S–M** (3–5 days). Bulk of the work is one well-scoped bash script; no new runtime
+  deps, no schema/adapter changes. Sizing up from pure S because bash 3.2 record parsing and the
+  idempotent line-preserving merge both need careful fixture-based testing (task 4.2 already scopes
+  this).
+- **Risk: Low**. Extends established patterns (`OPERATIONAL_SCRIPTS` dispatch, existing
+  `scripts/`-style one-off helpers), touches no shared schema/adapter contract, and every
+  acquisition URL was already verified against live docs during discovery. The one operational risk
+  — silently corrupting a populated `.env` — is directly named as a task 2.3/4.2 observable
+  completion criterion with a dedicated regression fixture.
+
+### Recommendation
+Proceed straight to `/kiro-impl setup-wizard` — no design revision needed. Tasks 1.1 -> 2.1/2.2 ->
+2.3/2.4 -> 2.5 -> 3.1-3.3 -> 4.1-4.3 is already correctly dependency-ordered in tasks.md.
