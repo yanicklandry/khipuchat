@@ -5,7 +5,8 @@
     "discovery",
     "init",
     "requirements",
-    "validate-gap"
+    "validate-gap",
+    "design"
   ],
   "done": false,
   "completedQueueSpecs": [
