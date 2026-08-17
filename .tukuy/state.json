@@ -2,32 +2,10 @@
   "specName": "facebook-messenger",
   "completedPhases": [
     "steering",
-    "discovery"
+    "discovery",
+    "init"
   ],
   "done": false,
-  "preInitSpecs": [
-    "discord-sync",
-    "email-sync",
-    "facebook-messenger",
-    "image-support",
-    "imessage-sync",
-    "incremental-sync",
-    "khipu-cli",
-    "multi-account",
-    "platform-abstraction",
-    "release",
-    "security-hardening",
-    "semantic-search",
-    "setup-wizard",
-    "signal-image-sync",
-    "signal-platform",
-    "slack-sync",
-    "sync-watcher",
-    "telegram-image-sync",
-    "web-ui",
-    "web-ui-enhancements",
-    "whatsapp-sync"
-  ],
   "completedQueueSpecs": [
     "platform-abstraction",
     "imessage-sync",
