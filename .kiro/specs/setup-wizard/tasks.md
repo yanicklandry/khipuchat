@@ -1,7 +1,7 @@
 # Implementation Plan
 
-- [ ] 1. Foundation: single-source variable table
-- [ ] 1.1 Define the declarative variable table inside the bash engine
+- [x] 1. Foundation: single-source variable table
+- [x] 1.1 Define the declarative variable table inside the bash engine
   - Scaffold the setup-env bash engine and add a `var_table` function that emits one
     pipe-delimited record (`key|platform|required|url|example|click_path`) per recognised
     variable: the three Telegram vars, Discord, Slack, the three Email/IMAP vars, Beeper, and the
@@ -17,8 +17,8 @@
     each showing its platform, URL, click-path, and example.
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 6.1, 9.2_
 
-- [ ] 2. Core: detection, prompting, merge, docs, and wrapper
-- [ ] 2.1 Detect missing/empty variables and skip configured or managed ones
+- [x] 2. Core: detection, prompting, merge, docs, and wrapper
+- [x] 2.1 Detect missing/empty variables and skip configured or managed ones
   - Read the target env file (honoring a `SETUP_ENV_FILE` override, default `.env`) and classify
     each recognised key as configured (present with a non-empty value) or missing/empty.
   - Iterate the variable table, skipping configured keys and never prompting for
@@ -28,7 +28,7 @@
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
   - _Depends: 1.1_
 
-- [ ] 2.2 Render required and optional prompts with acquisition guidance and skip affordance
+- [x] 2.2 Render required and optional prompts with acquisition guidance and skip affordance
   - For each queued required variable, display the platform, concrete URL, step-by-step click-path,
     and example, then read one line of input; for optional variables, additionally label the prompt
     optional and state that pressing Enter skips it.
@@ -38,7 +38,7 @@
   - _Requirements: 3.1, 4.1, 4.3, 4.4_
   - _Depends: 1.1_
 
-- [ ] 2.3 Merge answers into the env file idempotently and non-destructively
+- [x] 2.3 Merge answers into the env file idempotently and non-destructively
   - Append answered keys that are absent; fill answered keys that exist with an empty value in place;
     copy every populated key, comment, and blank line verbatim and preserve ordering by rewriting
     through a temp file and moving it over the original only on full success.
@@ -51,7 +51,7 @@
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 9.3_
   - _Depends: 2.1_
 
-- [ ] 2.4 Render docs/TOKENS.md from the same variable table
+- [x] 2.4 Render docs/TOKENS.md from the same variable table
   - Add an `--emit-docs` mode that iterates the identical `var_table` records and writes
     grouped-by-platform markdown (honoring a `SETUP_ENV_DOCS` override, default `docs/TOKENS.md`),
     including each variable's URL, click-path, example, and required/optional status plus the
@@ -62,7 +62,7 @@
   - _Requirements: 6.2, 6.3, 7.1, 7.2, 7.3_
   - _Depends: 1.1_
 
-- [ ] 2.5 (P) Add the TypeScript wrapper that spawns the bash engine
+- [x] 2.5 (P) Add the TypeScript wrapper that spawns the bash engine
   - Create the `setup-env` wrapper that resolves the project root and script path and spawns
     `/bin/bash scripts/setup-env.sh` with inherited stdio and the project root as cwd, propagating
     the child's exit code via `process.exit`.
@@ -71,8 +71,8 @@
   - _Requirements: 1.1, 1.3, 1.4_
   - _Boundary: setup-env wrapper_
 
-- [ ] 3. Integration: router, template, and generated doc
-- [ ] 3.1 Wire `khipu setup-env` into the CLI router and usage text
+- [x] 3. Integration: router, template, and generated doc
+- [x] 3.1 Wire `khipu setup-env` into the CLI router and usage text
   - Register `setup-env` as an operational subcommand so the router resolves it to the wrapper, and
     add a `setup-env` line to the usage text alongside `setup-claude`/`setup-sync`.
   - Observable completion: `khipu --help` lists `setup-env`, and resolving the `setup-env` argument
@@ -80,7 +80,7 @@
   - _Requirements: 1.1, 1.2_
   - _Depends: 2.5_
 
-- [ ] 3.2 (P) Expand `.env.example` to list every recognised variable
+- [x] 3.2 (P) Expand `.env.example` to list every recognised variable
   - List all recognised variables (the three Telegram vars plus the auto-managed
     `TELEGRAM_SESSION_STRING`, Discord, Slack, the three Email/IMAP vars, Beeper, and the four
     optional security vars), each preceded by a comment referencing its acquisition URL or the
@@ -91,22 +91,22 @@
   - _Boundary: .env.example_
   - _Depends: 1.1_
 
-- [ ] 3.3 Generate the committed docs/TOKENS.md artifact
+- [x] 3.3 Generate the committed docs/TOKENS.md artifact
   - Produce `docs/TOKENS.md` by running the `--emit-docs` mode so the committed reference is a
     generated artifact of the variable table.
   - Observable completion: `docs/TOKENS.md` exists and byte-equals a fresh `--emit-docs` run.
   - _Requirements: 6.3, 7.1_
   - _Depends: 2.4_
 
-- [ ] 4. Validation: tests
-- [ ] 4.1 Test router registration and usage text
+- [x] 4. Validation: tests
+- [x] 4.1 Test router registration and usage text
   - Assert the resolver routes the `setup-env` argument to the wrapper script and that the usage/help
     output includes a `setup-env` line.
   - Observable completion: the routing and help-text assertions pass under the project test runner.
   - _Requirements: 1.1, 1.2_
   - _Depends: 3.1_
 
-- [ ] 4.2 Test the bash engine end-to-end over fixtures
+- [x] 4.2 Test the bash engine end-to-end over fixtures
   - Invoke the bash engine under `/bin/bash` with piped answers against temp-dir fixtures to verify:
     missing/empty detection and skip-configured; managed `TELEGRAM_SESSION_STRING` never prompted or
     written; in-place fill preserving comments/blank lines/order; append of absent keys; empty-answer
@@ -118,7 +118,7 @@
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 4.2, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 9.1, 9.2, 9.3_
   - _Depends: 2.3, 2.4_
 
-- [ ] 4.3 Test docs generation, drift, and `.env.example` coverage
+- [x] 4.3 Test docs generation, drift, and `.env.example` coverage
   - Assert an `--emit-docs` run covers every recognised variable with its URL, click-path, example,
     and required/optional status plus the session-string note; assert the committed `docs/TOKENS.md`
     byte-equals a fresh emit; and assert `.env.example` lists every recognised variable with a

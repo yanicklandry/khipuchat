@@ -31,6 +31,7 @@ const OPERATIONAL_SCRIPTS: Record<string, string> = {
   'web':          'web/server.ts',
   'setup-claude': 'setup-claude.ts',
   'setup-sync':   'setup-sync.ts',
+  'setup-env':    'setup-env.ts',
   'index':        'index-embeddings.ts',
 }
 
@@ -60,6 +61,7 @@ Operational commands:
   sync <platform>[@account]  Sync a specific platform or account
   setup-claude               Run Claude Desktop setup
   setup-sync                 Run sync setup
+  setup-env                  Interactively fill .env (missing credentials)
   index                      Index embeddings
 
 Query commands:
