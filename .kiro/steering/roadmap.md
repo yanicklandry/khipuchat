@@ -21,7 +21,7 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 
 ## Scope
 - **In**: Web UI, Discord/Email/Slack/WhatsApp sync, semantic search, security hardening, Docker release
-- **Out**: Sending messages on any platform, Instagram/Facebook, mobile app, cloud sync
+- **Out**: Sending messages on any platform, Instagram, Facebook Groups, mobile app, cloud sync (Facebook Messenger 1:1/group DMs are now in scope via the facebook-messenger spec)
 
 ## Constraints
 - All DB operations remain synchronous (better-sqlite3)
@@ -54,6 +54,8 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 - [x] image-support -- Umbrella: make image messages (across platforms) visible to search, semantic search, and MCP. Combines telegram-image-sync infrastructure with iMessage attachment extraction and Signal image sync. Dependencies: telegram-image-sync, signal-platform
 - [x] signal-platform -- Sync Signal chats and text messages via Beeper Desktop MCP connector (not direct DB access); implements `PlatformAdapter`; ingests into `chats`/`messages` tables using existing MCP tools. Dependencies: platform-abstraction
 - [x] signal-image-sync -- Download and OCR Signal image attachments via Beeper's attachment API, reusing storage + OCR pipeline from telegram-image-sync. Dependencies: signal-platform, telegram-image-sync
+- [ ] setup-wizard -- Interactive `khipu setup-env` bash script that detects missing `.env` variables and prompts for each with a precise generation link (URL + click path), plus a per-platform token-acquisition doc. Dependencies: multi-account
+- [ ] facebook-messenger -- Sync Facebook Messenger chats + text/image messages via Beeper Desktop API (network filter = facebook), mirroring the signal-platform adapter; registers a new `facebook` platform. Dependencies: signal-platform, platform-abstraction
 
 ## Existing Spec Updates
 - [x] web-ui -- extended by web-ui-enhancements (chat layout + semantic search UI)
@@ -71,7 +73,6 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 
 ## Future Candidates (not yet scoped)
 - Zalo platform adapter
-- Facebook Messenger adapter
 - Facebook Groups (research needed: API access model)
 - SMS sync (research needed: macOS/Android bridge)
 - React web UI (vs current plain HTML; tradeoff: complexity vs richer UX)

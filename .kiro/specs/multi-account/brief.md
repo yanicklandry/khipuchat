@@ -22,7 +22,7 @@ Introduce a `khipu.config.json` account registry: per platform, a list of named 
 {
   "slack":    [{ "name": "work", "token": "$SLACK_WORK" },
                { "name": "personal", "token": "$SLACK_PERSONAL" }],
-  "telegram": [{ "name": "main", "apiId": "$TG_API_ID", "apiHash": "$TG_API_HASH", "phone": "$TG_PHONE" }],
+  "telegram": [{ "name": "main", "TELEGRAM_API_ID": "$TELEGRAM_API_ID", "TELEGRAM_API_HASH": "$TELEGRAM_API_HASH", "TELEGRAM_SESSION_STRING": "$TELEGRAM_SESSION_STRING" }],
   "whatsapp": [{ "name": "primary" }],
   "email":    [{ "name": "gmail", "host": "imap.gmail.com", "user": "$GMAIL_USER", "pass": "$GMAIL_PASS" }]
 }

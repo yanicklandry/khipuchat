@@ -1,6 +1,9 @@
 {
   "backlog": [],
-  "ready": [],
+  "ready": [
+    "setup-wizard",
+    "facebook-messenger"
+  ],
   "in-progress": [],
   "done": [
     "platform-abstraction",

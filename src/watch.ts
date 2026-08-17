@@ -37,7 +37,7 @@ export function getIntervalMs(platform: Platform): number {
 const LOCAL_ONLY_PLATFORMS: ReadonlySet<Platform> = new Set(['imessage', 'whatsapp'])
 
 const REQUIRED_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
-  telegram: ['TG_API_ID', 'TG_API_HASH', 'TG_PHONE'],
+  telegram: ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_PHONE_NUMBER'],
   discord: ['DISCORD_TOKEN'],
   slack: ['SLACK_USER_TOKEN'],
   email: ['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'],

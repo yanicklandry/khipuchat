@@ -307,9 +307,9 @@ export function createTelegramAdapter(account: string, credentials: AccountCrede
     platform: 'telegram',
     account,
     async runBackfill(_db: Database.Database): Promise<void> {
-      const sessionString = credentials.fields['TG_SESSION'] ?? config.sessionString
-      const apiId = parseInt(credentials.fields['TG_API_ID'] ?? String(config.apiId), 10)
-      const apiHash = credentials.fields['TG_API_HASH'] ?? config.apiHash
+      const sessionString = credentials.fields['TELEGRAM_SESSION_STRING'] ?? config.sessionString
+      const apiId = parseInt(credentials.fields['TELEGRAM_API_ID'] ?? String(config.apiId), 10)
+      const apiHash = credentials.fields['TELEGRAM_API_HASH'] ?? config.apiHash
       const session = new StringSession(sessionString)
       const client = new TelegramClient(session, apiId, apiHash, { connectionRetries: 5 })
       await client.connect()
@@ -317,9 +317,9 @@ export function createTelegramAdapter(account: string, credentials: AccountCrede
       try { await runBackfill(client, DEFAULT_SLEEP, 100, 200, account) } finally { await client.disconnect() }
     },
     async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
-      const sessionString = credentials.fields['TG_SESSION'] ?? config.sessionString
-      const apiId = parseInt(credentials.fields['TG_API_ID'] ?? String(config.apiId), 10)
-      const apiHash = credentials.fields['TG_API_HASH'] ?? config.apiHash
+      const sessionString = credentials.fields['TELEGRAM_SESSION_STRING'] ?? config.sessionString
+      const apiId = parseInt(credentials.fields['TELEGRAM_API_ID'] ?? String(config.apiId), 10)
+      const apiHash = credentials.fields['TELEGRAM_API_HASH'] ?? config.apiHash
       const session = new StringSession(sessionString)
       const client = new TelegramClient(session, apiId, apiHash, { connectionRetries: 5 })
       await client.connect()
@@ -333,9 +333,9 @@ export function createTelegramAdapter(account: string, credentials: AccountCrede
 export const telegramAdapter: PlatformAdapter = createTelegramAdapter('default', {
   name: 'default',
   fields: {
-    TG_SESSION: config.sessionString,
-    TG_API_ID: String(config.apiId),
-    TG_API_HASH: config.apiHash,
+    TELEGRAM_SESSION_STRING: config.sessionString,
+    TELEGRAM_API_ID: String(config.apiId),
+    TELEGRAM_API_HASH: config.apiHash,
   },
 })
 

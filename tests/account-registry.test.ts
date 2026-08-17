@@ -18,9 +18,9 @@ function writeTmpConfig(obj: unknown): string {
 describe('loadRegistry — absent config file', () => {
   it('returns default account for telegram when env vars are set', () => {
     const env = {
-      TG_API_ID: '12345',
-      TG_API_HASH: 'abcdef',
-      TG_PHONE: '+1234567890',
+      TELEGRAM_API_ID: '12345',
+      TELEGRAM_API_HASH: 'abcdef',
+      TELEGRAM_PHONE_NUMBER: '+1234567890',
     }
     const reg = loadRegistry('/nonexistent/khipu.config.json', env)
     expect(reg.listAccounts('telegram')).toEqual(['default'])
@@ -28,17 +28,17 @@ describe('loadRegistry — absent config file', () => {
 
   it('returns credentials from env vars for the default telegram account', () => {
     const env = {
-      TG_API_ID: '12345',
-      TG_API_HASH: 'abc',
-      TG_PHONE: '+1',
+      TELEGRAM_API_ID: '12345',
+      TELEGRAM_API_HASH: 'abc',
+      TELEGRAM_PHONE_NUMBER: '+1',
     }
     const reg = loadRegistry('/nonexistent/khipu.config.json', env)
     const creds = reg.credentialsFor('telegram', 'default')
     expect(creds.name).toBe('default')
     expect(creds.fields).toEqual({
-      TG_API_ID: '12345',
-      TG_API_HASH: 'abc',
-      TG_PHONE: '+1',
+      TELEGRAM_API_ID: '12345',
+      TELEGRAM_API_HASH: 'abc',
+      TELEGRAM_PHONE_NUMBER: '+1',
     })
   })
 
@@ -143,7 +143,7 @@ describe('loadRegistry — config file present', () => {
 
   it('empty config file results in legacy fallback for env-configured platforms', () => {
     const configPath = writeTmpConfig({})
-    const env = { TG_API_ID: '1', TG_API_HASH: 'h', TG_PHONE: '+1' }
+    const env = { TELEGRAM_API_ID: '1', TELEGRAM_API_HASH: 'h', TELEGRAM_PHONE_NUMBER: '+1' }
     const reg = loadRegistry(configPath, env)
     expect(reg.listAccounts('telegram')).toEqual(['default'])
   })

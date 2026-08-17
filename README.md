@@ -160,7 +160,7 @@ By default, KhipuChat reads credentials from environment variables. For multiple
 {
   "accounts": {
     "telegram": [
-      { "account": "personal", "apiId": "...", "apiHash": "...", "session": "..." }
+      { "account": "personal", "TELEGRAM_API_ID": "...", "TELEGRAM_API_HASH": "...", "TELEGRAM_SESSION_STRING": "..." }
     ],
     "slack": [
       { "account": "work", "userToken": "SLACK_USER_TOKEN_WORK" },
