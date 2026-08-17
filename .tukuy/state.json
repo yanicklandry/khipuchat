@@ -4,7 +4,8 @@
     "steering",
     "discovery",
     "init",
-    "requirements"
+    "requirements",
+    "validate-gap"
   ],
   "done": false,
   "completedQueueSpecs": [
