@@ -90,6 +90,7 @@ khipu <cli-args>
 # Setup
 khipu setup-claude         # configure Claude Desktop MCP entry
 khipu setup-sync           # install macOS LaunchAgent for automatic background sync
+khipu setup-env            # interactively fill missing .env credentials (thin wrapper over scripts/setup-env.sh)
 
 # Tests
 npm test
