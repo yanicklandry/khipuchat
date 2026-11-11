@@ -28,12 +28,39 @@ import {
   type SignalCliConnectOptions,
   type SignalEnvelope,
 } from './cli-client'
-import { resolveChat, mapEnvelope } from './cli-mapping'
+import { resolveChat, mapEnvelope, type GroupNameLookup, type ContactNameLookup } from './cli-mapping'
 import { seedChats } from './cli-seed'
 import { processCliImageMessages, type CliImageItem } from './cli-image-sync'
 
 const SIGNAL: Platform = 'signal'
 const DRAIN_SECONDS = Number(process.env['SIGNAL_CLI_DRAIN_SECONDS'] ?? '2')
+const SEED_TTL_MS = Number(process.env['SIGNAL_CLI_SEED_TTL_MS'] ?? String(60 * 60_000))
+
+interface SeedCacheEntry {
+  groupName: GroupNameLookup
+  contactName: ContactNameLookup
+  seededAt: number
+}
+
+// Keyed by account: the watch daemon calls drainOnce every poll cycle (every
+// few minutes, forever) on the same long-lived process, so re-running the
+// full listGroups+listContacts enumeration (and its per-item upserts) on
+// every single poll is wasted network/DB work when nothing has changed.
+// Cached per account, refreshed at most every SEED_TTL_MS.
+const seedCache = new Map<string, SeedCacheEntry>()
+
+async function seedChatsCached(
+  client: SignalCliClient,
+  account: string,
+): ReturnType<typeof seedChats> {
+  const cached = seedCache.get(account)
+  if (cached && Date.now() - cached.seededAt < SEED_TTL_MS) {
+    return { groupName: cached.groupName, contactName: cached.contactName, seeded: 0 }
+  }
+  const result = await seedChats(client, account)
+  seedCache.set(account, { groupName: result.groupName, contactName: result.contactName, seededAt: Date.now() })
+  return result
+}
 
 /** A device is linked iff the daemon reports at least one registered account. */
 async function isLinked(client: SignalCliClient): Promise<boolean> {
@@ -89,7 +116,7 @@ async function drainOnce(_db: Database.Database, account: string, opts: SignalCl
       return
     }
 
-    const { groupName, contactName } = await seedChats(client, account)
+    const { groupName, contactName } = await seedChatsCached(client, account)
     const envelopes = await drainReceive(client)
 
     const affected = new Set<number>()

@@ -25,7 +25,10 @@ export async function seedChats(
     seeded++
   }
 
-  const rawGroups = await client.request<unknown>('listGroups', {}).catch(() => [])
+  const [rawGroups, rawContacts] = await Promise.all([
+    client.request<unknown>('listGroups', {}).catch(() => []),
+    client.request<unknown>('listContacts', {}).catch(() => []),
+  ])
   if (Array.isArray(rawGroups)) {
     for (const g of rawGroups) {
       const o = g as Record<string, unknown>
@@ -37,7 +40,6 @@ export async function seedChats(
     }
   }
 
-  const rawContacts = await client.request<unknown>('listContacts', {}).catch(() => [])
   if (Array.isArray(rawContacts)) {
     for (const c of rawContacts) {
       const o = c as Record<string, unknown>
