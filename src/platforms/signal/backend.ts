@@ -21,8 +21,3 @@ export function selectedSignalBackend(env: NodeJS.ProcessEnv = process.env): Sig
 export function resolveSignalFactory(env: NodeJS.ProcessEnv = process.env): AdapterFactory {
   return selectedSignalBackend(env) === 'cli' ? createSignalCliAdapter : createSignalAdapter
 }
-
-/** True when the signal-cli backend is selected (its configuration probe). */
-export function signalCliConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return selectedSignalBackend(env) === 'cli'
-}

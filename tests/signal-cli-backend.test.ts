@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   selectedSignalBackend,
   resolveSignalFactory,
-  signalCliConfigured,
 } from '../src/platforms/signal/backend'
 import { createSignalAdapter } from '../src/platforms/signal/sync'
 import { createSignalCliAdapter } from '../src/platforms/signal/cli-sync'
@@ -36,15 +35,6 @@ describe('resolveSignalFactory', () => {
     // startListener is a no-op — calling it must not throw and must return void.
     expect(adapter.startListener(undefined as never)).toBeUndefined()
     expect(typeof adapter.syncIncremental).toBe('function')
-  })
-})
-
-describe('signalCliConfigured', () => {
-  it('is false by default (beeper)', () => {
-    expect(signalCliConfigured({})).toBe(false)
-  })
-  it('is true when SIGNAL_BACKEND=cli', () => {
-    expect(signalCliConfigured({ SIGNAL_BACKEND: 'cli' })).toBe(true)
   })
 })
 

@@ -132,7 +132,11 @@ const ADAPTER_FACTORIES: Record<Platform, AdapterFactory> = {
   imessage: createIMessageAdapter,
   whatsapp: createWhatsAppAdapter,
   // Resolve the Signal factory via the backend selector (beeper default | cli).
-  signal: resolveSignalFactory(),
+  // A thunk, not a called value: every other entry here is a plain function
+  // reference needing no env read; this keeps the table's shape consistent
+  // and resolves SIGNAL_BACKEND at adapter-construction time, same as every
+  // other platform's credentials (loadRegistry() in main(), not per-poll).
+  signal: (account, credentials) => resolveSignalFactory()(account, credentials),
   facebook: createFacebookAdapter,
   zalo: createZaloAdapter,
 }
