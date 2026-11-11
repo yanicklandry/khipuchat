@@ -26,8 +26,9 @@ Single Node.js process per role (MCP server, web server, sync scripts). All pers
 | `whatsapp-web.js` | WhatsApp QR-code session client |
 | `imapflow` | IMAP email sync |
 | `tesseract.js` | Local OCR for image messages (singleton worker, never throws to caller) |
-| `@beeper/desktop-api` | Signal sync via Beeper Desktop local API (`http://localhost:23373`); requires `BEEPER_ACCESS_TOKEN` |
+| `@beeper/desktop-api` | Signal sync via Beeper Desktop local API (`http://localhost:23373`); requires `BEEPER_ACCESS_TOKEN`. Default Signal backend; still used for Facebook Messenger (no viable Beeper-free alternative — see `.kiro/specs/facebook-direct/`) |
 | _(none)_ | Slack and Discord adapters call REST APIs directly via `globalThis.fetch`; no third-party SDK needed |
+| `signal-cli` (external, GPLv3) | Beeper-free Signal backend (`SIGNAL_BACKEND=cli`) — separate process driven over its JSON-RPC daemon socket, never vendored/linked. Install via `brew install signal-cli`. Daemon runs as a launchd user agent: `~/Library/LaunchAgents/com.khipuchat.signal-cli-daemon.plist` (socket at `~/.local/share/signal-cli/socket`, logs at `~/Library/Logs/signal-cli/daemon.log`). Link once with `SIGNAL_BACKEND=cli khipu sync signal --link` — scan the QR via Signal's **Link new device** screen specifically (a generic QR scanner will not work). See `.kiro/specs/signal-direct/`. |
 
 ## Development Standards
 
