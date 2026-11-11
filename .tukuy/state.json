@@ -1,5 +1,5 @@
 {
-  "specName": "telegram-image-sync",
+  "specName": "facebook-messenger",
   "completedPhases": [
     "steering",
     "discovery",
@@ -32,6 +32,15 @@
     "signal-platform",
     "release",
     "image-support",
-    "telegram-image-sync"
-  ]
+    "telegram-image-sync",
+    "setup-wizard",
+    "facebook-messenger"
+  ],
+  "run": {
+    "runId": "unknown",
+    "pid": 27916,
+    "startedAt": "2026-08-17T18:17:33.841Z",
+    "heartbeatAt": "2026-08-17T18:17:33.841Z",
+    "exit": "clean"
+  }
 }

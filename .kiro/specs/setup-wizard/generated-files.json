@@ -1,0 +1,35 @@
+{
+  "slug": "setup-wizard",
+  "implCompletedAt": "2026-08-17T17:55:28.296Z",
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "bc886e5ef934a9ab581543a01c3c69cc64b7f776de4e0ce2de936917a781240a"
+    },
+    {
+      "path": "src/khipu.ts",
+      "sha256": "c0061dd94f5fc39968ab6e85e022adeef7918cab9bf06f2265bfc3adb1a5a3fd"
+    },
+    {
+      "path": "tests/khipu.test.ts",
+      "sha256": "db634d09fa900ca87ca56ee5a13ddeb08693417850e01839581ac146f3556f3b"
+    },
+    {
+      "path": "docs/TOKENS.md",
+      "sha256": "5cf84498871b0adad1faf55c0929216e82d517f6256b2ab177d6919ff58ea610"
+    },
+    {
+      "path": "scripts/setup-env.sh",
+      "sha256": "f27ceeac1bd89f8cf0316283b3dd3d16cbc19d2ed4fff7cd9e647ca4e76daf39"
+    },
+    {
+      "path": "src/setup-env.ts",
+      "sha256": "1a9b1d9185d09d4d7199990896f438bb67960d9c4dd0e57f1bdea2f496a199c9"
+    },
+    {
+      "path": "tests/setup-env.test.ts",
+      "sha256": "4d488b021e9b79eadd9c8bd48c88f2c2e8e47e17117a82d76d1afa45b665fb14"
+    }
+  ],
+  "acknowledgement": null
+}

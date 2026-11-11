@@ -24,14 +24,27 @@ export interface AccountRegistry {
 const LOCAL_ONLY_PLATFORMS: ReadonlySet<Platform> = new Set([
   'imessage',
   'whatsapp',
+  'zalo',
 ])
 
 /** Env vars each platform reads from in a legacy (no config file) install. */
 const LEGACY_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
-  telegram: ['TG_API_ID', 'TG_API_HASH', 'TG_PHONE'],
+  telegram: ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_PHONE_NUMBER'],
   discord: ['DISCORD_TOKEN'],
   slack: ['SLACK_USER_TOKEN'],
   email: ['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'],
+  signal: ['BEEPER_ACCESS_TOKEN'],
+  facebook: ['BEEPER_ACCESS_TOKEN'],
+}
+
+/**
+ * Optional env vars LOCAL_ONLY_PLATFORMS still read (a custom session path),
+ * even though their presence/absence never affects whether the platform is
+ * considered "configured" (LOCAL_ONLY_PLATFORMS always get a 'default' account).
+ */
+const LOCAL_ONLY_OPTIONAL_ENV_VARS: Partial<Record<Platform, string>> = {
+  whatsapp: 'WHATSAPP_SESSION',
+  zalo: 'ZALO_SESSION',
 }
 
 // ── $VAR resolution ───────────────────────────────────────────────────────────
@@ -73,9 +86,16 @@ function buildLegacyAccounts(
 ): Map<Platform, AccountCredentials[]> {
   const map = new Map<Platform, AccountCredentials[]>()
 
-  // Local-only platforms always get a 'default' account (no env needed)
+  // Local-only platforms always get a 'default' account (no env needed to be
+  // "configured"), but still thread through an optional custom session path.
   for (const platform of LOCAL_ONLY_PLATFORMS) {
-    map.set(platform, [{ name: 'default', fields: {} }])
+    const fields: Record<string, string> = {}
+    const optionalVar = LOCAL_ONLY_OPTIONAL_ENV_VARS[platform]
+    if (optionalVar) {
+      const val = env[optionalVar]
+      if (val) fields[optionalVar] = val
+    }
+    map.set(platform, [{ name: 'default', fields }])
   }
 
   // Env-var platforms: only synthesize if at least one var is set
@@ -92,6 +112,16 @@ function buildLegacyAccounts(
     if (anySet) {
       map.set(platform, [{ name: 'default', fields }])
     }
+  }
+
+  // signal-cli backend: synthesize a `default` Signal account even without
+  // BEEPER_ACCESS_TOKEN, so the watch loop can pick it up. Additive — never
+  // overrides a Beeper-token-derived signal account.
+  if ((env['SIGNAL_BACKEND'] ?? '').toLowerCase() === 'cli' && !map.has('signal')) {
+    const fields: Record<string, string> = {}
+    const socket = env['SIGNAL_CLI_SOCKET']
+    if (socket) fields['SIGNAL_CLI_SOCKET'] = socket
+    map.set('signal', [{ name: 'default', fields }])
   }
 
   return map

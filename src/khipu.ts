@@ -28,9 +28,11 @@ const SRC = path.join(PROJECT_ROOT, 'src')
 // Operational subcommand => relative script path (from src/)
 const OPERATIONAL_SCRIPTS: Record<string, string> = {
   'mcp':          'mcp.ts',
+  'ask':          'ask.ts',
   'web':          'web/server.ts',
   'setup-claude': 'setup-claude.ts',
   'setup-sync':   'setup-sync.ts',
+  'setup-env':    'setup-env.ts',
   'index':        'index-embeddings.ts',
 }
 
@@ -60,15 +62,29 @@ Operational commands:
   sync <platform>[@account]  Sync a specific platform or account
   setup-claude               Run Claude Desktop setup
   setup-sync                 Run sync setup
+  setup-env                  Interactively fill .env (missing credentials)
   index                      Index embeddings
 
 Query commands:
+  ask "<question>" Ask a local Ollama model about your archive (use --help for options)
   search <query>   Keyword search (use --help for options)
   list chats       List all chats (use --help for options)
   list messages    List archive messages (use --help for options)
 `.trim()
 
 const SUBCOMMAND_USAGE: Record<string, string> = {
+  ask: `Usage: khipu ask "<question>"
+
+Ask a natural-language question about your archive using a local Ollama model.
+All inference runs locally; no message data leaves your machine.
+
+Environment:
+  OLLAMA_HOST   Ollama endpoint (default http://127.0.0.1:11434)
+  OLLAMA_MODEL  Model name (default qwen2.5)
+
+Example:
+  khipu ask "when did Tony last message me about the invoice?"`.trim(),
+
   search: `Usage: khipu search <query> [options]
 
 Options:

@@ -39,13 +39,13 @@ describe('runAllPlatforms', () => {
     vi.restoreAllMocks()
   })
 
-  it('spawns exactly 7 children, one per platform', async () => {
+  it('spawns exactly 9 children, one per platform', async () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms([])
-    expect(spawnMock).toHaveBeenCalledTimes(7)
+    expect(spawnMock).toHaveBeenCalledTimes(9)
   })
 
-  it('spawns platforms in fixed serial order: telegram first, signal last', async () => {
+  it('spawns platforms in fixed serial order: telegram first, zalo last', async () => {
     const order: string[] = []
     spawnMock.mockImplementation((_cmd: string, args: string[]) => {
       // args[1] is the script path like 'src/platforms/<p>/sync.ts'
@@ -58,11 +58,11 @@ describe('runAllPlatforms', () => {
     await runAllPlatforms([])
 
     expect(order[0]).toBe('telegram')
-    expect(order[order.length - 1]).toBe('signal')
-    expect(new Set(order).size).toBe(7) // all unique
+    expect(order[order.length - 1]).toBe('zalo')
+    expect(new Set(order).size).toBe(9) // all unique
   })
 
-  it('forwards --force flag to all 7 children', async () => {
+  it('forwards --force flag to all 9 children', async () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms(['--force'])
 
@@ -72,13 +72,25 @@ describe('runAllPlatforms', () => {
     }
   })
 
-  it('forwards --backfill flag to all 7 children', async () => {
+  it('forwards --backfill flag to all 9 children', async () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms(['--backfill'])
 
     for (const call of spawnMock.mock.calls) {
       const args = call[1] as string[]
       expect(args).toContain('--backfill')
+    }
+  })
+
+  it('forwards --account <name> to all 9 children', async () => {
+    const { runAllPlatforms } = await import('../src/sync-all')
+    await runAllPlatforms(['--account', 'work'])
+
+    for (const call of spawnMock.mock.calls) {
+      const args = call[1] as string[]
+      const idx = args.indexOf('--account')
+      expect(idx).toBeGreaterThanOrEqual(0)
+      expect(args[idx + 1]).toBe('work')
     }
   })
 
@@ -108,8 +120,8 @@ describe('runAllPlatforms', () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms([])
 
-    // All 7 must have been spawned despite the first failing
-    expect(spawnMock).toHaveBeenCalledTimes(7)
+    // All 9 must have been spawned despite the first failing
+    expect(spawnMock).toHaveBeenCalledTimes(9)
   })
 
   it('returns true (aggregate success) when all children exit 0', async () => {

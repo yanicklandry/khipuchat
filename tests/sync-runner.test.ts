@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest'
-import { parseSyncArgs, runPlatformSync, runAllAccountsSync } from '../src/sync-runner'
+import { parseSyncArgs, runPlatformSync, runAllAccountsSync, parseAccountArg, runSyncEntrypoint } from '../src/sync-runner'
 import type { PlatformAdapter, AdapterFactory } from '../src/platforms/types'
 import type { AccountRegistry, AccountCredentials } from '../src/account-registry'
 import Database from 'better-sqlite3-multiple-ciphers'
@@ -412,5 +412,194 @@ describe('runAllAccountsSync', () => {
     expect(calls[0][1]).toBe('first')
     expect(calls[1][0]).toBe('slack')
     expect(calls[1][1]).toBe('second')
+  })
+})
+
+// ── parseAccountArg ─────────────────────────────────────────────────────────────
+
+describe('parseAccountArg', () => {
+  it('returns the value following --account', () => {
+    expect(parseAccountArg(['node', 'x', '--account', 'work'])).toBe('work')
+  })
+
+  it('returns null when --account is absent', () => {
+    expect(parseAccountArg(['node', 'x', '--force'])).toBeNull()
+    expect(parseAccountArg([])).toBeNull()
+  })
+
+  it('returns the account value even when unrelated flags surround it', () => {
+    expect(parseAccountArg(['node', 'x', '--force', '--account', 'personal', '--backfill'])).toBe('personal')
+  })
+
+  it('returns null when --account is the final token with no value', () => {
+    expect(parseAccountArg(['node', 'x', '--account'])).toBeNull()
+  })
+})
+
+// ── runSyncEntrypoint ───────────────────────────────────────────────────────────
+
+describe('runSyncEntrypoint', () => {
+  let db: Database.Database
+  let stdoutSpy: MockInstance
+
+  beforeEach(() => {
+    db = makeInMemoryDb()
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    vi.mock('../src/db', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../src/db')>()
+      return {
+        ...actual,
+        getPlatformLastSyncedAt: vi.fn().mockReturnValue(null),
+        setPlatformLastSyncedAt: vi.fn(),
+        rebuildFtsIndex: vi.fn(),
+      }
+    })
+
+    vi.mock('../src/index-embeddings', () => ({
+      rebuildEmbeddings: vi.fn().mockResolvedValue(undefined),
+    }))
+  })
+
+  afterEach(async () => {
+    const { getPlatformLastSyncedAt } = await import('../src/db')
+    vi.mocked(getPlatformLastSyncedAt).mockReturnValue(null)
+    stdoutSpy.mockRestore()
+    vi.restoreAllMocks()
+    vi.resetModules()
+  })
+
+  it('named account resolves that account credentials and runs exactly one sync on its adapter', async () => {
+    const registry: AccountRegistry = {
+      listAccounts: () => ['work', 'personal'],
+      credentialsFor: (_platform, account): AccountCredentials => ({
+        name: account,
+        fields: { SLACK_USER_TOKEN: `${account}-token` },
+      }),
+    }
+
+    const built: Array<{ account: string; creds: AccountCredentials }> = []
+    const workBackfill = vi.fn().mockResolvedValue(undefined)
+
+    const factory: AdapterFactory = (account, credentials) => {
+      built.push({ account, creds: credentials })
+      return { platform: 'slack', account, runBackfill: workBackfill, startListener: vi.fn() }
+    }
+
+    const outcomes = await runSyncEntrypoint(
+      'slack', factory, db, ['node', 'x', '--account', 'work'], registry,
+    )
+
+    expect(outcomes).toEqual([{ account: 'work', ok: true }])
+    expect(built).toHaveLength(1)
+    expect(built[0].account).toBe('work')
+    expect(built[0].creds.fields['SLACK_USER_TOKEN']).toBe('work-token')
+    expect(workBackfill).toHaveBeenCalledOnce()
+  })
+
+  it('forwards --force alongside --account to the resolved account sync', async () => {
+    const { rebuildFtsIndex } = await import('../src/db')
+    const { rebuildEmbeddings } = await import('../src/index-embeddings')
+    const registry: AccountRegistry = {
+      listAccounts: () => ['work'],
+      credentialsFor: (_p, account): AccountCredentials => ({ name: account, fields: {} }),
+    }
+    const factory: AdapterFactory = (account) => ({
+      platform: 'slack', account, runBackfill: vi.fn().mockResolvedValue(undefined), startListener: vi.fn(),
+    })
+
+    await runSyncEntrypoint('slack', factory, db, ['node', 'x', '--account', 'work', '--force'], registry)
+
+    // --force triggers the post-sync rebuild path inside runPlatformSync
+    expect(rebuildFtsIndex).toHaveBeenCalledOnce()
+    expect(rebuildEmbeddings).toHaveBeenCalledWith('slack', true)
+  })
+
+  it('no account delegates to runAllAccountsSync across all registry accounts', async () => {
+    const registry: AccountRegistry = {
+      listAccounts: () => ['work', 'personal'],
+      credentialsFor: (_p, account): AccountCredentials => ({ name: account, fields: {} }),
+    }
+    const backfills: Record<string, ReturnType<typeof vi.fn>> = {
+      work: vi.fn().mockResolvedValue(undefined),
+      personal: vi.fn().mockResolvedValue(undefined),
+    }
+    const factory: AdapterFactory = (account) => ({
+      platform: 'slack', account, runBackfill: backfills[account], startListener: vi.fn(),
+    })
+
+    const outcomes = await runSyncEntrypoint('slack', factory, db, ['node', 'x'], registry)
+
+    expect(outcomes).toEqual([
+      { account: 'work', ok: true },
+      { account: 'personal', ok: true },
+    ])
+    expect(backfills['work']).toHaveBeenCalledOnce()
+    expect(backfills['personal']).toHaveBeenCalledOnce()
+  })
+
+  it('no account, one of several accounts fails: still syncs the rest but rejects overall (non-zero exit)', async () => {
+    const registry: AccountRegistry = {
+      listAccounts: () => ['work', 'personal'],
+      credentialsFor: (_p, account): AccountCredentials => ({ name: account, fields: {} }),
+    }
+    const personalBackfill = vi.fn().mockResolvedValue(undefined)
+    const factory: AdapterFactory = (account) => ({
+      platform: 'slack',
+      account,
+      runBackfill: account === 'work' ? vi.fn().mockRejectedValue(new Error('auth revoked')) : personalBackfill,
+      startListener: vi.fn(),
+    })
+
+    await expect(
+      runSyncEntrypoint('slack', factory, db, ['node', 'x'], registry),
+    ).rejects.toThrow(/1 of 2 account\(s\) failed to sync.*work: auth revoked/)
+
+    // The failing account must not abort the others: personal still ran.
+    expect(personalBackfill).toHaveBeenCalledOnce()
+  })
+
+  it('no account and zero registered accounts builds the default adapter and runs it (legacy fallback)', async () => {
+    // Registry with an empty account list mirrors a legacy install with no
+    // config file and the legacy env var unset. The entrypoint must still build
+    // the `default` adapter and run it, so the adapter's own missing-credential
+    // path (message + exit) can fire instead of silently exiting 0.
+    const registry: AccountRegistry = {
+      listAccounts: () => [],
+      credentialsFor: () => {
+        throw new Error('credentialsFor should not be called for the zero-account fallback')
+      },
+    }
+
+    const built: Array<{ account: string; creds: AccountCredentials }> = []
+    const defaultBackfill = vi.fn().mockResolvedValue(undefined)
+    const factory: AdapterFactory = (account, credentials) => {
+      built.push({ account, creds: credentials })
+      return { platform: 'slack', account, runBackfill: defaultBackfill, startListener: vi.fn() }
+    }
+
+    const outcomes = await runSyncEntrypoint('slack', factory, db, ['node', 'x'], registry)
+
+    expect(built).toHaveLength(1)
+    expect(built[0].account).toBe('default')
+    expect(built[0].creds).toEqual({ name: 'default', fields: {} })
+    expect(defaultBackfill).toHaveBeenCalledOnce()
+    expect(outcomes).toEqual([{ account: 'default', ok: true }])
+  })
+
+  it('named-but-missing account rejects and never runs a default sync', async () => {
+    const registry: AccountRegistry = {
+      listAccounts: () => ['work'],
+      credentialsFor: (_p, account): AccountCredentials => {
+        if (account !== 'work') throw new Error(`Account "${account}" not found for platform "slack"`)
+        return { name: account, fields: {} }
+      },
+    }
+    const factory = vi.fn()
+
+    await expect(
+      runSyncEntrypoint('slack', factory, db, ['node', 'x', '--account', 'ghost'], registry),
+    ).rejects.toThrow(/ghost/)
+    expect(factory).not.toHaveBeenCalled()
   })
 })

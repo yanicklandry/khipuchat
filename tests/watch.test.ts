@@ -49,7 +49,15 @@ import { getIntervalMs, DEFAULT_INTERVAL_MS, pollCycle } from '../src/watch'
 import { getPlatformLastSyncedAt } from '../src/db'
 import { rebuildEmbeddings } from '../src/index-embeddings'
 import type Database from 'better-sqlite3-multiple-ciphers'
-import type { PlatformAdapter } from '../src/platforms/types'
+import type { PlatformAdapter, Platform } from '../src/platforms/types'
+import type { AccountRegistry } from '../src/account-registry'
+
+function registryWith(accounts: Partial<Record<Platform, string[]>>): AccountRegistry {
+  return {
+    listAccounts: (platform) => accounts[platform] ?? [],
+    credentialsFor: (_platform, account) => ({ name: account, fields: {} }),
+  }
+}
 
 // Helper to build a mock db with configurable COUNT(*) return values
 function makeMockDb(...counts: number[]): Database.Database {
@@ -212,18 +220,23 @@ describe('pollCycle', () => {
 })
 
 describe('isConfigured', () => {
-  const ENV_KEYS = {
-    discord: 'DISCORD_TOKEN',
-    telegram: 'TG_API_ID',
-    slack: 'SLACK_USER_TOKEN',
-    email: 'EMAIL_IMAP_HOST',
-  }
+  // All credential env vars isConfigured() inspects. Telegram needs all three
+  // cleared because isConfigured uses `.some()` over its required vars and
+  // tests/setup.ts sets TELEGRAM_API_HASH / TELEGRAM_PHONE_NUMBER globally.
+  const ENV_KEYS = [
+    'DISCORD_TOKEN',
+    'TELEGRAM_API_ID',
+    'TELEGRAM_API_HASH',
+    'TELEGRAM_PHONE_NUMBER',
+    'SLACK_USER_TOKEN',
+    'EMAIL_IMAP_HOST',
+  ]
 
   let savedEnv: Record<string, string | undefined> = {}
 
   beforeEach(() => {
     // Save and clear all credential env vars used by isConfigured
-    for (const key of Object.values(ENV_KEYS)) {
+    for (const key of ENV_KEYS) {
       savedEnv[key] = process.env[key]
       delete process.env[key]
     }
@@ -259,30 +272,52 @@ describe('isConfigured', () => {
     expect(isConfigured('slack')).toBe(false)
     expect(isConfigured('email')).toBe(false)
   })
+
+  it('returns true for a platform with registry accounts but no legacy env var', async () => {
+    const { isConfigured } = await import('../src/watch')
+    expect(isConfigured('discord', registryWith({ discord: ['work'] }))).toBe(true)
+  })
+
+  it('returns false when a platform has neither env var nor registry accounts', async () => {
+    const { isConfigured } = await import('../src/watch')
+    expect(isConfigured('discord', registryWith({}))).toBe(false)
+  })
+
+  it('still returns true for legacy env-var platforms even with an empty registry', async () => {
+    const { isConfigured } = await import('../src/watch')
+    process.env['SLACK_USER_TOKEN'] = 'xoxp-token'
+    expect(isConfigured('slack', registryWith({}))).toBe(true)
+  })
+
+  it('still returns true for local-only platforms with an empty registry', async () => {
+    const { isConfigured } = await import('../src/watch')
+    expect(isConfigured('imessage', registryWith({}))).toBe(true)
+    expect(isConfigured('whatsapp', registryWith({}))).toBe(true)
+  })
 })
 
 describe('Integration: startup adapter selection', () => {
-  let savedDiscordToken: string | undefined
-  let savedTgApiId: string | undefined
+  // Telegram needs all three vars cleared: isConfigured uses `.some()` and
+  // tests/setup.ts sets all of TELEGRAM_API_ID / _API_HASH / _PHONE_NUMBER.
+  const TELEGRAM_VARS = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_PHONE_NUMBER']
+  let savedEnv: Record<string, string | undefined> = {}
 
   beforeEach(() => {
-    savedDiscordToken = process.env['DISCORD_TOKEN']
-    savedTgApiId = process.env['TG_API_ID']
-    delete process.env['DISCORD_TOKEN']
-    delete process.env['TG_API_ID']
+    for (const key of ['DISCORD_TOKEN', ...TELEGRAM_VARS]) {
+      savedEnv[key] = process.env[key]
+      delete process.env[key]
+    }
   })
 
   afterEach(() => {
-    if (savedDiscordToken === undefined) {
-      delete process.env['DISCORD_TOKEN']
-    } else {
-      process.env['DISCORD_TOKEN'] = savedDiscordToken
+    for (const [key, val] of Object.entries(savedEnv)) {
+      if (val === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = val
+      }
     }
-    if (savedTgApiId === undefined) {
-      delete process.env['TG_API_ID']
-    } else {
-      process.env['TG_API_ID'] = savedTgApiId
-    }
+    savedEnv = {}
     vi.clearAllMocks()
   })
 

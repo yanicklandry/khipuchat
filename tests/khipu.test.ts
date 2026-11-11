@@ -30,6 +30,7 @@ describe('resolveCommand — operational subcommands', () => {
     ['web',         'web/server.ts'],
     ['setup-claude','setup-claude.ts'],
     ['setup-sync',  'setup-sync.ts'],
+    ['setup-env',   'setup-env.ts'],
     ['index',       'index-embeddings.ts'],
   ]
 
@@ -296,6 +297,12 @@ describe('resolveCommand — per-subcommand --help', () => {
     expect(result.kind).toBe('help')
     expect(result.exitCode).toBe(0)
     expect(result.message).toContain('khipu')
+  })
+
+  it("resolveCommand(['--help']) root usage lists 'setup-env' alongside setup-claude/setup-sync", () => {
+    const result = resolveCommand(['--help'])
+    expect(result.kind).toBe('help')
+    expect(result.message).toContain('setup-env')
   })
 
   it("resolveCommand(['search', '-h']) returns kind: help with exitCode 0 (short flag works)", () => {

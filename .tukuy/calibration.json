@@ -3798,5 +3798,165 @@
     "actualDurationMs": 135813,
     "idleDurationMs": 0,
     "estimatedTokens": 80000
+  },
+  {
+    "phase": "steering",
+    "timestamp": "2026-08-17T16:49:48.709Z",
+    "estimatedDurationMs": 88763.72916666667,
+    "actualDurationMs": 78976,
+    "idleDurationMs": 0,
+    "estimatedTokens": 50000
+  },
+  {
+    "phase": "discovery",
+    "timestamp": "2026-08-17T16:50:29.282Z",
+    "estimatedDurationMs": 93608.55319148937,
+    "actualDurationMs": 31612,
+    "idleDurationMs": 0,
+    "estimatedTokens": 80000
+  },
+  {
+    "phase": "init",
+    "timestamp": "2026-08-17T16:50:45.862Z",
+    "estimatedDurationMs": 30903.17021276596,
+    "actualDurationMs": 16544,
+    "idleDurationMs": 0,
+    "estimatedTokens": 40000
+  },
+  {
+    "phase": "requirements",
+    "timestamp": "2026-08-17T16:51:16.712Z",
+    "estimatedDurationMs": 95148.29787234042,
+    "actualDurationMs": 22910,
+    "idleDurationMs": 0,
+    "estimatedTokens": 70000
+  },
+  {
+    "phase": "validate-gap",
+    "timestamp": "2026-08-17T16:52:36.252Z",
+    "estimatedDurationMs": 153965.08695652173,
+    "actualDurationMs": 70543,
+    "idleDurationMs": 0,
+    "estimatedTokens": 60000
+  },
+  {
+    "phase": "design",
+    "timestamp": "2026-08-17T16:53:44.470Z",
+    "estimatedDurationMs": 198681.84782608695,
+    "actualDurationMs": 68070,
+    "idleDurationMs": 0,
+    "estimatedTokens": 150000
+  },
+  {
+    "phase": "validate-design",
+    "timestamp": "2026-08-17T16:56:16.145Z",
+    "estimatedDurationMs": 143922.91304347827,
+    "actualDurationMs": 139926,
+    "idleDurationMs": 0,
+    "estimatedTokens": 70000
+  },
+  {
+    "phase": "tasks",
+    "timestamp": "2026-08-17T16:56:46.055Z",
+    "estimatedDurationMs": 175294.8260869565,
+    "actualDurationMs": 29792,
+    "idleDurationMs": 0,
+    "estimatedTokens": 60000
+  },
+  {
+    "phase": "impl",
+    "timestamp": "2026-08-17T17:55:28.265Z",
+    "estimatedDurationMs": 665156.75,
+    "actualDurationMs": 3513204,
+    "idleDurationMs": 0,
+    "estimatedTokens": 300000
+  },
+  {
+    "phase": "validate-impl",
+    "timestamp": "2026-08-17T17:57:33.840Z",
+    "estimatedDurationMs": 124897.5,
+    "actualDurationMs": 125484,
+    "idleDurationMs": 0,
+    "estimatedTokens": 80000
+  },
+  {
+    "phase": "steering",
+    "timestamp": "2026-08-17T17:58:14.279Z",
+    "estimatedDurationMs": 88563.97959183673,
+    "actualDurationMs": 40373,
+    "idleDurationMs": 0,
+    "estimatedTokens": 50000
+  },
+  {
+    "phase": "discovery",
+    "timestamp": "2026-08-17T17:59:00.026Z",
+    "estimatedDurationMs": 92316.95833333333,
+    "actualDurationMs": 35944,
+    "idleDurationMs": 0,
+    "estimatedTokens": 80000
+  },
+  {
+    "phase": "init",
+    "timestamp": "2026-08-17T17:59:15.511Z",
+    "estimatedDurationMs": 30604.020833333332,
+    "actualDurationMs": 15442,
+    "idleDurationMs": 0,
+    "estimatedTokens": 40000
+  },
+  {
+    "phase": "requirements",
+    "timestamp": "2026-08-17T17:59:41.588Z",
+    "estimatedDurationMs": 93643.33333333333,
+    "actualDurationMs": 19385,
+    "idleDurationMs": 0,
+    "estimatedTokens": 70000
+  },
+  {
+    "phase": "validate-gap",
+    "timestamp": "2026-08-17T18:01:28.094Z",
+    "estimatedDurationMs": 152190.1489361702,
+    "actualDurationMs": 97376,
+    "idleDurationMs": 0,
+    "estimatedTokens": 60000
+  },
+  {
+    "phase": "design",
+    "timestamp": "2026-08-17T18:02:54.091Z",
+    "estimatedDurationMs": 195902.87234042553,
+    "actualDurationMs": 85956,
+    "idleDurationMs": 0,
+    "estimatedTokens": 150000
+  },
+  {
+    "phase": "validate-design",
+    "timestamp": "2026-08-17T18:04:36.874Z",
+    "estimatedDurationMs": 143837.87234042553,
+    "actualDurationMs": 91346,
+    "idleDurationMs": 0,
+    "estimatedTokens": 70000
+  },
+  {
+    "phase": "tasks",
+    "timestamp": "2026-08-17T18:05:17.172Z",
+    "estimatedDurationMs": 172199.02127659574,
+    "actualDurationMs": 40250,
+    "idleDurationMs": 0,
+    "estimatedTokens": 60000
+  },
+  {
+    "phase": "impl",
+    "timestamp": "2026-08-17T18:15:37.452Z",
+    "estimatedDurationMs": 715122.4912280702,
+    "actualDurationMs": 610429,
+    "idleDurationMs": 0,
+    "estimatedTokens": 300000
+  },
+  {
+    "phase": "validate-impl",
+    "timestamp": "2026-08-17T18:17:33.755Z",
+    "estimatedDurationMs": 124909.97872340426,
+    "actualDurationMs": 116201,
+    "idleDurationMs": 0,
+    "estimatedTokens": 80000
   }
 ]

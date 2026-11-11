@@ -1,9 +1,9 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { initDb, type Platform } from './db'
+import { initDb } from './db'
 import { isClaudeConfigured } from './setup-claude'
-import { handleGetImage } from './image-handlers'
+import { TOOL_DEFINITIONS, dispatchTool } from './tool-registry'
 
 export {
   parseTemporalFilters,
@@ -22,17 +22,6 @@ export {
 
 export { handleGetImage, type GetImageResult } from './image-handlers'
 
-import {
-  handleListChats,
-  handleFindChatByName,
-  handleListMessages,
-  handleListArchiveMessages,
-  handleSearchMessages,
-  handleGetChatSummary,
-  handleSemanticFindContacts,
-  handleSemanticSearchMessages,
-} from './query-handlers'
-
 // ── MCP server ────────────────────────────────────────────────────────────────
 
 export function createMcpServer(): Server {
@@ -42,16 +31,7 @@ export function createMcpServer(): Server {
   )
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-      { name: 'list_chats', description: 'List all synced chats sorted by most recent activity. Use this to discover available chats before querying messages.', inputSchema: { type: 'object', properties: { platform: { type: 'string', description: 'Filter by platform: telegram, imessage, discord, slack, whatsapp' }, account: { type: 'string', description: 'Filter results to a specific account name. Omit to return results from all accounts.' }, since: { type: 'number', description: 'Unix timestamp — only chats with activity after this date' }, until: { type: 'number', description: 'Unix timestamp — only chats with activity before this date' }, type: { type: 'string', description: 'Filter by chat type: user, group' }, limit: { type: 'number', description: 'Max chats to return (default 200)' } } } },
-      { name: 'find_chat_by_name', description: 'Find chats by name or username', inputSchema: { type: 'object', properties: { name: { type: 'string' }, platform: { type: 'string' }, account: { type: 'string', description: 'Filter results to a specific account name. Omit to return results from all accounts.' } }, required: ['name'] } },
-      { name: 'list_messages', description: 'List text messages in a chat, or archive-wide when chat_id is omitted', inputSchema: { type: 'object', properties: { chat_id: { type: 'number', description: 'Chat ID to scope results. When omitted, returns archive-wide messages.' }, limit: { type: 'number' }, before_timestamp: { type: 'number', description: 'Unix timestamp for per-chat pagination (only used with chat_id)' }, platform: { type: 'string', description: 'Filter by platform (archive-wide only)' }, account: { type: 'string', description: 'Filter results to a specific account name. Omit to return results from all accounts.' }, since: { type: 'number', description: 'Unix timestamp — only messages after this date (archive-wide only)' }, until: { type: 'number', description: 'Unix timestamp — only messages before this date (archive-wide only)' }, type: { type: 'string', description: 'Filter by message type (archive-wide only)' } } } },
-      { name: 'search_messages', description: 'Full-text search across messages', inputSchema: { type: 'object', properties: { query: { type: 'string' }, platform: { type: 'string' }, account: { type: 'string', description: 'Filter results to a specific account name. Omit to return results from all accounts.' }, since: { type: 'number', description: 'Unix timestamp — only messages after this date' }, until: { type: 'number', description: 'Unix timestamp — only messages before this date' }, type: { type: 'string', description: 'Filter by message type' }, limit: { type: 'number', description: 'Max results to return' } }, required: ['query'] } },
-      { name: 'get_chat_summary', description: 'Get summary and recent texts for a chat', inputSchema: { type: 'object', properties: { chat_id: { type: 'number' } }, required: ['chat_id'] } },
-      { name: 'semantic_find_contacts', description: 'Find contacts by meaning (e.g. "old friend from Shanghai around 2019"). Requires khipu index first.', inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Natural-language description of the contact or relationship' }, limit: { type: 'number', description: 'Max results (default 10, max 50)' }, before: { type: 'number', description: 'Unix timestamp — restrict to chats last active before this date' }, after: { type: 'number', description: 'Unix timestamp — restrict to chats last active after this date' }, platform: { type: 'string', description: 'Filter by platform' }, account: { type: 'string', description: 'Filter results to a specific account name. Omit to return results from all accounts.' } }, required: ['query'] } },
-      { name: 'semantic_search_messages', description: 'Search messages by meaning rather than exact keywords. Requires khipu index first.', inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Natural-language description of the message content' }, limit: { type: 'number', description: 'Max results (default 20, max 100)' }, chat_id: { type: 'number' }, platform: { type: 'string' }, before_timestamp: { type: 'number' }, after_timestamp: { type: 'number' }, account: { type: 'string', description: 'Filter results to a specific account name. Omit to return results from all accounts.' } }, required: ['query'] } },
-      { name: 'get_image', description: 'Retrieve a stored image by message ID. Returns the image as base64-encoded content along with its file path and OCR text if available.', inputSchema: { type: 'object', properties: { message_id: { type: 'number', description: 'The internal message ID of the image message' } }, required: ['message_id'] } },
-    ],
+    tools: TOOL_DEFINITIONS,
   }))
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
@@ -63,48 +43,7 @@ export function createMcpServer(): Server {
       }
     }
     const { name, arguments: a = {} } = req.params
-    const args = a as Record<string, unknown>
-    const platform = args['platform'] !== undefined ? String(args['platform']) as Platform : undefined
-    const account = typeof args['account'] === 'string' ? args['account'] : undefined
-    const since = args['since'] !== undefined ? Number(args['since']) : undefined
-    const until = args['until'] !== undefined ? Number(args['until']) : undefined
-    const type = typeof args['type'] === 'string' ? args['type'] : undefined
-    const limit = args['limit'] !== undefined ? Number(args['limit']) : undefined
-    let result: unknown
-    if (name === 'list_chats')
-      result = handleListChats({ platform, account, since, until, type, limit })
-    else if (name === 'find_chat_by_name')
-      result = handleFindChatByName(String(args['name']), platform, account)
-    else if (name === 'list_messages') {
-      if (args['chat_id'] !== undefined) {
-        result = handleListMessages(Number(args['chat_id']), { limit, before: args['before_timestamp'] !== undefined ? Number(args['before_timestamp']) : undefined, account })
-      } else {
-        result = handleListArchiveMessages({ platform, account, since, until, type, limit })
-      }
-    } else if (name === 'search_messages')
-      result = handleSearchMessages(String(args['query']), { platform, account, since, until, type, limit })
-    else if (name === 'get_chat_summary')
-      result = handleGetChatSummary(Number(args['chat_id']))
-    else if (name === 'semantic_find_contacts')
-      result = await handleSemanticFindContacts(String(args['query']), {
-        limit: args['limit'] !== undefined ? Number(args['limit']) : undefined,
-        before: args['before'] !== undefined ? Number(args['before']) : undefined,
-        after: args['after'] !== undefined ? Number(args['after']) : undefined,
-        platform,
-        account,
-      })
-    else if (name === 'semantic_search_messages')
-      result = await handleSemanticSearchMessages(String(args['query']), {
-        limit: args['limit'] !== undefined ? Number(args['limit']) : undefined,
-        chat_id: args['chat_id'] !== undefined ? Number(args['chat_id']) : undefined,
-        platform,
-        before_timestamp: args['before_timestamp'] !== undefined ? Number(args['before_timestamp']) : undefined,
-        after_timestamp: args['after_timestamp'] !== undefined ? Number(args['after_timestamp']) : undefined,
-        account,
-      })
-    else if (name === 'get_image')
-      result = await handleGetImage(Number(args['message_id']))
-    else throw new Error(`Unknown tool: ${name}`)
+    const result = await dispatchTool(name, a as Record<string, unknown>)
     return { content: [{ type: 'text', text: JSON.stringify(result) }] }
   })
 

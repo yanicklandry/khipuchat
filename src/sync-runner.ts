@@ -64,6 +64,65 @@ export async function runPlatformSync(
   }
 }
 
+/**
+ * Extract the value following `--account` in argv, or null when the flag is
+ * absent. Ignores unrelated flags (e.g. `--force`, `--backfill`).
+ */
+export function parseAccountArg(argv: readonly string[]): string | null {
+  const idx = argv.indexOf('--account')
+  if (idx === -1) return null
+  return argv[idx + 1] ?? null
+}
+
+/**
+ * Shared entrypoint used by every env-based platform `main()`. When `--account
+ * <name>` is present, resolves that account's credentials and syncs exactly it;
+ * otherwise delegates to `runAllAccountsSync` (which yields all configured
+ * accounts, or the single legacy `default` when no config file exists).
+ *
+ * A named-but-missing account is never routed to `default`: `credentialsFor`
+ * throws and the error propagates to the caller's `main()` catch.
+ */
+export async function runSyncEntrypoint(
+  platform: Platform,
+  factory: AdapterFactory,
+  db: Database.Database,
+  argv: readonly string[],
+  registry: AccountRegistry = loadRegistry(),
+): Promise<AccountSyncOutcome[]> {
+  const account = parseAccountArg(argv)
+  if (account !== null) {
+    const credentials = registry.credentialsFor(platform, account)
+    const adapter = factory(account, credentials)
+    await runPlatformSync(adapter, db, argv)
+    return [{ account, ok: true }]
+  }
+
+  // No config file and legacy env unset => zero accounts. Preserve the legacy
+  // single-account behavior: build the `default` adapter and run it directly so
+  // its own missing-credential message + process.exit(1) fire (Req 3.3). When
+  // accounts exist, delegate to the per-account fan-out unchanged.
+  if (registry.listAccounts(platform).length === 0) {
+    const adapter = factory('default', { name: 'default', fields: {} })
+    await runPlatformSync(adapter, db, argv)
+    return [{ account: 'default', ok: true }]
+  }
+
+  const outcomes = await runAllAccountsSync(platform, factory, db, argv, registry)
+
+  // runAllAccountsSync itself never throws (each account's failure is isolated
+  // so sibling accounts still get a chance to sync), but a caller's top-level
+  // main().catch(...) needs a non-zero exit when any account failed — silently
+  // resolving here previously made `khipu sync <platform>` exit 0 on failure.
+  const failures = outcomes.filter((o) => !o.ok)
+  if (failures.length > 0) {
+    const detail = failures.map((f) => `${f.account}: ${f.error}`).join('; ')
+    throw new Error(`${failures.length} of ${outcomes.length} account(s) failed to sync: ${detail}`)
+  }
+
+  return outcomes
+}
+
 export async function runAllAccountsSync(
   platform: Platform,
   factory: AdapterFactory,

@@ -9,7 +9,7 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import type { Chat, Message } from '../../db'
 import { initDb, upsertChat, insertMessage, getLastSyncedId } from '../../db'
-import { runPlatformSync } from '../../sync-runner'
+import { runSyncEntrypoint } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../../platforms/types'
@@ -169,7 +169,23 @@ export const signalAdapter: PlatformAdapter = createSignalAdapter('default', {
 
 async function main(): Promise<void> {
   const db = initDb('./khipuchat.db')
-  await runPlatformSync(signalAdapter, db, process.argv)
+  // Dynamic import breaks the sync <-> backend module cycle (backend imports
+  // createSignalAdapter from this module).
+  const { resolveSignalFactory, selectedSignalBackend } = await import('./backend')
+
+  // cli backend + `--link`: run the secondary-device linking flow, not a sync.
+  if (selectedSignalBackend() === 'cli' && process.argv.includes('--link')) {
+    const { runLinkCommand } = await import('./cli-link')
+    await runLinkCommand()
+    return
+  }
+
+  // Normal sync: route through the same shared entrypoint every other
+  // platform uses, so `--account <name>` is honored for Signal too. When the
+  // backend is `beeper` this is behaviorally identical to the previous
+  // always-'default' path.
+  const factory = resolveSignalFactory()
+  await runSyncEntrypoint('signal', factory, db, process.argv)
 }
 
 if (require.main === module) {

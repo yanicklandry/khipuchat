@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, upsertChat, insertMessage, type Message } from '../../db'
-import { runPlatformSync } from '../../sync-runner'
+import { runSyncEntrypoint } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../types'
@@ -138,7 +138,7 @@ export const emailAdapter: PlatformAdapter = createEmailAdapter('default', {
 
 async function main(): Promise<void> {
   const db = initDb('./khipuchat.db')
-  await runPlatformSync(emailAdapter, db, process.argv)
+  await runSyncEntrypoint('email', createEmailAdapter, db, process.argv)
 }
 
 if (require.main === module) {

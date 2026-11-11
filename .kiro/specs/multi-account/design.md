@@ -534,7 +534,7 @@ DROP TABLE sync_state; ALTER TABLE sync_state_new RENAME TO sync_state;
     { "name": "work",     "userToken": "$SLACK_WORK_TOKEN" },
     { "name": "personal", "userToken": "$SLACK_PERSONAL_TOKEN" }
   ],
-  "telegram": [ { "name": "default", "apiId": "$TG_API_ID", "apiHash": "$TG_API_HASH", "phoneNumber": "$TG_PHONE" } ]
+  "telegram": [ { "name": "default", "TELEGRAM_API_ID": "$TELEGRAM_API_ID", "TELEGRAM_API_HASH": "$TELEGRAM_API_HASH", "TELEGRAM_SESSION_STRING": "$TELEGRAM_SESSION_STRING" } ]
   // "wechat": [ ... more than one ... ]  → rejected (1.4)
 }
 ```

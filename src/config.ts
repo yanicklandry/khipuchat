@@ -21,11 +21,25 @@ function requireEnv(key: string): string {
   return value
 }
 
+// Loaded without throwing: a `khipu sync telegram --account <name>` run is
+// fully credentialed by the account registry and must not crash at import
+// time just because the legacy global env vars happen to be unset.
 export const config: Config = {
-  apiId: parseInt(requireEnv('TELEGRAM_API_ID'), 10),
-  apiHash: requireEnv('TELEGRAM_API_HASH'),
-  phoneNumber: requireEnv('TELEGRAM_PHONE_NUMBER'),
+  apiId: parseInt(process.env['TELEGRAM_API_ID'] ?? '', 10),
+  apiHash: process.env['TELEGRAM_API_HASH'] ?? '',
+  phoneNumber: process.env['TELEGRAM_PHONE_NUMBER'] ?? '',
   sessionString: process.env['TELEGRAM_SESSION_STRING'] ?? '',
+}
+
+/**
+ * Validates the legacy global Telegram env vars are present. Call this only
+ * from the no-`--account` legacy sync path, which genuinely requires them —
+ * the per-account registry path supplies its own credentials per account.
+ */
+export function assertLegacyConfig(): void {
+  requireEnv('TELEGRAM_API_ID')
+  requireEnv('TELEGRAM_API_HASH')
+  requireEnv('TELEGRAM_PHONE_NUMBER')
 }
 
 // ── Media directory ───────────────────────────────────────────────────────────

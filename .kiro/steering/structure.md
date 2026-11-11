@@ -79,7 +79,7 @@ Flat top-level `src/` with platform adapters isolated under `src/platforms/<name
 ### Scripts
 **Location**: `scripts/`
 **Purpose**: Platform-specific setup helpers that can't be expressed as npm scripts
-**Pattern**: Shell scripts and compiled helpers for one-time or privileged setup operations
+**Pattern**: Shell scripts and compiled helpers for one-time or privileged setup operations. `scripts/setup-env.sh` owns the interactive `.env` credential wizard (prompts, merge logic); `src/setup-env.ts` is a thin `khipu setup-env` CLI wrapper that spawns it and forwards the exit code — no `.env` I/O lives in the TypeScript layer.
 
 ### CI/CD Workflows
 **Location**: `.github/workflows/`

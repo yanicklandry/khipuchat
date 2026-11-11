@@ -22,8 +22,8 @@
     "release",
     "image-support",
     "telegram-image-sync",
-    "tsconfig-typecheck-fix",
-    "node-engines-pin"
+    "setup-wizard",
+    "facebook-messenger"
   ],
   "failed": [],
   "retryCount": {}

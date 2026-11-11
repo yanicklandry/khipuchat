@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, getPlatformLastSyncedAt } from './db'
 import { rebuildEmbeddings } from './index-embeddings'
 import type { AdapterFactory, Platform, PlatformAdapter } from './platforms/types'
-import { loadRegistry } from './account-registry'
+import { loadRegistry, type AccountRegistry } from './account-registry'
 import { PLATFORMS } from './sync-all'
 import { createDiscordAdapter } from './platforms/discord/sync'
 import { createEmailAdapter } from './platforms/email/sync'
@@ -11,7 +11,9 @@ import { createIMessageAdapter } from './platforms/imessage/sync'
 import { createTelegramAdapter } from './platforms/telegram/sync'
 import { createSlackAdapter } from './platforms/slack/sync'
 import { createWhatsAppAdapter } from './platforms/whatsapp/sync'
-import { createSignalAdapter } from './platforms/signal/sync'
+import { resolveSignalFactory } from './platforms/signal/backend'
+import { createFacebookAdapter } from './platforms/facebook/sync'
+import { createZaloAdapter } from './platforms/zalo/sync'
 
 // ---- Constants ----
 
@@ -34,22 +36,26 @@ export function getIntervalMs(platform: Platform): number {
   return DEFAULT_INTERVAL_MS
 }
 
-const LOCAL_ONLY_PLATFORMS: ReadonlySet<Platform> = new Set(['imessage', 'whatsapp'])
+const LOCAL_ONLY_PLATFORMS: ReadonlySet<Platform> = new Set(['imessage', 'whatsapp', 'zalo'])
 
 const REQUIRED_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
-  telegram: ['TG_API_ID', 'TG_API_HASH', 'TG_PHONE'],
+  telegram: ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_PHONE_NUMBER'],
   discord: ['DISCORD_TOKEN'],
   slack: ['SLACK_USER_TOKEN'],
   email: ['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'],
   signal: ['BEEPER_ACCESS_TOKEN'],
+  facebook: ['BEEPER_ACCESS_TOKEN'],
 }
 
 /** Returns true if the platform appears to be configured (credentials present). */
-export function isConfigured(platform: Platform): boolean {
+export function isConfigured(
+  platform: Platform,
+  registry: AccountRegistry = loadRegistry(),
+): boolean {
   if (LOCAL_ONLY_PLATFORMS.has(platform)) return true
   const vars = REQUIRED_ENV_VARS[platform]
-  if (vars === undefined) return false
-  return vars.some(v => (process.env[v] ?? '').length > 0)
+  if (vars !== undefined && vars.some(v => (process.env[v] ?? '').length > 0)) return true
+  return registry.listAccounts(platform).length > 0
 }
 
 /** Executes one poll cycle for the given adapter; catches and logs all errors. */
@@ -125,7 +131,14 @@ const ADAPTER_FACTORIES: Record<Platform, AdapterFactory> = {
   email: createEmailAdapter,
   imessage: createIMessageAdapter,
   whatsapp: createWhatsAppAdapter,
-  signal: createSignalAdapter,
+  // Resolve the Signal factory via the backend selector (beeper default | cli).
+  // A thunk, not a called value: every other entry here is a plain function
+  // reference needing no env read; this keeps the table's shape consistent
+  // and resolves SIGNAL_BACKEND at adapter-construction time, same as every
+  // other platform's credentials (loadRegistry() in main(), not per-poll).
+  signal: (account, credentials) => resolveSignalFactory()(account, credentials),
+  facebook: createFacebookAdapter,
+  zalo: createZaloAdapter,
 }
 
 async function main(): Promise<void> {
@@ -133,7 +146,7 @@ async function main(): Promise<void> {
   const adapters: PlatformAdapter[] = []
 
   for (const platform of PLATFORMS) {
-    if (!isConfigured(platform)) {
+    if (!isConfigured(platform, registry)) {
       console.log(`[${platform}] skipped: not configured (missing credentials)`)
       continue
     }

@@ -2,9 +2,9 @@ import { TelegramClient } from 'telegram'
 import { StringSession } from 'telegram/sessions'
 import { NewMessage, NewMessageEvent } from 'telegram/events'
 import Database from 'better-sqlite3-multiple-ciphers'
-import { config, saveSessionString, type Config } from '../../config'
+import { config, saveSessionString, assertLegacyConfig, type Config } from '../../config'
 import { initDb, getDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, setPlatformLastSyncedAt, type Chat, type Message, type MessageType } from '../../db'
-import { runPlatformSync } from '../../sync-runner'
+import { parseAccountArg, runSyncEntrypoint } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { PlatformAdapter } from '../types'
@@ -307,9 +307,9 @@ export function createTelegramAdapter(account: string, credentials: AccountCrede
     platform: 'telegram',
     account,
     async runBackfill(_db: Database.Database): Promise<void> {
-      const sessionString = credentials.fields['TG_SESSION'] ?? config.sessionString
-      const apiId = parseInt(credentials.fields['TG_API_ID'] ?? String(config.apiId), 10)
-      const apiHash = credentials.fields['TG_API_HASH'] ?? config.apiHash
+      const sessionString = credentials.fields['TELEGRAM_SESSION_STRING'] ?? config.sessionString
+      const apiId = parseInt(credentials.fields['TELEGRAM_API_ID'] ?? String(config.apiId), 10)
+      const apiHash = credentials.fields['TELEGRAM_API_HASH'] ?? config.apiHash
       const session = new StringSession(sessionString)
       const client = new TelegramClient(session, apiId, apiHash, { connectionRetries: 5 })
       await client.connect()
@@ -317,9 +317,9 @@ export function createTelegramAdapter(account: string, credentials: AccountCrede
       try { await runBackfill(client, DEFAULT_SLEEP, 100, 200, account) } finally { await client.disconnect() }
     },
     async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
-      const sessionString = credentials.fields['TG_SESSION'] ?? config.sessionString
-      const apiId = parseInt(credentials.fields['TG_API_ID'] ?? String(config.apiId), 10)
-      const apiHash = credentials.fields['TG_API_HASH'] ?? config.apiHash
+      const sessionString = credentials.fields['TELEGRAM_SESSION_STRING'] ?? config.sessionString
+      const apiId = parseInt(credentials.fields['TELEGRAM_API_ID'] ?? String(config.apiId), 10)
+      const apiHash = credentials.fields['TELEGRAM_API_HASH'] ?? config.apiHash
       const session = new StringSession(sessionString)
       const client = new TelegramClient(session, apiId, apiHash, { connectionRetries: 5 })
       await client.connect()
@@ -333,9 +333,9 @@ export function createTelegramAdapter(account: string, credentials: AccountCrede
 export const telegramAdapter: PlatformAdapter = createTelegramAdapter('default', {
   name: 'default',
   fields: {
-    TG_SESSION: config.sessionString,
-    TG_API_ID: String(config.apiId),
-    TG_API_HASH: config.apiHash,
+    TELEGRAM_SESSION_STRING: config.sessionString,
+    TELEGRAM_API_ID: String(config.apiId),
+    TELEGRAM_API_HASH: config.apiHash,
   },
 })
 
@@ -356,6 +356,20 @@ export async function runSync(
 }
 
 async function main(): Promise<void> {
+  const db = initDb('./khipuchat.db')
+  const account = parseAccountArg(process.argv)
+
+  // Named account: sync exactly that account (adapter connects with its own
+  // session/api fields), then exit — no auth wizard, no persistent listener.
+  if (account !== null) {
+    process.on('unhandledRejection', () => {})
+    await runSyncEntrypoint('telegram', createTelegramAdapter, db, process.argv)
+    await terminateOcr()
+    return
+  }
+
+  assertLegacyConfig()
+
   const backfillOnly = process.argv.includes('--backfill-only')
   const session = new StringSession(config.sessionString)
   const client = new TelegramClient(session, config.apiId, config.apiHash, { connectionRetries: 5 })
@@ -372,10 +386,8 @@ async function main(): Promise<void> {
   // GramJS fires unhandled rejections from its internal update loop on disconnect — suppress them
   process.on('unhandledRejection', () => {})
 
-  const db = initDb('./khipuchat.db')
-
   try {
-    await runPlatformSync(telegramAdapter, db, process.argv)
+    await runSyncEntrypoint('telegram', createTelegramAdapter, db, process.argv)
   } catch (err) {
     console.error(err)
     process.exit(1)
