@@ -1,9 +1,7 @@
 {
   "backlog": [],
   "ready": [],
-  "in-progress": [
-    "facebook-messenger"
-  ],
+  "in-progress": [],
   "done": [
     "platform-abstraction",
     "imessage-sync",
@@ -24,7 +22,8 @@
     "release",
     "image-support",
     "telegram-image-sync",
-    "setup-wizard"
+    "setup-wizard",
+    "facebook-messenger"
   ],
   "failed": [],
   "retryCount": {}

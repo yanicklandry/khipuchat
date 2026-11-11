@@ -54,8 +54,15 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 - [x] image-support -- Umbrella: make image messages (across platforms) visible to search, semantic search, and MCP. Combines telegram-image-sync infrastructure with iMessage attachment extraction and Signal image sync. Dependencies: telegram-image-sync, signal-platform
 - [x] signal-platform -- Sync Signal chats and text messages via Beeper Desktop MCP connector (not direct DB access); implements `PlatformAdapter`; ingests into `chats`/`messages` tables using existing MCP tools. Dependencies: platform-abstraction
 - [x] signal-image-sync -- Download and OCR Signal image attachments via Beeper's attachment API, reusing storage + OCR pipeline from telegram-image-sync. Dependencies: signal-platform, telegram-image-sync
-- [ ] setup-wizard -- Interactive `khipu setup-env` bash script that detects missing `.env` variables and prompts for each with a precise generation link (URL + click path), plus a per-platform token-acquisition doc. Dependencies: multi-account
-- [ ] facebook-messenger -- Sync Facebook Messenger chats + text/image messages via Beeper Desktop API (network filter = facebook), mirroring the signal-platform adapter; registers a new `facebook` platform. Dependencies: signal-platform, platform-abstraction
+- [x] setup-wizard -- Interactive `khipu setup-env` bash script that detects missing `.env` variables and prompts for each with a precise generation link (URL + click path), plus a per-platform token-acquisition doc. Dependencies: multi-account
+- [x] facebook-messenger -- Sync Facebook Messenger chats + text/image messages via Beeper Desktop API (network filter = facebook), mirroring the signal-platform adapter; registers a new `facebook` platform. Dependencies: signal-platform, platform-abstraction
+
+## Phase 3 (2026-09-11 last-day batch) — Specs (dependency order)
+All Phase 1/2 specs above are implemented and validated. This phase adds new query surfaces and platform reach. Discovery + viability research recorded in each spec's brief.md.
+- [x] ollama-mcp -- Local-LLM query surface: `khipu ask "<question>"`. Extract shared `tool-registry.ts` (`TOOL_DEFINITIONS` + `dispatchTool`) from mcp.ts, add `src/ask.ts` Ollama tool-call loop reusing all 9 query handlers, add `ask-parity` test. Dependencies: none (reuses existing handlers)
+- [x] sync-account-routing -- Fix the one-shot per-platform sync entrypoints (`khipu sync <platform>@<account>`) to honor `--account` via loadRegistry/credentialsFor instead of the hardwired `default` adapter; generalizes across all 6 env-based platforms; fix `watch.ts isConfigured()` to treat config-file-only accounts as configured. Closes the "Slack multi-account" candidate. Dependencies: multi-account
+- [x] zalo-sync -- Zalo personal adapter via `zca-js` (MIT) QR-session, whatsapp-web.js-style; live capture + best-effort recent-window backfill (NOT full history); registers `zalo` platform. Dependencies: platform-abstraction
+- [x] signal-direct -- Beeper-independent Signal path: `signal-cli` daemon (JSON-RPC over socket, run as a separate GPLv3 process) linked as a secondary device; live-from-link-forward sync into existing chats/messages tables + image pipeline. Full back-history is best-effort/unverified (45-day media cap). Dependencies: signal-platform, platform-abstraction
 
 ## Existing Spec Updates
 - [x] web-ui -- extended by web-ui-enhancements (chat layout + semantic search UI)
@@ -69,13 +76,12 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 - [x] release -- Docker, README, and CI must use the `khipu` CLI (global install / npm link) instead of `npm run sync:*` and raw `tsx`. Correction appended to requirements.md.
 
 ## Direct Implementation Candidates
-- [ ] mcp-test-script -- `scripts/test-mcp.sh` bash script with sample queries for every MCP tool + `.claude/skills/mcp-testing/SKILL.md`. Pure tooling, no spec needed.
+- [x] mcp-test-script -- `scripts/test-mcp.sh` (portable stdio JSON-RPC smoke test for all 8 MCP tools) + `.claude/skills/mcp-testing/SKILL.md`. Implemented 2026-09-11; verified against the live 950MB DB (server starts, lists all tools, handlers return valid JSON).
 
 ## Future Candidates (not yet scoped)
-- Zalo platform adapter
 - Facebook Groups (research needed: API access model)
 - SMS sync (research needed: macOS/Android bridge)
 - React web UI (vs current plain HTML; tradeoff: complexity vs richer UX)
 - Remote/cloud deployment option (Mac Mini, VPS)
-- Local Ollama integration (alternative to Claude for MCP queries)
-- Slack multi-account support (currently single account)
+- Signal full back-history importer (local plaintext-backup / signalbackup-tools parser — the only route to complete text + pre-45-day images; fallback for signal-direct's link-forward limitation)
+- Zalo full-history fidelity (zca-js is live/recent-window only; deeper history not reliably retrievable)

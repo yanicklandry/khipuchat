@@ -35,5 +35,12 @@
     "telegram-image-sync",
     "setup-wizard",
     "facebook-messenger"
-  ]
+  ],
+  "run": {
+    "runId": "unknown",
+    "pid": 27916,
+    "startedAt": "2026-08-17T18:17:33.841Z",
+    "heartbeatAt": "2026-08-17T18:17:33.841Z",
+    "exit": "clean"
+  }
 }
