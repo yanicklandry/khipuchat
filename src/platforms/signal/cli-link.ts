@@ -10,8 +10,12 @@
  * adapter); types resolve from the installed `@types/qrcode-terminal`.
  */
 
-import { generate as generateQr } from 'qrcode-terminal'
 import type { SignalCliClient } from './cli-client'
+
+// qrcode-terminal is CJS; under tsx dynamic import its exports live on .default.
+// `generate` must be called as a method (it reads `this.error`) — destructuring
+// it and calling it standalone loses that binding and crashes.
+type QrcodeTerminal = { generate(text: string, opts?: { small?: boolean }): void }
 
 export type LinkOutcome =
   | { status: 'linked'; deviceName: string }
@@ -47,7 +51,10 @@ export async function linkSignalCli(
   if (!uri) return { status: 'failed', message: 'signal-cli did not return a device-link URI' }
 
   console.log('\nScan this QR with Signal on your phone (Settings -> Linked devices -> Link new device):\n')
-  generateQr(uri, { small: true })
+  const qrcodeRaw = await import('qrcode-terminal') as unknown
+  const qrGen = ((qrcodeRaw as { default?: QrcodeTerminal }).default
+    ?? (qrcodeRaw as QrcodeTerminal))
+  qrGen.generate(uri, { small: true })
   console.log(`\nOr open this link on the phone:\n${uri}\n`)
 
   let timer: NodeJS.Timeout | undefined

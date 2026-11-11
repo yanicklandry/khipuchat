@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('qrcode-terminal', () => ({ generate: vi.fn() }))
+vi.mock('qrcode-terminal', () => {
+  const generate = vi.fn()
+  return { generate, default: { generate } }
+})
 
 import { generate as generateQr } from 'qrcode-terminal'
 import { linkSignalCli } from '../src/platforms/signal/cli-link'
