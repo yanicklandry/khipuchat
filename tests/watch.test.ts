@@ -49,7 +49,15 @@ import { getIntervalMs, DEFAULT_INTERVAL_MS, pollCycle } from '../src/watch'
 import { getPlatformLastSyncedAt } from '../src/db'
 import { rebuildEmbeddings } from '../src/index-embeddings'
 import type Database from 'better-sqlite3-multiple-ciphers'
-import type { PlatformAdapter } from '../src/platforms/types'
+import type { PlatformAdapter, Platform } from '../src/platforms/types'
+import type { AccountRegistry } from '../src/account-registry'
+
+function registryWith(accounts: Partial<Record<Platform, string[]>>): AccountRegistry {
+  return {
+    listAccounts: (platform) => accounts[platform] ?? [],
+    credentialsFor: (_platform, account) => ({ name: account, fields: {} }),
+  }
+}
 
 // Helper to build a mock db with configurable COUNT(*) return values
 function makeMockDb(...counts: number[]): Database.Database {
@@ -263,6 +271,28 @@ describe('isConfigured', () => {
     expect(isConfigured('telegram')).toBe(false)
     expect(isConfigured('slack')).toBe(false)
     expect(isConfigured('email')).toBe(false)
+  })
+
+  it('returns true for a platform with registry accounts but no legacy env var', async () => {
+    const { isConfigured } = await import('../src/watch')
+    expect(isConfigured('discord', registryWith({ discord: ['work'] }))).toBe(true)
+  })
+
+  it('returns false when a platform has neither env var nor registry accounts', async () => {
+    const { isConfigured } = await import('../src/watch')
+    expect(isConfigured('discord', registryWith({}))).toBe(false)
+  })
+
+  it('still returns true for legacy env-var platforms even with an empty registry', async () => {
+    const { isConfigured } = await import('../src/watch')
+    process.env['SLACK_USER_TOKEN'] = 'xoxp-token'
+    expect(isConfigured('slack', registryWith({}))).toBe(true)
+  })
+
+  it('still returns true for local-only platforms with an empty registry', async () => {
+    const { isConfigured } = await import('../src/watch')
+    expect(isConfigured('imessage', registryWith({}))).toBe(true)
+    expect(isConfigured('whatsapp', registryWith({}))).toBe(true)
   })
 })
 

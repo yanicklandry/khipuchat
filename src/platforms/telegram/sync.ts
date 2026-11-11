@@ -4,7 +4,7 @@ import { NewMessage, NewMessageEvent } from 'telegram/events'
 import Database from 'better-sqlite3-multiple-ciphers'
 import { config, saveSessionString, type Config } from '../../config'
 import { initDb, getDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, setPlatformLastSyncedAt, type Chat, type Message, type MessageType } from '../../db'
-import { runPlatformSync } from '../../sync-runner'
+import { parseAccountArg, runSyncEntrypoint } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { PlatformAdapter } from '../types'
@@ -356,6 +356,18 @@ export async function runSync(
 }
 
 async function main(): Promise<void> {
+  const db = initDb('./khipuchat.db')
+  const account = parseAccountArg(process.argv)
+
+  // Named account: sync exactly that account (adapter connects with its own
+  // session/api fields), then exit — no auth wizard, no persistent listener.
+  if (account !== null) {
+    process.on('unhandledRejection', () => {})
+    await runSyncEntrypoint('telegram', createTelegramAdapter, db, process.argv)
+    await terminateOcr()
+    return
+  }
+
   const backfillOnly = process.argv.includes('--backfill-only')
   const session = new StringSession(config.sessionString)
   const client = new TelegramClient(session, config.apiId, config.apiHash, { connectionRetries: 5 })
@@ -372,10 +384,8 @@ async function main(): Promise<void> {
   // GramJS fires unhandled rejections from its internal update loop on disconnect — suppress them
   process.on('unhandledRejection', () => {})
 
-  const db = initDb('./khipuchat.db')
-
   try {
-    await runPlatformSync(telegramAdapter, db, process.argv)
+    await runSyncEntrypoint('telegram', createTelegramAdapter, db, process.argv)
   } catch (err) {
     console.error(err)
     process.exit(1)

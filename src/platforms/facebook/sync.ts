@@ -9,7 +9,7 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import type { Chat, Message } from '../../db'
 import { initDb, upsertChat, insertMessage, getLastSyncedId } from '../../db'
-import { runPlatformSync } from '../../sync-runner'
+import { runSyncEntrypoint } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../../platforms/types'
@@ -169,7 +169,7 @@ export const facebookAdapter: PlatformAdapter = createFacebookAdapter('default',
 
 async function main(): Promise<void> {
   const db = initDb('./khipuchat.db')
-  await runPlatformSync(facebookAdapter, db, process.argv)
+  await runSyncEntrypoint('facebook', createFacebookAdapter, db, process.argv)
 }
 
 if (require.main === module) {

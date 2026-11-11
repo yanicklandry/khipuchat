@@ -64,6 +64,53 @@ export async function runPlatformSync(
   }
 }
 
+/**
+ * Extract the value following `--account` in argv, or null when the flag is
+ * absent. Ignores unrelated flags (e.g. `--force`, `--backfill`).
+ */
+export function parseAccountArg(argv: readonly string[]): string | null {
+  const idx = argv.indexOf('--account')
+  if (idx === -1) return null
+  return argv[idx + 1] ?? null
+}
+
+/**
+ * Shared entrypoint used by every env-based platform `main()`. When `--account
+ * <name>` is present, resolves that account's credentials and syncs exactly it;
+ * otherwise delegates to `runAllAccountsSync` (which yields all configured
+ * accounts, or the single legacy `default` when no config file exists).
+ *
+ * A named-but-missing account is never routed to `default`: `credentialsFor`
+ * throws and the error propagates to the caller's `main()` catch.
+ */
+export async function runSyncEntrypoint(
+  platform: Platform,
+  factory: AdapterFactory,
+  db: Database.Database,
+  argv: readonly string[],
+  registry: AccountRegistry = loadRegistry(),
+): Promise<AccountSyncOutcome[]> {
+  const account = parseAccountArg(argv)
+  if (account !== null) {
+    const credentials = registry.credentialsFor(platform, account)
+    const adapter = factory(account, credentials)
+    await runPlatformSync(adapter, db, argv)
+    return [{ account, ok: true }]
+  }
+
+  // No config file and legacy env unset => zero accounts. Preserve the legacy
+  // single-account behavior: build the `default` adapter and run it directly so
+  // its own missing-credential message + process.exit(1) fire (Req 3.3). When
+  // accounts exist, delegate to the per-account fan-out unchanged.
+  if (registry.listAccounts(platform).length === 0) {
+    const adapter = factory('default', { name: 'default', fields: {} })
+    await runPlatformSync(adapter, db, argv)
+    return [{ account: 'default', ok: true }]
+  }
+
+  return runAllAccountsSync(platform, factory, db, argv, registry)
+}
+
 export async function runAllAccountsSync(
   platform: Platform,
   factory: AdapterFactory,

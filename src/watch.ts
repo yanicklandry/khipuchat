@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, getPlatformLastSyncedAt } from './db'
 import { rebuildEmbeddings } from './index-embeddings'
 import type { AdapterFactory, Platform, PlatformAdapter } from './platforms/types'
-import { loadRegistry } from './account-registry'
+import { loadRegistry, type AccountRegistry } from './account-registry'
 import { PLATFORMS } from './sync-all'
 import { createDiscordAdapter } from './platforms/discord/sync'
 import { createEmailAdapter } from './platforms/email/sync'
@@ -47,11 +47,14 @@ const REQUIRED_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
 }
 
 /** Returns true if the platform appears to be configured (credentials present). */
-export function isConfigured(platform: Platform): boolean {
+export function isConfigured(
+  platform: Platform,
+  registry: AccountRegistry = loadRegistry(),
+): boolean {
   if (LOCAL_ONLY_PLATFORMS.has(platform)) return true
   const vars = REQUIRED_ENV_VARS[platform]
-  if (vars === undefined) return false
-  return vars.some(v => (process.env[v] ?? '').length > 0)
+  if (vars !== undefined && vars.some(v => (process.env[v] ?? '').length > 0)) return true
+  return registry.listAccounts(platform).length > 0
 }
 
 /** Executes one poll cycle for the given adapter; catches and logs all errors. */
@@ -136,7 +139,7 @@ async function main(): Promise<void> {
   const adapters: PlatformAdapter[] = []
 
   for (const platform of PLATFORMS) {
-    if (!isConfigured(platform)) {
+    if (!isConfigured(platform, registry)) {
       console.log(`[${platform}] skipped: not configured (missing credentials)`)
       continue
     }
