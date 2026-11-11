@@ -538,6 +538,27 @@ describe('runSyncEntrypoint', () => {
     expect(backfills['personal']).toHaveBeenCalledOnce()
   })
 
+  it('no account, one of several accounts fails: still syncs the rest but rejects overall (non-zero exit)', async () => {
+    const registry: AccountRegistry = {
+      listAccounts: () => ['work', 'personal'],
+      credentialsFor: (_p, account): AccountCredentials => ({ name: account, fields: {} }),
+    }
+    const personalBackfill = vi.fn().mockResolvedValue(undefined)
+    const factory: AdapterFactory = (account) => ({
+      platform: 'slack',
+      account,
+      runBackfill: account === 'work' ? vi.fn().mockRejectedValue(new Error('auth revoked')) : personalBackfill,
+      startListener: vi.fn(),
+    })
+
+    await expect(
+      runSyncEntrypoint('slack', factory, db, ['node', 'x'], registry),
+    ).rejects.toThrow(/1 of 2 account\(s\) failed to sync.*work: auth revoked/)
+
+    // The failing account must not abort the others: personal still ran.
+    expect(personalBackfill).toHaveBeenCalledOnce()
+  })
+
   it('no account and zero registered accounts builds the default adapter and runs it (legacy fallback)', async () => {
     // Registry with an empty account list mirrors a legacy install with no
     // config file and the legacy env var unset. The entrypoint must still build

@@ -108,7 +108,19 @@ export async function runSyncEntrypoint(
     return [{ account: 'default', ok: true }]
   }
 
-  return runAllAccountsSync(platform, factory, db, argv, registry)
+  const outcomes = await runAllAccountsSync(platform, factory, db, argv, registry)
+
+  // runAllAccountsSync itself never throws (each account's failure is isolated
+  // so sibling accounts still get a chance to sync), but a caller's top-level
+  // main().catch(...) needs a non-zero exit when any account failed — silently
+  // resolving here previously made `khipu sync <platform>` exit 0 on failure.
+  const failures = outcomes.filter((o) => !o.ok)
+  if (failures.length > 0) {
+    const detail = failures.map((f) => `${f.account}: ${f.error}`).join('; ')
+    throw new Error(`${failures.length} of ${outcomes.length} account(s) failed to sync: ${detail}`)
+  }
+
+  return outcomes
 }
 
 export async function runAllAccountsSync(
