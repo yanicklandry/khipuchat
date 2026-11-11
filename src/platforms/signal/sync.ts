@@ -9,7 +9,7 @@
 import Database from 'better-sqlite3-multiple-ciphers'
 import type { Chat, Message } from '../../db'
 import { initDb, upsertChat, insertMessage, getLastSyncedId } from '../../db'
-import { runPlatformSync } from '../../sync-runner'
+import { runSyncEntrypoint } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
 import { embedNewMessages, embedNewChats } from '../../index-embeddings'
 import type { Platform, PlatformAdapter } from '../../platforms/types'
@@ -175,42 +175,17 @@ async function main(): Promise<void> {
 
   // cli backend + `--link`: run the secondary-device linking flow, not a sync.
   if (selectedSignalBackend() === 'cli' && process.argv.includes('--link')) {
-    const { connectSignalCli } = await import('./cli-client')
-    const { linkSignalCli } = await import('./cli-link')
-    const socketPath = process.env['SIGNAL_CLI_SOCKET']
-    const conn = await connectSignalCli(socketPath ? { socketPath } : {})
-    if (!conn.ok) {
-      process.stderr.write(`[signal] ${conn.message}\n`)
-      process.exit(1)
-      return
-    }
-    try {
-      const outcome = await linkSignalCli(conn.client)
-      if (outcome.status === 'linked') {
-        console.log(`[signal] Linked as "${outcome.deviceName}". Run \`SIGNAL_BACKEND=cli khipu sync signal\` to ingest.`)
-      } else if (outcome.status === 'already_linked') {
-        console.log('[signal] Already linked. Run a normal sync to ingest.')
-      } else if (outcome.status === 'timeout') {
-        process.stderr.write('[signal] Linking timed out before the QR was approved. Nothing was ingested.\n')
-        process.exit(1)
-      } else {
-        process.stderr.write(`[signal] Linking failed: ${outcome.message}\n`)
-        process.exit(1)
-      }
-    } finally {
-      conn.client.close()
-    }
+    const { runLinkCommand } = await import('./cli-link')
+    await runLinkCommand()
     return
   }
 
-  // Normal sync: build the default adapter for the selected backend. When the
-  // backend is `beeper` this is identical to the previous `signalAdapter` path.
+  // Normal sync: route through the same shared entrypoint every other
+  // platform uses, so `--account <name>` is honored for Signal too. When the
+  // backend is `beeper` this is behaviorally identical to the previous
+  // always-'default' path.
   const factory = resolveSignalFactory()
-  const adapter = factory('default', {
-    name: 'default',
-    fields: { BEEPER_ACCESS_TOKEN: process.env['BEEPER_ACCESS_TOKEN'] ?? '' },
-  })
-  await runPlatformSync(adapter, db, process.argv)
+  await runSyncEntrypoint('signal', factory, db, process.argv)
 }
 
 if (require.main === module) {

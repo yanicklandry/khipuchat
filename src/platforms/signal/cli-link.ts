@@ -78,3 +78,36 @@ export async function linkSignalCli(
     if (timer) clearTimeout(timer)
   }
 }
+
+/**
+ * CLI orchestration for `khipu sync signal --link`: connect to the signal-cli
+ * daemon, run the link flow, print the outcome, and set the process exit code.
+ * Extracted out of signal/sync.ts's main() to keep that file under the
+ * project's 200-line-per-file convention.
+ */
+export async function runLinkCommand(): Promise<void> {
+  const { connectSignalCli } = await import('./cli-client')
+  const socketPath = process.env['SIGNAL_CLI_SOCKET']
+  const conn = await connectSignalCli(socketPath ? { socketPath } : {})
+  if (!conn.ok) {
+    process.stderr.write(`[signal] ${conn.message}\n`)
+    process.exit(1)
+    return
+  }
+  try {
+    const outcome = await linkSignalCli(conn.client)
+    if (outcome.status === 'linked') {
+      console.log(`[signal] Linked as "${outcome.deviceName}". Run \`SIGNAL_BACKEND=cli khipu sync signal\` to ingest.`)
+    } else if (outcome.status === 'already_linked') {
+      console.log('[signal] Already linked. Run a normal sync to ingest.')
+    } else if (outcome.status === 'timeout') {
+      process.stderr.write('[signal] Linking timed out before the QR was approved. Nothing was ingested.\n')
+      process.exit(1)
+    } else {
+      process.stderr.write(`[signal] Linking failed: ${outcome.message}\n`)
+      process.exit(1)
+    }
+  } finally {
+    conn.client.close()
+  }
+}
