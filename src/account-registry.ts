@@ -37,6 +37,16 @@ const LEGACY_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
   facebook: ['BEEPER_ACCESS_TOKEN'],
 }
 
+/**
+ * Optional env vars LOCAL_ONLY_PLATFORMS still read (a custom session path),
+ * even though their presence/absence never affects whether the platform is
+ * considered "configured" (LOCAL_ONLY_PLATFORMS always get a 'default' account).
+ */
+const LOCAL_ONLY_OPTIONAL_ENV_VARS: Partial<Record<Platform, string>> = {
+  whatsapp: 'WHATSAPP_SESSION',
+  zalo: 'ZALO_SESSION',
+}
+
 // ── $VAR resolution ───────────────────────────────────────────────────────────
 
 function resolveField(
@@ -76,9 +86,16 @@ function buildLegacyAccounts(
 ): Map<Platform, AccountCredentials[]> {
   const map = new Map<Platform, AccountCredentials[]>()
 
-  // Local-only platforms always get a 'default' account (no env needed)
+  // Local-only platforms always get a 'default' account (no env needed to be
+  // "configured"), but still thread through an optional custom session path.
   for (const platform of LOCAL_ONLY_PLATFORMS) {
-    map.set(platform, [{ name: 'default', fields: {} }])
+    const fields: Record<string, string> = {}
+    const optionalVar = LOCAL_ONLY_OPTIONAL_ENV_VARS[platform]
+    if (optionalVar) {
+      const val = env[optionalVar]
+      if (val) fields[optionalVar] = val
+    }
+    map.set(platform, [{ name: 'default', fields }])
   }
 
   // Env-var platforms: only synthesize if at least one var is set

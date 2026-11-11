@@ -83,6 +83,25 @@ describe('loadRegistry — absent config file', () => {
     // whatsapp uses local session, no env vars, so always returns ['default']
     expect(reg.listAccounts('whatsapp')).toEqual(['default'])
   })
+
+  it('threads WHATSAPP_SESSION into the synthesized default account fields', () => {
+    const env: NodeJS.ProcessEnv = { WHATSAPP_SESSION: '/custom/wa-session' }
+    const reg = loadRegistry('/nonexistent/khipu.config.json', env)
+    expect(reg.credentialsFor('whatsapp', 'default').fields).toEqual({ WHATSAPP_SESSION: '/custom/wa-session' })
+  })
+
+  it('threads ZALO_SESSION into the synthesized default account fields', () => {
+    const env: NodeJS.ProcessEnv = { ZALO_SESSION: '/custom/zalo-session' }
+    const reg = loadRegistry('/nonexistent/khipu.config.json', env)
+    expect(reg.credentialsFor('zalo', 'default').fields).toEqual({ ZALO_SESSION: '/custom/zalo-session' })
+  })
+
+  it('whatsapp/zalo default fields stay empty when no custom session env var is set', () => {
+    const env: NodeJS.ProcessEnv = {}
+    const reg = loadRegistry('/nonexistent/khipu.config.json', env)
+    expect(reg.credentialsFor('whatsapp', 'default').fields).toEqual({})
+    expect(reg.credentialsFor('zalo', 'default').fields).toEqual({})
+  })
 })
 
 // ── 2. Config file present ────────────────────────────────────────────────────
