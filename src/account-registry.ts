@@ -24,6 +24,7 @@ export interface AccountRegistry {
 const LOCAL_ONLY_PLATFORMS: ReadonlySet<Platform> = new Set([
   'imessage',
   'whatsapp',
+  'zalo',
 ])
 
 /** Env vars each platform reads from in a legacy (no config file) install. */

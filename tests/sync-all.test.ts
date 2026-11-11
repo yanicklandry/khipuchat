@@ -39,13 +39,13 @@ describe('runAllPlatforms', () => {
     vi.restoreAllMocks()
   })
 
-  it('spawns exactly 8 children, one per platform', async () => {
+  it('spawns exactly 9 children, one per platform', async () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms([])
-    expect(spawnMock).toHaveBeenCalledTimes(8)
+    expect(spawnMock).toHaveBeenCalledTimes(9)
   })
 
-  it('spawns platforms in fixed serial order: telegram first, facebook last', async () => {
+  it('spawns platforms in fixed serial order: telegram first, zalo last', async () => {
     const order: string[] = []
     spawnMock.mockImplementation((_cmd: string, args: string[]) => {
       // args[1] is the script path like 'src/platforms/<p>/sync.ts'
@@ -58,11 +58,11 @@ describe('runAllPlatforms', () => {
     await runAllPlatforms([])
 
     expect(order[0]).toBe('telegram')
-    expect(order[order.length - 1]).toBe('facebook')
-    expect(new Set(order).size).toBe(8) // all unique
+    expect(order[order.length - 1]).toBe('zalo')
+    expect(new Set(order).size).toBe(9) // all unique
   })
 
-  it('forwards --force flag to all 8 children', async () => {
+  it('forwards --force flag to all 9 children', async () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms(['--force'])
 
@@ -72,7 +72,7 @@ describe('runAllPlatforms', () => {
     }
   })
 
-  it('forwards --backfill flag to all 8 children', async () => {
+  it('forwards --backfill flag to all 9 children', async () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms(['--backfill'])
 
@@ -108,8 +108,8 @@ describe('runAllPlatforms', () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms([])
 
-    // All 8 must have been spawned despite the first failing
-    expect(spawnMock).toHaveBeenCalledTimes(8)
+    // All 9 must have been spawned despite the first failing
+    expect(spawnMock).toHaveBeenCalledTimes(9)
   })
 
   it('returns true (aggregate success) when all children exit 0', async () => {

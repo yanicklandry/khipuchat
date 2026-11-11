@@ -13,6 +13,7 @@ import { createSlackAdapter } from './platforms/slack/sync'
 import { createWhatsAppAdapter } from './platforms/whatsapp/sync'
 import { createSignalAdapter } from './platforms/signal/sync'
 import { createFacebookAdapter } from './platforms/facebook/sync'
+import { createZaloAdapter } from './platforms/zalo/sync'
 
 // ---- Constants ----
 
@@ -35,7 +36,7 @@ export function getIntervalMs(platform: Platform): number {
   return DEFAULT_INTERVAL_MS
 }
 
-const LOCAL_ONLY_PLATFORMS: ReadonlySet<Platform> = new Set(['imessage', 'whatsapp'])
+const LOCAL_ONLY_PLATFORMS: ReadonlySet<Platform> = new Set(['imessage', 'whatsapp', 'zalo'])
 
 const REQUIRED_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
   telegram: ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_PHONE_NUMBER'],
@@ -132,6 +133,7 @@ const ADAPTER_FACTORIES: Record<Platform, AdapterFactory> = {
   whatsapp: createWhatsAppAdapter,
   signal: createSignalAdapter,
   facebook: createFacebookAdapter,
+  zalo: createZaloAdapter,
 }
 
 async function main(): Promise<void> {
