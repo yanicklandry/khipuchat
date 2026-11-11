@@ -2,7 +2,7 @@ import { TelegramClient } from 'telegram'
 import { StringSession } from 'telegram/sessions'
 import { NewMessage, NewMessageEvent } from 'telegram/events'
 import Database from 'better-sqlite3-multiple-ciphers'
-import { config, saveSessionString, type Config } from '../../config'
+import { config, saveSessionString, assertLegacyConfig, type Config } from '../../config'
 import { initDb, getDb, upsertChat, insertMessage, getLastSyncedId, setLastSyncedAt, setPlatformLastSyncedAt, type Chat, type Message, type MessageType } from '../../db'
 import { parseAccountArg, runSyncEntrypoint } from '../../sync-runner'
 import { isIndexed } from '../../vec-db'
@@ -367,6 +367,8 @@ async function main(): Promise<void> {
     await terminateOcr()
     return
   }
+
+  assertLegacyConfig()
 
   const backfillOnly = process.argv.includes('--backfill-only')
   const session = new StringSession(config.sessionString)
