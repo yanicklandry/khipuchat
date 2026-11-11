@@ -11,7 +11,7 @@ import { createIMessageAdapter } from './platforms/imessage/sync'
 import { createTelegramAdapter } from './platforms/telegram/sync'
 import { createSlackAdapter } from './platforms/slack/sync'
 import { createWhatsAppAdapter } from './platforms/whatsapp/sync'
-import { createSignalAdapter } from './platforms/signal/sync'
+import { resolveSignalFactory } from './platforms/signal/backend'
 import { createFacebookAdapter } from './platforms/facebook/sync'
 import { createZaloAdapter } from './platforms/zalo/sync'
 
@@ -131,7 +131,8 @@ const ADAPTER_FACTORIES: Record<Platform, AdapterFactory> = {
   email: createEmailAdapter,
   imessage: createIMessageAdapter,
   whatsapp: createWhatsAppAdapter,
-  signal: createSignalAdapter,
+  // Resolve the Signal factory via the backend selector (beeper default | cli).
+  signal: resolveSignalFactory(),
   facebook: createFacebookAdapter,
   zalo: createZaloAdapter,
 }

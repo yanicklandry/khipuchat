@@ -169,7 +169,48 @@ export const signalAdapter: PlatformAdapter = createSignalAdapter('default', {
 
 async function main(): Promise<void> {
   const db = initDb('./khipuchat.db')
-  await runPlatformSync(signalAdapter, db, process.argv)
+  // Dynamic import breaks the sync <-> backend module cycle (backend imports
+  // createSignalAdapter from this module).
+  const { resolveSignalFactory, selectedSignalBackend } = await import('./backend')
+
+  // cli backend + `--link`: run the secondary-device linking flow, not a sync.
+  if (selectedSignalBackend() === 'cli' && process.argv.includes('--link')) {
+    const { connectSignalCli } = await import('./cli-client')
+    const { linkSignalCli } = await import('./cli-link')
+    const socketPath = process.env['SIGNAL_CLI_SOCKET']
+    const conn = await connectSignalCli(socketPath ? { socketPath } : {})
+    if (!conn.ok) {
+      process.stderr.write(`[signal] ${conn.message}\n`)
+      process.exit(1)
+      return
+    }
+    try {
+      const outcome = await linkSignalCli(conn.client)
+      if (outcome.status === 'linked') {
+        console.log(`[signal] Linked as "${outcome.deviceName}". Run \`SIGNAL_BACKEND=cli khipu sync signal\` to ingest.`)
+      } else if (outcome.status === 'already_linked') {
+        console.log('[signal] Already linked. Run a normal sync to ingest.')
+      } else if (outcome.status === 'timeout') {
+        process.stderr.write('[signal] Linking timed out before the QR was approved. Nothing was ingested.\n')
+        process.exit(1)
+      } else {
+        process.stderr.write(`[signal] Linking failed: ${outcome.message}\n`)
+        process.exit(1)
+      }
+    } finally {
+      conn.client.close()
+    }
+    return
+  }
+
+  // Normal sync: build the default adapter for the selected backend. When the
+  // backend is `beeper` this is identical to the previous `signalAdapter` path.
+  const factory = resolveSignalFactory()
+  const adapter = factory('default', {
+    name: 'default',
+    fields: { BEEPER_ACCESS_TOKEN: process.env['BEEPER_ACCESS_TOKEN'] ?? '' },
+  })
+  await runPlatformSync(adapter, db, process.argv)
 }
 
 if (require.main === module) {

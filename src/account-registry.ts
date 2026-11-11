@@ -97,6 +97,16 @@ function buildLegacyAccounts(
     }
   }
 
+  // signal-cli backend: synthesize a `default` Signal account even without
+  // BEEPER_ACCESS_TOKEN, so the watch loop can pick it up. Additive — never
+  // overrides a Beeper-token-derived signal account.
+  if ((env['SIGNAL_BACKEND'] ?? '').toLowerCase() === 'cli' && !map.has('signal')) {
+    const fields: Record<string, string> = {}
+    const socket = env['SIGNAL_CLI_SOCKET']
+    if (socket) fields['SIGNAL_CLI_SOCKET'] = socket
+    map.set('signal', [{ name: 'default', fields }])
+  }
+
   return map
 }
 
