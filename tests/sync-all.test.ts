@@ -82,6 +82,18 @@ describe('runAllPlatforms', () => {
     }
   })
 
+  it('forwards --account <name> to all 9 children', async () => {
+    const { runAllPlatforms } = await import('../src/sync-all')
+    await runAllPlatforms(['--account', 'work'])
+
+    for (const call of spawnMock.mock.calls) {
+      const args = call[1] as string[]
+      const idx = args.indexOf('--account')
+      expect(idx).toBeGreaterThanOrEqual(0)
+      expect(args[idx + 1]).toBe('work')
+    }
+  })
+
   it('adds --backfill-only to telegram child only', async () => {
     const { runAllPlatforms } = await import('../src/sync-all')
     await runAllPlatforms([])

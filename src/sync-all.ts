@@ -1,5 +1,6 @@
 import { spawn } from 'child_process'
 import * as path from 'path'
+import { parseAccountArg } from './sync-runner'
 
 export const PLATFORMS = ['telegram', 'imessage', 'discord', 'slack', 'email', 'whatsapp', 'signal', 'facebook', 'zalo'] as const
 
@@ -8,12 +9,14 @@ const TSX_BIN = path.join(PROJECT_ROOT, 'node_modules', '.bin', 'tsx')
 
 /**
  * Spawn each platform sync script serially.
- * Forwards `--force` and `--backfill` from argv to every child.
+ * Forwards `--force`, `--backfill`, and `--account <name>` from argv to every child.
  * Appends `--backfill-only` to the telegram child so it exits after sync.
  * Returns `true` if any child exited non-zero, `false` otherwise.
  */
 export async function runAllPlatforms(argv: readonly string[]): Promise<boolean> {
-  const forwarded = argv.filter(a => a === '--force' || a === '--backfill')
+  const forwarded: string[] = argv.filter(a => a === '--force' || a === '--backfill')
+  const account = parseAccountArg(argv)
+  if (account !== null) forwarded.push('--account', account)
 
   let anyFailed = false
 
