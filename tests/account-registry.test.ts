@@ -96,6 +96,24 @@ describe('loadRegistry — absent config file', () => {
     expect(reg.credentialsFor('zalo', 'default').fields).toEqual({ ZALO_SESSION: '/custom/zalo-session' })
   })
 
+  it('threads an optional legacy ZALO_UID into the default zalo account (zalo-full-history 2.5)', () => {
+    const env: NodeJS.ProcessEnv = { ZALO_UID: '283886062958706980' }
+    const reg = loadRegistry('/nonexistent/khipu.config.json', env)
+    expect(reg.credentialsFor('zalo', 'default').fields).toEqual({ ZALO_UID: '283886062958706980' })
+  })
+
+  it('threads ZALO_SESSION and ZALO_UID together', () => {
+    const env: NodeJS.ProcessEnv = { ZALO_SESSION: '/s', ZALO_UID: '42' }
+    const reg = loadRegistry('/nonexistent/khipu.config.json', env)
+    expect(reg.credentialsFor('zalo', 'default').fields).toEqual({ ZALO_SESSION: '/s', ZALO_UID: '42' })
+  })
+
+  it('ZALO_UID never leaks into the whatsapp account', () => {
+    const env: NodeJS.ProcessEnv = { ZALO_UID: '42', WHATSAPP_SESSION: '/wa' }
+    const reg = loadRegistry('/nonexistent/khipu.config.json', env)
+    expect(reg.credentialsFor('whatsapp', 'default').fields).toEqual({ WHATSAPP_SESSION: '/wa' })
+  })
+
   it('whatsapp/zalo default fields stay empty when no custom session env var is set', () => {
     const env: NodeJS.ProcessEnv = {}
     const reg = loadRegistry('/nonexistent/khipu.config.json', env)
