@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  parseArgs, resolveAccount, exitCodeFor, errorMessage, run, DISCLOSURE, SHAPE_HINT, type CliIo,
+  parseArgs, resolveAccount, exitCodeFor, errorMessage, run, interruptHandler, DISCLOSURE, SHAPE_HINT, type CliIo,
 } from '../src/platforms/zalo/history/cli'
 import type { ImportError, ImportSummary, Result } from '../src/platforms/zalo/history/types'
 
@@ -62,6 +62,7 @@ describe('errorMessage', () => {
     [{ kind: 'account_mismatch', step: 'account', expectedUid: null, actualUid: 'U2', boundAccount: 'personal' }, /logged in as U2.*already linked to account personal, not work.*Nothing was imported/],
     [{ kind: 'uid_store_invalid', step: 'account', path: '/x/.zalo_uids.json' }, /^The Zalo account link file \/x\/\.zalo_uids\.json is corrupt\. Fix or delete it, then re-run\.$/],
     [{ kind: 'connection_lost', step: 'read', conversationsDone: 4 }, /Lost connection to Zalo PC after 4 conversations\. Re-run to continue; nothing is duplicated/],
+    [{ kind: 'interrupted', step: 'read', conversationsDone: 2 }, /Interrupted after 2 conversations\. Re-run to continue; nothing is duplicated/],
   ]
   for (const [err, re] of cases) {
     it(err.kind + ('boundAccount' in err ? ' (bound elsewhere)' : ''), () => expect(errorMessage(err, 'work')).toMatch(re))
@@ -86,6 +87,21 @@ function harness(result: Result<ImportSummary>, accounts: string[] = ['default']
   return { io, out, calls }
 }
 
+describe('interruptHandler (review finding 1)', () => {
+  it('the first Ctrl-C aborts the import and says Zalo PC is being reopened; the second forces exit 130', () => {
+    const controller = new AbortController()
+    const lines: string[] = []
+    const exits: number[] = []
+    const onSignal = interruptHandler(controller, (l) => lines.push(l), (code) => exits.push(code))
+    onSignal()
+    expect(controller.signal.aborted).toBe(true)
+    expect(lines.join('\n')).toMatch(/reopening Zalo PC normally.*again to force/i)
+    expect(exits).toEqual([])
+    onSignal()
+    expect(exits).toEqual([130])
+  })
+})
+
 describe('run', () => {
   it('prints the disclosure before anything else, then the summary, and exits 0', async () => {
     const h = harness({ ok: true, value: SUMMARY })
@@ -100,7 +116,18 @@ describe('run', () => {
   it('passes the account, app path, and configured Zalo uid to the importer', async () => {
     const h = harness({ ok: true, value: SUMMARY }, ['default', 'work'], { ZALO_UID: '42' })
     await run(['--account', 'work', '--app-path', '/opt/Zalo.app'], h.io)
-    expect(h.calls).toEqual([{ account: 'work', appPath: '/opt/Zalo.app', configuredUid: '42', reporter: expect.anything() }])
+    expect(h.calls).toEqual([{ account: 'work', appPath: '/opt/Zalo.app', configuredUid: '42', reporter: expect.anything(), signal: undefined }])
+  })
+
+  it('passes the interrupt signal through to the importer', async () => {
+    const h = harness({ ok: true, value: SUMMARY })
+    const controller = new AbortController()
+    h.io.signal = controller.signal
+    let got: AbortSignal | undefined
+    const inner = h.io.runImport
+    h.io.runImport = async (opts) => { got = opts.signal; return inner(opts) }
+    await run([], h.io)
+    expect(got).toBe(controller.signal)
   })
 
   it('an empty ZALO_UID counts as not configured', async () => {

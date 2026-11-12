@@ -6,8 +6,6 @@ import type { CdpSession } from './cdp'
 import type { ImportError, PageCursor, Result, ZaloPcConversation, ZaloPcRow } from './types'
 
 const EVAL_TIMEOUT_MS = 60_000
-/** Matches the CDP client's local-timeout message (cdp.ts). */
-const TIMED_OUT = /timed out/i
 const READ_FNS = ['getUserId', 'getMe', 'getConversations', 'getMessageFromConversationByLimit'] as const
 
 /** Markers embedded in each expression (also lets tests route fake answers). */
@@ -103,22 +101,36 @@ export function createStoreReader(session: CdpSession, zaloVersion: string | nul
     ({ ok: false, error: { kind: 'shape_unrecognised', step: 'shape', detail, zaloVersion } })
 
   /**
-   * Renderer exceptions in our read calls mean Zalo PC internals changed. Timeouts
-   * and a lost connection are not shape problems and pass through unchanged.
+   * A renderer exception or an undecodable result means Zalo PC internals changed.
+   * Timeouts, CDP protocol errors, and a lost connection are not shape problems
+   * and pass through unchanged.
    */
-  async function run<T>(expression: string): Promise<Result<T>> {
-    const r = await session.evaluate<T>(expression, EVAL_TIMEOUT_MS)
-    if (!r.ok && r.error.kind === 'attach_failed' && !TIMED_OUT.test(r.error.message)) {
+  function classify<T>(r: Result<T>): Result<T> {
+    if (!r.ok && r.error.kind === 'attach_failed' && (r.error.cause === 'exception' || r.error.cause === 'decode')) {
       return shape(`renderer call failed: ${r.error.message}`)
     }
     return r
+  }
+  const run = async <T>(expression: string): Promise<Result<T>> => classify(await session.evaluate<T>(expression, EVAL_TIMEOUT_MS))
+
+  /**
+   * Startup polling: a renderer exception or a CDP protocol error (context not
+   * ready yet) is retried. A timeout, undecodable result, or lost connection is
+   * returned at once, so a hung renderer never stalls the import for minutes.
+   */
+  async function poll<T>(expression: string, attempt: number): Promise<Result<T> | 'retry'> {
+    const raw = await session.evaluate<T>(expression, EVAL_TIMEOUT_MS)
+    const transient = !raw.ok && raw.error.kind === 'attach_failed' && (raw.error.cause === 'protocol' || raw.error.cause === 'exception')
+    if (transient && attempt < tries - 1) { await sleep(2000); return 'retry' }
+    return classify(raw)
   }
 
   return {
     async probeStore() {
       let last: { jsonp: boolean; store: boolean; missing: string[] } | null = null
       for (let i = 0; i < tries; i++) {
-        const r = await run<{ jsonp: boolean; store: boolean; missing: string[] }>(PROBE)
+        const r = await poll<{ jsonp: boolean; store: boolean; missing: string[] }>(PROBE, i)
+        if (r === 'retry') continue
         if (!r.ok) return r
         last = r.value
         if (last.store && last.missing.length > 0) return shape(`missing store functions: ${last.missing.join(', ')}`)
@@ -129,7 +141,8 @@ export function createStoreReader(session: CdpSession, zaloVersion: string | nul
     },
     async getMe() {
       for (let i = 0; i < tries; i++) {
-        const r = await run<{ uid: unknown; name: unknown }>(ME)
+        const r = await poll<{ uid: unknown; name: unknown }>(ME, i)
+        if (r === 'retry') continue
         if (!r.ok) return r
         if (typeof r.value.uid !== 'string' || typeof r.value.name !== 'string') return shape('getMe returned an unexpected shape')
         if (r.value.uid.length > 0) return { ok: true, value: { uid: r.value.uid, name: r.value.name } }

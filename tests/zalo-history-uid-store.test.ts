@@ -26,6 +26,19 @@ describe('checkBinding', () => {
     })
   })
 
+  it('a configured uid that is already linked to another account is a mismatch naming that account', () => {
+    writeFileSync(file, JSON.stringify({ default: 'U1' }))
+    expect(createUidStore(file).checkBinding('work', 'U1', 'U1')).toEqual({
+      ok: false,
+      error: { kind: 'account_mismatch', step: 'account', expectedUid: null, actualUid: 'U1', boundAccount: 'default' },
+    })
+  })
+
+  it('a configured uid still refuses a corrupt link file', () => {
+    writeFileSync(file, '{broken')
+    expect(createUidStore(file).checkBinding('default', 'U1', 'U1')).toMatchObject({ ok: false, error: { kind: 'uid_store_invalid' } })
+  })
+
   it('bound account: same uid passes, a different uid is a mismatch', () => {
     writeFileSync(file, JSON.stringify({ work: 'U1' }))
     const s = createUidStore(file)

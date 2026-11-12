@@ -2,7 +2,7 @@
 // Only three calls are needed (target list, version, Runtime.evaluate), so this
 // uses Node 24's built-in fetch and WebSocket instead of a CDP library.
 // Every connection is loopback-only (requirement 2.5, 8.1).
-import type { ImportError, Result } from './types'
+import type { AttachCause, ImportError, Result } from './types'
 
 const HOST = '127.0.0.1'
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost'])
@@ -46,9 +46,9 @@ interface EvaluateReply {
   }
 }
 
-const attachFailed = (message: string): { ok: false; error: ImportError } => ({
+const attachFailed = (message: string, cause: AttachCause): { ok: false; error: ImportError } => ({
   ok: false,
-  error: { kind: 'attach_failed', step: 'attach', message },
+  error: { kind: 'attach_failed', step: 'attach', message, cause },
 })
 const connectionLost = (): { ok: false; error: ImportError } => ({
   ok: false,
@@ -75,15 +75,15 @@ export function toLoopbackUrl(wsUrl: string): string | null {
 }
 
 function decodeReply<T>(reply: EvaluateReply): Result<T> {
-  if (reply.error) return attachFailed(reply.error.message ?? 'CDP protocol error')
+  if (reply.error) return attachFailed(reply.error.message ?? 'CDP protocol error', 'protocol')
   const details = reply.result?.exceptionDetails
-  if (details) return attachFailed(details.exception?.description ?? details.text ?? 'renderer exception')
+  if (details) return attachFailed(details.exception?.description ?? details.text ?? 'renderer exception', 'exception')
   const value = reply.result?.result?.value
-  if (typeof value !== 'string') return attachFailed('renderer did not return a JSON string')
+  if (typeof value !== 'string') return attachFailed('renderer did not return a JSON string', 'decode')
   try {
     return { ok: true, value: JSON.parse(value) as T }
   } catch {
-    return attachFailed('renderer returned invalid JSON')
+    return attachFailed('renderer returned invalid JSON', 'decode')
   }
 }
 
@@ -123,7 +123,7 @@ function openSession(ws: WebSocketLike): CdpSession {
       return new Promise<Result<T>>((resolve) => {
         const timer = setTimeout(() => {
           pending.delete(id)
-          resolve(attachFailed(`renderer call timed out after ${timeoutMs}ms`))
+          resolve(attachFailed(`renderer call timed out after ${timeoutMs}ms`, 'timeout'))
         }, timeoutMs + LOCAL_TIMEOUT_SLACK_MS)
         pending.set(id, (r) => {
           clearTimeout(timer)

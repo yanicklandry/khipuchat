@@ -35,12 +35,16 @@ export interface PageCursor {
   msgId: string
 }
 
+/** Why a renderer call failed: only 'exception' and 'decode' suggest Zalo PC internals changed. */
+export type AttachCause = 'timeout' | 'protocol' | 'exception' | 'decode' | 'connect'
+
 export type ImportStep = 'locate' | 'launch' | 'attach' | 'login' | 'shape' | 'account' | 'read'
 
 export type ImportError =
   | { kind: 'not_installed'; step: 'locate'; searched: string[] }
-  | { kind: 'launch_failed'; step: 'launch'; message: string }
-  | { kind: 'attach_failed'; step: 'attach'; message: string }
+  /** untouched: failed before Zalo PC was quit or opened, so there is nothing to relaunch. */
+  | { kind: 'launch_failed'; step: 'launch'; message: string; untouched?: true }
+  | { kind: 'attach_failed'; step: 'attach'; message: string; cause?: AttachCause }
   | { kind: 'not_logged_in'; step: 'login' }
   | { kind: 'shape_unrecognised'; step: 'shape'; detail: string; zaloVersion: string | null }
   | {
@@ -53,6 +57,8 @@ export type ImportError =
     }
   | { kind: 'uid_store_invalid'; step: 'account'; path: string }
   | { kind: 'connection_lost'; step: 'read'; conversationsDone: number }
+  /** The operator pressed Ctrl-C (or the process got SIGTERM); teardown still ran. */
+  | { kind: 'interrupted'; step: 'read'; conversationsDone: number }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: ImportError }
 
@@ -63,7 +69,8 @@ export interface ReadinessReport {
   ownUid: string
   ownName: string
   dmCount: number
-  sample: { name: string; oldestTs: number | null }
+  /** unreadable: the sample DM failed to read; the import reports it as that DM's failure. */
+  sample: { name: string; oldestTs: number | null; unreadable?: boolean }
 }
 
 export interface ImportSummary {

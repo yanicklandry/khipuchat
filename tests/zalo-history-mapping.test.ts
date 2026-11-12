@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   isDmConversation,
   collapseDuplicates,
+  copyKey,
   toChat,
   toMessage,
   classifyType,
@@ -132,6 +133,25 @@ describe('collapseDuplicates', () => {
     expect(collapseDuplicates([b, a])).toEqual([b])
     const c = row({ msgId: '8481248414744_5', serverTime: '200' })
     expect(collapseDuplicates([b, c])).toEqual([c])
+  })
+
+  it('two senders sharing a cliMsgId are different messages, never merged (review finding 5)', () => {
+    const fromPeer = row({ msgId: '1', cliMsgId: 'same', fromUid: PEER })
+    const fromMe = row({ msgId: '2', cliMsgId: 'same', fromUid: '0' })
+    expect(collapseDuplicates([fromPeer, fromMe], OWN)).toEqual([fromPeer, fromMe])
+  })
+
+  it('my own copies count as one sender whether stored as "0" or my uid', () => {
+    const desktop = row({ msgId: '9', cliMsgId: 'c', fromUid: '0', serverTime: '100' })
+    const phone = row({ msgId: '9_1', cliMsgId: 'c', fromUid: OWN, serverTime: '200' })
+    expect(collapseDuplicates([phone, desktop], OWN)).toEqual([desktop])
+    expect(copyKey(desktop, OWN)).toBe(copyKey(phone, OWN))
+  })
+
+  it('keeps distinct _000/_001 sent messages, which have their own cliMsgIds (as observed on macOS)', () => {
+    const a = row({ msgId: '5004688223316_000', cliMsgId: 'x1', fromUid: '0' })
+    const b = row({ msgId: '5004688223316_001', cliMsgId: 'x2', fromUid: '0' })
+    expect(collapseDuplicates([a, b], OWN)).toEqual([a, b])
   })
 
   it('leaves distinct messages alone and keeps input order', () => {

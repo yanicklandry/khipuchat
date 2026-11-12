@@ -21,6 +21,9 @@ interface World {
   openFails: boolean
   pageAfterPolls: number
   installed: Set<string>
+  /** Ports handed out by randomPort, in order (the last one repeats). */
+  portsTried?: number[]
+  busyPorts?: Set<number>
 }
 
 function setup(over: Partial<World> = {}, appPath?: string) {
@@ -64,11 +67,13 @@ function setup(over: Partial<World> = {}, appPath?: string) {
     connect: async () => { throw new Error('not used') },
   }
   let slept = 0
+  const ports = [...(w.portsTried ?? [31337])]
   const ctl = createAppControl({
     appPath, exec, cdp, home: '/Users/me',
     exists: (p) => w.installed.has(p),
     sleep: async (ms) => { slept += ms },
-    randomPort: () => 31337,
+    randomPort: () => ports.length > 1 ? ports.shift()! : ports[0]!,
+    isPortFree: async (port) => !(w.busyPorts ?? new Set<number>()).has(port),
   })
   return { ctl, calls, w, sleptMs: () => slept }
 }
@@ -149,6 +154,55 @@ describe('ensureDebugInstance', () => {
   it('not_installed passes through', async () => {
     expect(await setup({ installed: new Set() }).ctl.ensureDebugInstance())
       .toMatchObject({ ok: false, error: { kind: 'not_installed' } })
+  })
+})
+
+describe('review findings 8 and 10', () => {
+  it('skips a debug port that is already in use', async () => {
+    const { ctl, calls } = setup({ portsTried: [31337, 31338], busyPorts: new Set([31337]) })
+    expect(await ctl.ensureDebugInstance()).toMatchObject({ ok: true, value: { port: 31338 } })
+    expect(calls).toContain(`open -g -j -a ${APP} --args --remote-debugging-port=31338`)
+  })
+
+  it('launch_failed, without launching, when no free port is found', async () => {
+    const { ctl, calls } = setup({ portsTried: [31337], busyPorts: new Set([31337]) })
+    expect(await ctl.ensureDebugInstance()).toMatchObject({ ok: false, error: { kind: 'launch_failed', message: expect.stringMatching(/free/) } })
+    expect(calls).not.toContainEqual(expect.stringMatching(/^open/))
+  })
+
+  it("only accepts Zalo PC's own pc-dist page, not another app's index.html", () => {
+    const other = { ...PAGE, id: 'x', url: 'file:///Applications/Other.app/Contents/Resources/index.html' }
+    expect(findPageTarget([other])).toBeNull()
+    expect(findPageTarget([other, PAGE])).toBe(PAGE)
+  })
+
+  it('reads the app bundle version once per run', async () => {
+    const { ctl, calls } = setup()
+    ctl.locate()
+    await ctl.ensureDebugInstance()
+    expect(calls.filter((c) => c.startsWith('defaults')).length).toBe(1)
+  })
+})
+
+describe('abort during the restart (round 2 finding 3)', () => {
+  it('stops waiting for the page target as soon as the import is aborted', async () => {
+    const { ctl } = setup({ pageAfterPolls: 1_000 })
+    let polls = 0
+    const r = await ctl.ensureDebugInstance(() => ++polls > 3)
+    expect(r).toMatchObject({ ok: false, error: { kind: 'launch_failed', message: expect.stringMatching(/interrupted/) } })
+    expect(polls).toBeLessThan(10)
+  })
+
+  it('an abort before the quit leaves Zalo PC untouched', async () => {
+    const { ctl, calls } = setup({ running: true })
+    const r = await ctl.ensureDebugInstance(() => true)
+    expect(r).toMatchObject({ ok: false, error: { kind: 'launch_failed', untouched: true } })
+    expect(calls).not.toContainEqual(expect.stringMatching(/^(osascript|pkill|open)/))
+  })
+
+  it('no free port is reported as untouched', async () => {
+    const { ctl } = setup({ portsTried: [31337], busyPorts: new Set([31337]) })
+    expect(await ctl.ensureDebugInstance()).toMatchObject({ ok: false, error: { kind: 'launch_failed', untouched: true } })
   })
 })
 

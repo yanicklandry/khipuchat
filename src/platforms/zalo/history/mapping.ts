@@ -10,7 +10,12 @@ import type { ZaloPcConversation, ZaloPcRow } from './types'
 /** msgType values with a dedicated archive type. 2/7/18 are from ZaloBackup (Windows), unobserved on macOS. */
 const TYPE_BY_MSGTYPE: Readonly<Record<number, MessageType>> = { 2: 'image', 7: 'sticker', 18: 'video' }
 
-/** A multi-device copy has a "_NNN" suffix on its msgId. */
+/**
+ * ZaloBackup (Windows) reports multi-device copies with a "_NNN" msgId suffix and a
+ * shared cliMsgId. On macOS 26.11.10, "_000"/"_001" ids were instead distinct sent
+ * messages with their own cliMsgIds (thousands survived collapse in the real run).
+ * The suffix only breaks a tie between rows that already share a copyKey.
+ */
 const DEVICE_SUFFIX = /_\d+$/
 
 export function isDmConversation(c: ZaloPcConversation): boolean {
@@ -43,12 +48,23 @@ function preferred(a: ZaloPcRow, b: ZaloPcRow): ZaloPcRow {
   return a.msgId.localeCompare(b.msgId, undefined, { numeric: true }) >= 0 ? a : b
 }
 
-/** Collapses multi-device copies (same cliMsgId) into one row, keeping first-seen order. */
-export function collapseDuplicates(rows: ZaloPcRow[]): ZaloPcRow[] {
+/**
+ * Identity of one message across its multi-device copies: the sender plus the
+ * client id. cliMsgId alone is client-generated, so two senders can share one.
+ * My own copies may say "0" or my uid; both mean me.
+ */
+export function copyKey(row: ZaloPcRow, ownUid: string): string {
+  const me = row.fromUid === '0' || (ownUid !== '' && row.fromUid === ownUid)
+  return `${me ? 'me' : row.fromUid}:${row.cliMsgId}`
+}
+
+/** Collapses multi-device copies into one row, keeping first-seen order. */
+export function collapseDuplicates(rows: ZaloPcRow[], ownUid = ''): ZaloPcRow[] {
   const kept = new Map<string, ZaloPcRow>()
   for (const r of rows) {
-    const prev = kept.get(r.cliMsgId)
-    kept.set(r.cliMsgId, prev ? preferred(prev, r) : r)
+    const key = copyKey(r, ownUid)
+    const prev = kept.get(key)
+    kept.set(key, prev ? preferred(prev, r) : r)
   }
   return [...kept.values()]
 }

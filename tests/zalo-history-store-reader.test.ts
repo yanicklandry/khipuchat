@@ -143,18 +143,71 @@ describe('getMessagePage', () => {
   })
 
   it('a timeout stays an attach error instead of blaming the Zalo version', async () => {
-    const { session } = fakeSession({ page: { ok: false, error: { kind: 'attach_failed', step: 'attach', message: 'renderer call timed out after 60000ms' } } })
+    const { session } = fakeSession({ page: { ok: false, error: { kind: 'attach_failed', step: 'attach', message: 'renderer call timed out after 60000ms', cause: 'timeout' } } })
     expect(await createStoreReader(session, null, fast).getMessagePage('u', null, 500))
       .toMatchObject({ ok: false, error: { kind: 'attach_failed', message: expect.stringMatching(/timed out/) } })
   })
 
   it('maps a renderer exception to unrecognised shape, but passes a lost connection through', async () => {
-    const thrown = fakeSession({ page: { ok: false, error: { kind: 'attach_failed', step: 'attach', message: 'TypeError: x is not a function' } } })
+    const thrown = fakeSession({ page: { ok: false, error: { kind: 'attach_failed', step: 'attach', message: 'TypeError: x is not a function', cause: 'exception' } } })
     expect(await createStoreReader(thrown.session, '26.11.10', fast).getMessagePage('u', null, 500))
       .toMatchObject({ ok: false, error: { kind: 'shape_unrecognised', detail: expect.stringMatching(/TypeError/) } })
     const lost = fakeSession({ page: { ok: false, error: { kind: 'connection_lost', step: 'read', conversationsDone: 0 } } })
     expect(await createStoreReader(lost.session, null, fast).getMessagePage('u', null, 500))
       .toMatchObject({ ok: false, error: { kind: 'connection_lost' } })
+  })
+})
+
+describe('error causes (review finding 7)', () => {
+  it('a CDP protocol error stays an attach error, even with no "timed out" in it', async () => {
+    const { session } = fakeSession({ page: { ok: false, error: { kind: 'attach_failed', step: 'attach', message: 'Cannot find context with specified id', cause: 'protocol' } } })
+    expect(await createStoreReader(session, null, fast).getMessagePage('u', null, 500))
+      .toMatchObject({ ok: false, error: { kind: 'attach_failed', cause: 'protocol' } })
+  })
+
+  it('a renderer exception whose text says "timed out" is still a shape error', async () => {
+    const { session } = fakeSession({ page: { ok: false, error: { kind: 'attach_failed', step: 'attach', message: 'Error: Request timed out', cause: 'exception' } } })
+    expect(await createStoreReader(session, null, fast).getMessagePage('u', null, 500))
+      .toMatchObject({ ok: false, error: { kind: 'shape_unrecognised' } })
+  })
+
+  it('getMe retries a transient renderer exception while Zalo PC starts up', async () => {
+    const boom = { ok: false as const, error: { kind: 'attach_failed' as const, step: 'attach' as const, message: 'TypeError: not ready', cause: 'exception' as const } }
+    const { session } = fakeSession({ me: [boom, ok({ uid: '42', name: 'Y' })] })
+    expect(await createStoreReader(session, null, fast).getMe()).toEqual(ok({ uid: '42', name: 'Y' }))
+  })
+
+  it('probeStore retries a transient protocol error, and reports the last error when it never clears', async () => {
+    const lostCtx = { ok: false as const, error: { kind: 'attach_failed' as const, step: 'attach' as const, message: 'Cannot find context', cause: 'protocol' as const } }
+    const recovers = fakeSession({ probe: [lostCtx, ok({ jsonp: true, store: true, missing: [] })] })
+    expect(await createStoreReader(recovers.session, null, fast).probeStore()).toEqual(ok(true))
+    const never = fakeSession({ probe: lostCtx })
+    expect(await createStoreReader(never.session, null, fast).probeStore()).toMatchObject({ ok: false, error: { kind: 'attach_failed' } })
+    expect(never.seen.length).toBe(3)
+  })
+
+  it('a timeout is returned at once, never retried (a hung renderer must not stall for minutes)', async () => {
+    const hung = { ok: false as const, error: { kind: 'attach_failed' as const, step: 'attach' as const, message: 'renderer call timed out after 60000ms', cause: 'timeout' as const } }
+    const probe = fakeSession({ probe: hung })
+    expect(await createStoreReader(probe.session, null, fast).probeStore()).toMatchObject({ ok: false, error: { kind: 'attach_failed', cause: 'timeout' } })
+    expect(probe.seen.length).toBe(1)
+    const me = fakeSession({ me: hung })
+    expect(await createStoreReader(me.session, null, fast).getMe()).toMatchObject({ ok: false, error: { kind: 'attach_failed', cause: 'timeout' } })
+    expect(me.seen.length).toBe(1)
+  })
+
+  it('an undecodable result is a shape error at once, never retried', async () => {
+    const bad = { ok: false as const, error: { kind: 'attach_failed' as const, step: 'attach' as const, message: 'renderer did not return a JSON string', cause: 'decode' as const } }
+    const { session, seen } = fakeSession({ me: bad })
+    expect(await createStoreReader(session, null, fast).getMe()).toMatchObject({ ok: false, error: { kind: 'shape_unrecognised' } })
+    expect(seen.length).toBe(1)
+  })
+
+  it('a lost connection is never retried', async () => {
+    const lost = { ok: false as const, error: { kind: 'connection_lost' as const, step: 'read' as const, conversationsDone: 0 } }
+    const { session, seen } = fakeSession({ me: lost })
+    expect(await createStoreReader(session, null, fast).getMe()).toMatchObject({ ok: false, error: { kind: 'connection_lost' } })
+    expect(seen.length).toBe(1)
   })
 })
 

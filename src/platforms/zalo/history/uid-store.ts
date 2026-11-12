@@ -47,9 +47,13 @@ export function createUidStore(filePath: string = DEFAULT_UID_STORE_PATH): UidSt
 
   return {
     checkBinding(account, ownUid, configuredUid) {
-      if (configuredUid) return configuredUid === ownUid ? { ok: true, value: { firstRun: false } } : mismatch(configuredUid, ownUid)
       const bindings = load()
       if (!bindings) return invalid
+      // The configured uid wins over this account's own binding, but a Zalo user
+      // linked to ANOTHER account is refused either way (no double import).
+      if (configuredUid && configuredUid !== ownUid) return mismatch(configuredUid, ownUid)
+      const elsewhere = Object.keys(bindings).find((a) => a !== account && bindings[a] === ownUid)
+      if (configuredUid) return elsewhere ? mismatch(null, ownUid, elsewhere) : { ok: true, value: { firstRun: false } }
       const bound = bindings[account]
       if (bound) return bound === ownUid ? { ok: true, value: { firstRun: false } } : mismatch(bound, ownUid)
       const other = Object.keys(bindings).find((a) => bindings[a] === ownUid)

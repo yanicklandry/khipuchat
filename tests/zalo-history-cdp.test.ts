@@ -145,7 +145,7 @@ describe('CdpSession.evaluate', () => {
     })
     expect(await pending).toEqual({
       ok: false,
-      error: { kind: 'attach_failed', step: 'attach', message: 'ReferenceError: boom is not defined' },
+      error: { kind: 'attach_failed', step: 'attach', message: 'ReferenceError: boom is not defined', cause: 'exception' },
     })
   })
 
@@ -153,10 +153,10 @@ describe('CdpSession.evaluate', () => {
     const { session, ws } = await openSession()
     const a = session.evaluate('x', 5000)
     ws.reply({ error: { message: 'Cannot find context' } })
-    expect(await a).toMatchObject({ ok: false, error: { kind: 'attach_failed', message: 'Cannot find context' } })
+    expect(await a).toMatchObject({ ok: false, error: { kind: 'attach_failed', message: 'Cannot find context', cause: 'protocol' } })
     const b = session.evaluate('y', 5000)
     ws.reply({ result: { result: { type: 'number', value: 3 } } })
-    expect(await b).toMatchObject({ ok: false, error: { kind: 'attach_failed' } })
+    expect(await b).toMatchObject({ ok: false, error: { kind: 'attach_failed', cause: 'decode' } })
   })
 
   it('times out locally when the renderer never answers, and ignores a late reply', async () => {
@@ -166,7 +166,7 @@ describe('CdpSession.evaluate', () => {
       const pending = session.evaluate('hang()', 1000)
       const id = ws.sent[0]!.id
       await vi.advanceTimersByTimeAsync(6001)
-      expect(await pending).toMatchObject({ ok: false, error: { kind: 'attach_failed', message: expect.stringMatching(/timed out/) } })
+      expect(await pending).toMatchObject({ ok: false, error: { kind: 'attach_failed', message: expect.stringMatching(/timed out/), cause: 'timeout' } })
       ws.emit('message', { data: JSON.stringify({ id, result: { result: { type: 'string', value: '1' } } }) })
       // The late reply was dropped; the session still works for the next call.
       const next = session.evaluate<number>('ok()', 1000)

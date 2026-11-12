@@ -232,12 +232,13 @@ export type ImportStep = 'locate' | 'launch' | 'attach' | 'login' | 'shape' | 'a
 export type ImportError =
   | { kind: 'not_installed'; step: 'locate'; searched: string[] }
   | { kind: 'launch_failed'; step: 'launch'; message: string }
-  | { kind: 'attach_failed'; step: 'attach'; message: string }
+  | { kind: 'attach_failed'; step: 'attach'; message: string; cause?: 'timeout' | 'protocol' | 'exception' | 'decode' | 'connect' }
   | { kind: 'not_logged_in'; step: 'login' }
   | { kind: 'shape_unrecognised'; step: 'shape'; detail: string; zaloVersion: string | null }
   | { kind: 'account_mismatch'; step: 'account'; expectedUid: string | null; actualUid: string; boundAccount?: string }
   | { kind: 'uid_store_invalid'; step: 'account'; path: string }
   | { kind: 'connection_lost'; step: 'read'; conversationsDone: number }
+  | { kind: 'interrupted'; step: 'read'; conversationsDone: number }   // Ctrl-C/SIGTERM; teardown still ran
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: ImportError }
 
@@ -448,6 +449,7 @@ No schema change. Field mapping into existing tables:
 | `account_mismatch` | account | "Zalo PC is logged in as <actual>, but account <name> expects <expected>. Nothing was imported." | 1 |
 | `uid_store_invalid` | account | "The Zalo account link file <path> is corrupt. Fix or delete it, then re-run." | 1 |
 | `connection_lost` | read | "Lost connection to Zalo PC after <n> conversations. Re-run to continue; nothing is duplicated." | 1 |
+| `interrupted` | read | "Interrupted after <n> conversations. Re-run to continue; nothing is duplicated." | 1 |
 | per-conversation failure | read | listed in summary | 1 after summary |
 
 ## Testing Strategy
@@ -492,3 +494,7 @@ All tests use fakes; none launches Zalo PC (8.5).
 - **Live msgId parity** (review decision: verify first): imported rows dedupe against zalo-sync only if zca-js delivers the same `msgId` as the PC row. The go/no-go task compares one message captured both ways. If they differ, implementation pauses and a `cliMsgId` match is designed, which may need a `db.ts` helper and a requirements revisit.
 - **Official Account conversations**: no confirmed marker yet. The go/no-go task inspects a conversation row's fields.
 - **Zalo PC updates** can break module ids at any time. Mitigated by `probeStore` and the row guards (6.4); not preventable.
+
+## Post-implementation review changes (2026-11-12)
+
+An adversarial code review found 10 issues, all fixed; see the Implementation Notes in tasks.md for the list. Contract changes: `attach_failed.cause` (only `exception` and `decode` map to `shape_unrecognised`), a new `interrupted` error with SIGINT/SIGTERM handling in the CLI (`ImportDeps.signal`), `collapseDuplicates(rows, ownUid)` keyed by `copyKey` (sender + `cliMsgId`), per-conversation `ConversationState` in `ingestPage`, `ReadinessReport.sample.unreadable`, and `AppControlOptions.isPortFree`.

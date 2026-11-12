@@ -81,10 +81,14 @@ export function errorMessage(e: ImportError, account: string): string {
       return `The Zalo account link file ${e.path} is corrupt. Fix or delete it, then re-run.`
     case 'connection_lost':
       return `Lost connection to Zalo PC after ${e.conversationsDone} conversations. Re-run to continue; nothing is duplicated.`
+    case 'interrupted':
+      return `Interrupted after ${e.conversationsDone} conversations. Re-run to continue; nothing is duplicated.`
   }
 }
 
-export interface ImportOptions { account: string; appPath: string | null; configuredUid: string | null; reporter: Reporter }
+export interface ImportOptions {
+  account: string; appPath: string | null; configuredUid: string | null; reporter: Reporter; signal: AbortSignal | undefined
+}
 
 export interface CliIo {
   out(line: string): void
@@ -94,6 +98,20 @@ export interface CliIo {
   /** Opens the archive; called only once the arguments and account are valid. */
   openArchive(): void
   runImport(opts: ImportOptions): Promise<Result<ImportSummary>>
+  /** Aborted on Ctrl-C/SIGTERM so the importer can close the session and reopen Zalo PC. */
+  signal?: AbortSignal
+}
+
+/**
+ * First signal: abort, so the importer's teardown closes the session and reopens
+ * Zalo PC normally (never leaving the debugging port open). Second: force exit.
+ */
+export function interruptHandler(controller: AbortController, err: (line: string) => void, exit: (code: number) => void): () => void {
+  return () => {
+    if (controller.signal.aborted) { exit(130); return }
+    controller.abort()
+    err('Stopping: closing the connection and reopening Zalo PC normally. Press Ctrl-C again to force quit (Zalo PC may then stay in debug mode).')
+  }
 }
 
 function summaryLines(s: ImportSummary): string[] {
@@ -119,7 +137,7 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
     progress: (name, read) => io.out(`  ${name}: ${read} messages read`),
     warn: (l) => io.err(l),
   }
-  const result = await io.runImport({ account, appPath: args.appPath, configuredUid, reporter })
+  const result = await io.runImport({ account, appPath: args.appPath, configuredUid, reporter, signal: io.signal })
   if (result.ok) {
     for (const l of summaryLines(result.value)) io.out(l)
     if (result.value.failed.some((f) => f.reason.startsWith('shape_unrecognised'))) io.err(SHAPE_HINT)
@@ -135,13 +153,14 @@ function realImport(opts: ImportOptions): Promise<Result<ImportSummary>> {
     app: createAppControl({ cdp, ...(opts.appPath ? { appPath: opts.appPath } : {}) }),
     reporter: opts.reporter,
     uidStore: createUidStore(),
+    ...(opts.signal ? { signal: opts.signal } : {}),
     openReader: async (instance, zaloVersion) => {
       try {
         const session = await cdp.connect(instance.target)
         const chromium = (await cdp.version(instance.port).catch(() => ({ browser: 'unknown' }))).browser
         return { ok: true, value: { reader: createStoreReader(session, zaloVersion), session, chromium } }
       } catch (err) {
-        return { ok: false, error: { kind: 'attach_failed', step: 'attach', message: (err as Error).message } }
+        return { ok: false, error: { kind: 'attach_failed', step: 'attach', message: (err as Error).message, cause: 'connect' } }
       }
     },
   }
@@ -152,7 +171,12 @@ export async function main(argv: string[]): Promise<number> {
   // Loaded lazily so --help and argument errors work even with a broken khipu.config.json.
   let loaded: AccountRegistry | null = null
   const registry = (): AccountRegistry => (loaded ??= loadRegistry())
+  const controller = new AbortController()
+  const onSignal = interruptHandler(controller, (l) => console.error(l), (code) => process.exit(code))
+  process.on('SIGINT', onSignal)
+  process.on('SIGTERM', onSignal)
   return run(argv, {
+    signal: controller.signal,
     openArchive: () => { initDb('./khipuchat.db') },
     out: (l) => console.log(l),
     err: (l) => console.error(l),

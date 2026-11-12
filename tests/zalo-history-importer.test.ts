@@ -208,8 +208,8 @@ describe('runImport (3.2)', () => {
 
   it('a lost connection mid-conversation keeps committed pages, reports progress, and a re-run completes', async () => {
     const w = bigWorld()
-    // readiness pages Linh fully (500, 500, then an empty page), import does the same, then An's first page drops
-    w.dropAfterPages = 3 + 3
+    // readiness pages Linh fully (500, 500, then an empty page); the import reuses those pages, then An's first page drops
+    w.dropAfterPages = 3
     const first = makeDeps(w, uidFile)
     const r = await runImport(first.deps, 'default', null)
     expect(r).toEqual({ ok: false, error: { kind: 'connection_lost', step: 'read', conversationsDone: 1 } })
@@ -249,13 +249,14 @@ describe('runImport (3.2)', () => {
 
   it('a disconnect on a later page of the same conversation keeps its earlier pages, and a re-run completes', async () => {
     const w = bigWorld()
-    // readiness: Linh 500, 500, empty (3 reads); import: Linh page 1 (4th read), then page 2 drops
+    w.history.set('222', rowsFor('222', 600))
+    // readiness: Linh 500, 500, empty (3 reads, reused by the import); An page 1 (4th read), then An page 2 drops
     w.dropAfterPages = 4
     const r = await runImport(makeDeps(w, uidFile).deps, 'default', null)
-    expect(r).toEqual({ ok: false, error: { kind: 'connection_lost', step: 'read', conversationsDone: 0 } })
-    expect(count('messages')).toBe(500)
+    expect(r).toEqual({ ok: false, error: { kind: 'connection_lost', step: 'read', conversationsDone: 1 } })
+    expect(count('messages')).toBe(1500)
     expect(await runImport(makeDeps({ ...w, dropAfterPages: null, calls: [] }, uidFile).deps, 'default', null))
-      .toMatchObject({ ok: true, value: { added: 701, alreadyPresent: 500 } })
+      .toMatchObject({ ok: true, value: { added: 101, alreadyPresent: 1500 } })
   })
 
   it('a store that ignores the paging cursor fails that conversation instead of silently truncating it', async () => {
@@ -332,6 +333,151 @@ describe('runImport (3.2)', () => {
     expect(senders).toEqual([{ chat: '111', sender: 'Khánh An' }, { chat: '222', sender: '222' }])
   })
 
+  it('a chat stored under its uid takes the real name once Zalo PC knows it (review finding 3)', async () => {
+    upsertChat(mapChat({ threadId: '222', name: '222' }, 'default'))
+    upsertChat(mapChat({ threadId: '111', name: 'Khánh An' }, 'default'))
+    const w = makeWorld({ convs: [dm('111', 'Alias'), dm('222', 'An')], history: new Map([['111', rowsFor('111', 1)], ['222', rowsFor('222', 1)]]) })
+    await runImport(makeDeps(w, uidFile).deps, 'default', null)
+    const names = Object.fromEntries((getDb().prepare("SELECT external_id, name FROM chats WHERE platform = 'zalo'").all() as Array<{ external_id: string; name: string }>)
+      .map((r) => [r.external_id, r.name]))
+    expect(names).toEqual({ '111': 'Khánh An', '222': 'An' })
+  })
+
+  it('collapses a multi-device copy that lands on a different page (review finding 4)', async () => {
+    // oldest first: r0, r1, r2, r3; r1 and r2 are copies (same sender + cliMsgId). Pages of 2: [r2, r3] then [r0, r1].
+    const rows = rowsFor('111', 4).map((r) => ({ ...r, fromUid: '111' }))
+    rows[2] = { ...rows[2]!, cliMsgId: rows[1]!.cliMsgId }
+    const w = makeWorld({ convs: [dm('111', 'Linh')], history: new Map([['111', rows]]) })
+    const { deps } = makeDeps(w, uidFile)
+    deps.pageSize = 2
+    expect(await runImport(deps, 'default', null)).toMatchObject({ ok: true, value: { added: 3, alreadyPresent: 0 } })
+    expect(count('messages')).toBe(3)
+  })
+
+  it('reads the sample conversation once and reuses its pages for the import (review finding 10)', async () => {
+    const w = bigWorld()
+    await runImport(makeDeps(w, uidFile).deps, 'default', null)
+    // Linh: 3 page reads (500, 500, empty) in total, not 6; An 1; Bao 1.
+    expect(w.pagesRead).toBe(5)
+  })
+
+  it('a transient failure reading the sample does not stop the import; that DM fails alone (review finding 6)', async () => {
+    const w = bigWorld()
+    const slow = { kind: 'attach_failed' as const, step: 'attach' as const, message: 'renderer call timed out after 60000ms', cause: 'timeout' as const }
+    w.pageErrors.set('111', [slow, slow])
+    const { deps, lines, warns } = makeDeps(w, uidFile)
+    const r = await runImport(deps, 'default', null)
+    expect(r).toMatchObject({ ok: true, value: { conversations: 2, added: 201, failed: [{ name: 'Linh' }] } })
+    expect(lines.some((l) => /Oldest readable message in Linh: unknown/.test(l))).toBe(true)
+    expect(warns.some((l) => l.includes('Linh') && l.includes('timed out'))).toBe(true)
+  })
+
+  it('an unrecognised shape in the sample still stops everything before any write (user decision, 1.3, 6.4)', async () => {
+    const w = bigWorld()
+    w.pageErrors.set('111', [{ kind: 'shape_unrecognised', step: 'shape', detail: 'invalid msgType', zaloVersion: '26.11.10' }])
+    expect(await runImport(makeDeps(w, uidFile).deps, 'default', null))
+      .toMatchObject({ ok: false, error: { kind: 'shape_unrecognised', detail: 'invalid msgType' } })
+    expect(count('messages')).toBe(0)
+    expect(existsSync(uidFile)).toBe(false)
+  })
+
+  it('a lost connection while sampling still stops the import', async () => {
+    const w = bigWorld()
+    w.pageErrors.set('111', [{ kind: 'connection_lost', step: 'read', conversationsDone: 0 }])
+    expect(await runImport(makeDeps(w, uidFile).deps, 'default', null))
+      .toMatchObject({ ok: false, error: { kind: 'connection_lost', conversationsDone: 0 } })
+  })
+
+  it('an abort (Ctrl-C) stops between pages, closes the session, relaunches Zalo PC, and reports interrupted (review finding 1)', async () => {
+    const w = bigWorld()
+    const controller = new AbortController()
+    const { deps, lines } = makeDeps(w, uidFile)
+    deps.signal = controller.signal
+    deps.reporter.progress = (name, read) => { lines.push(`progress ${name} ${read}`); if (name === 'An') controller.abort() }
+    const r = await runImport(deps, 'default', null)
+    expect(r).toEqual({ ok: false, error: { kind: 'interrupted', step: 'read', conversationsDone: 2 } })
+    expect(count('messages')).toBe(1200)
+    expect(w.calls.slice(-2)).toEqual(['close', 'relaunch'])
+  })
+
+  it('an abort during a slow renderer call closes the session so the call ends at once', async () => {
+    const w = bigWorld()
+    const controller = new AbortController()
+    const { deps } = makeDeps(w, uidFile)
+    deps.signal = controller.signal
+    const open = deps.openReader
+    deps.openReader = async (inst, v) => {
+      const r = await open(inst, v)
+      if (!r.ok) return r
+      let release: (() => void) | null = null
+      const session = { ...r.value.session, close() { w.calls.push('close'); release?.() } }
+      const inner = r.value.reader
+      const reader: StoreReader = { ...inner, getMessagePage: async (uid, c, l) => {
+        if (uid !== '222') return inner.getMessagePage(uid, c, l)
+        await new Promise<void>((res) => { release = res; controller.abort() })
+        return { ok: false, error: { kind: 'connection_lost', step: 'read', conversationsDone: 0 } }
+      } }
+      return { ok: true, value: { ...r.value, session, reader } }
+    }
+    expect(await runImport(deps, 'default', null)).toMatchObject({ ok: false, error: { kind: 'interrupted', conversationsDone: 1 } })
+    expect(w.calls).toContain('relaunch')
+  })
+
+  it('an abort while readiness is waiting on Zalo PC reports interrupted, not a lost connection', async () => {
+    const controller = new AbortController()
+    const w = bigWorld()
+    const { deps } = makeDeps(w, uidFile)
+    deps.signal = controller.signal
+    const open = deps.openReader
+    deps.openReader = async (inst, v) => {
+      const r = await open(inst, v)
+      if (!r.ok) return r
+      const reader: StoreReader = { ...r.value.reader, probeStore: async () => {
+        controller.abort()
+        return { ok: false, error: { kind: 'connection_lost', step: 'read', conversationsDone: 0 } }
+      } }
+      return { ok: true, value: { ...r.value, reader } }
+    }
+    expect(await runImport(deps, 'default', null)).toEqual({ ok: false, error: { kind: 'interrupted', step: 'read', conversationsDone: 0 } })
+    expect(w.calls.slice(-2)).toEqual(['close', 'relaunch'])
+  })
+
+  it('an abort before the launch leaves Zalo PC untouched', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const w = bigWorld()
+    const { deps } = makeDeps(w, uidFile)
+    deps.signal = controller.signal
+    expect(await runImport(deps, 'default', null)).toMatchObject({ ok: false, error: { kind: 'interrupted', conversationsDone: 0 } })
+    expect(w.calls).toEqual([])
+  })
+
+  it('an abort right after the launch writes nothing, leaves the binding file alone, and relaunches', async () => {
+    const controller = new AbortController()
+    const w = bigWorld()
+    const { deps } = makeDeps(w, uidFile)
+    deps.signal = controller.signal
+    const launch = deps.app.ensureDebugInstance
+    deps.app.ensureDebugInstance = async () => { const r = await launch(); controller.abort(); return r }
+    expect(await runImport(deps, 'default', null)).toMatchObject({ ok: false, error: { kind: 'interrupted', conversationsDone: 0 } })
+    expect(count('messages')).toBe(0)
+    expect(existsSync(uidFile)).toBe(false)
+    expect(w.calls).toEqual(['launch', 'relaunch'])
+  })
+
+  it('a copy that failed to import does not hide its sibling on a later page', async () => {
+    // oldest first: r0, r1, r2, r3; r1 and r2 are copies. Pages of 2: [r2, r3] then [r0, r1]; r2 throws.
+    const rows = rowsFor('111', 4).map((r) => ({ ...r, fromUid: '111' }))
+    rows[2] = { ...rows[2]!, cliMsgId: rows[1]!.cliMsgId }
+    Object.defineProperty(rows[2], 'dName', { get() { throw new Error('bad copy') } })
+    const w = makeWorld({ convs: [dm('111', 'Linh')], history: new Map([['111', rows]]) })
+    const { deps, warns } = makeDeps(w, uidFile)
+    deps.pageSize = 2
+    expect(await runImport(deps, 'default', null)).toMatchObject({ ok: true, value: { added: 3, failed: [] } })
+    expect(getDb().prepare("SELECT 1 FROM messages WHERE external_id = '111-1'").get()).toBeDefined()
+    expect(warns.some((l) => l.includes('Skipped message 111-2'))).toBe(true)
+  })
+
   it('never touches the zalo sync position', async () => {
     setPlatformLastSyncedAt('zalo', 'default', 12345)
     await runImport(makeDeps(bigWorld(), uidFile).deps, 'default', null)
@@ -354,6 +500,28 @@ describe('runImport (3.2)', () => {
       expect(existsSync(uidFile)).toBe(false)
     })
   }
+
+  it('does not relaunch when the launch failed before Zalo PC was touched (review finding 6, round 2)', async () => {
+    const w = makeWorld({ launchError: { kind: 'launch_failed', step: 'launch', message: 'no free loopback port', untouched: true } })
+    await runImport(makeDeps(w, uidFile).deps, 'default', null)
+    expect(w.calls).toEqual(['launch'])
+  })
+
+  it('passes the abort check into the launch, so a Ctrl-C while Zalo PC restarts is honoured (round 2 finding 3)', async () => {
+    const w = makeWorld()
+    const controller = new AbortController()
+    const { deps } = makeDeps(w, uidFile)
+    deps.signal = controller.signal
+    let sawStop: (() => boolean) | undefined
+    deps.app.ensureDebugInstance = async (shouldStop) => {
+      sawStop = shouldStop
+      controller.abort()
+      return { ok: false, error: { kind: 'launch_failed', step: 'launch', message: 'interrupted' } }
+    }
+    expect(await runImport(deps, 'default', null)).toMatchObject({ ok: false, error: { kind: 'interrupted' } })
+    expect(sawStop?.()).toBe(true)
+    expect(w.calls).toContain('relaunch')
+  })
 
   it('does not relaunch when Zalo PC was never located (nothing was launched)', async () => {
     const w = makeWorld({ installed: false })
