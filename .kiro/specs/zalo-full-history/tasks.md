@@ -2,7 +2,7 @@
 
 > **Gate:** only 1.1 and 1.2 may start before task 1.3 records a GO. Every task from 2.x onward depends on 1.3.
 
-- [ ] 1. Foundation and macOS go/no-go gate
+- [x] 1. Foundation and macOS go/no-go gate
 - [x] 1.1 Define the shared importer types and port contracts
   - Declare the following exactly as specified in design.md:
     - the Zalo PC conversation, message row, and page cursor shapes;
@@ -42,7 +42,7 @@
   - On NO-GO, or if the message ids differ, stop and return to design before any further task.
   - _Requirements: 1.1, 1.2, 1.4, 3.1, 3.2, 4.2_
 
-- [ ] 2. Core components
+- [x] 2. Core components
 - [x] 2.1 (P) Implement the pure history-to-archive mapping
   - Decide whether a conversation is a DM, skipping groups and any Official Account marker confirmed in 1.3.
   - Collapse multi-device duplicate rows that share a client message id. Keep the unsuffixed copy first, then the latest server time, then the larger id.
