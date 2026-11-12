@@ -309,6 +309,29 @@ describe('runImport (3.2)', () => {
     expect(w.calls).toContain('relaunch')
   })
 
+  it('keeps the name of a chat that already exists, and names a new chat only when Zalo PC has a name', async () => {
+    upsertChat(mapChat({ threadId: '111', name: 'Khánh An' }, 'default'))
+    const w = makeWorld({
+      convs: [{ ...dm('111', 'Some Alias') }, dm('222', ''), dm('333', 'Bao')],
+      history: new Map([['111', rowsFor('111', 2)], ['222', rowsFor('222', 2)], ['333', rowsFor('333', 2)]]),
+    })
+    await runImport(makeDeps(w, uidFile).deps, 'default', null)
+    const names = Object.fromEntries((getDb().prepare("SELECT external_id, name FROM chats WHERE platform = 'zalo'").all() as Array<{ external_id: string; name: string }>)
+      .map((r) => [r.external_id, r.name]))
+    expect(names).toEqual({ '111': 'Khánh An', '222': '222', '333': 'Bao' })
+  })
+
+  it('a received message with no dName falls back to the archive chat name, never an empty sender name', async () => {
+    upsertChat(mapChat({ threadId: '111', name: 'Khánh An' }, 'default'))
+    const noName = (uid: string): ZaloPcRow[] => rowsFor(uid, 3).map((r, i) => ({ ...r, dName: i === 1 ? null : '' }))
+    const w = makeWorld({ convs: [dm('111', ''), dm('222', '')], history: new Map([['111', noName('111')], ['222', noName('222')]]) })
+    await runImport(makeDeps(w, uidFile).deps, 'default', null)
+    const senders = getDb().prepare(
+      "SELECT c.external_id AS chat, m.sender_name AS sender FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.is_sender = 0 GROUP BY 1, 2",
+    ).all()
+    expect(senders).toEqual([{ chat: '111', sender: 'Khánh An' }, { chat: '222', sender: '222' }])
+  })
+
   it('never touches the zalo sync position', async () => {
     setPlatformLastSyncedAt('zalo', 'default', 12345)
     await runImport(makeDeps(bigWorld(), uidFile).deps, 'default', null)

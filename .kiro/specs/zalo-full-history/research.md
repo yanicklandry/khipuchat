@@ -107,3 +107,21 @@ Probe: a throwaway CDP script (scratchpad, not committed) using `src/platforms/z
 - **msgId parity with zalo-sync: CONFIRMED**. 3 of 3 live-captured ids (2 received, 1 sent) are identical to Zalo PC's `msgId`. `cliMsgId` differs. Dedupe on `(external_id = msgId, chat_id)` works with no `db.ts` change.
 - **Fidelity observation**: Zalo PC only holds what has synced to this install. The test DM goes back only 3 days; the largest DM has 199 messages. Users wanting deeper history must first use Zalo PC's own "sync messages from phone" feature. Document this in 4.1.
 - **Verdict: GO.** No design change required. Implementation notes recorded in tasks.md.
+
+## End-to-end run on the real archive (task 4.2, 2026-11-12)
+
+Archive backed up first (`sqlite3 .backup`, 920,731 messages). Zalo PC 26.11.10, Chrome/108.0.5359.215, account `default`.
+
+| Run | Result | Time |
+|-----|--------|------|
+| 1 | 114 DMs, 25,693 added, 8 already present (the zalo-sync captures), 9 skipped (groups/OA), 0 failed, exit 0 | 24 s |
+| 2 | 0 added, 25,701 already present, exit 0 | ~25 s |
+| 3 (after the chat-name fix) | 0 added, 25,701 already present, 0 chats renamed, exit 0 | ~25 s |
+
+- Oldest imported Zalo message: 2019-09-26. The readiness sample (first DM in Zalo PC's list) was a chat whose oldest local message is 2026-11-09, so the list does put recent conversations first.
+- Parity (8.3, 8.4): `khipu search "<2019 phrase>" --platform zalo` and MCP `search_messages` / `list_messages` with `platform: zalo` return the 2019 messages. No zalo-full-history commit touches `src/mcp.ts`, `query-handlers.ts`, `tool-registry.ts`, `cli.ts`, `khipu-list.ts`, or `src/web/`.
+- 2.6 / 8.1: after every run, Zalo PC is running without `--remote-debugging-port`, and `lsof -iTCP -sTCP:LISTEN` shows no Zalo port.
+- 5.6: `sync_state('zalo','default')` was 1794483276 before and after all three runs.
+- First run linked `default` to the logged-in Zalo user in `.zalo_uids.json`.
+
+**Bug found and fixed (chat names).** For contacts whose profile Zalo PC never loaded, `getConversations()` entries carry only ids and flags (no `displayName`/`zaloName`/`username`; confirmed by a read-only probe of 3 such entries, and no name-lookup function was found on `XS0u`). The importer fell back to the uid as the name and `upsertChat` overwrote 12 names zalo-sync had set (6 became bare uids). Fix: the store reader returns `''` when there is no name; existing chats keep their name (zalo-sync owns it); a new chat uses Zalo PC's name or, failing that, its uid. The 12 names were restored from the backup. 26 chats created by the import remain uid-named because no name exists locally. Review also caught that received rows with an empty `dName` were stored with `sender_name = ''`; the sender now falls back to the archive chat name (`row.dName || peerName`), and 14,442 such rows were repaired the same way. Follow-up candidate: resolve these names through zca-js user info in zalo-sync.

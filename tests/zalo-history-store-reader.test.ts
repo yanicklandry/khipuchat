@@ -93,6 +93,13 @@ describe('listConversations', () => {
     expect(await createStoreReader(session, null, fast).listConversations()).toEqual(ok(convs))
   })
 
+  it('never invents a name: the renderer expression falls back to an empty string, not the uid', async () => {
+    const { session, seen } = fakeSession({ conversations: ok([{ uid: '42', name: '', isGroup: false, isOfficialAccount: false }]) })
+    expect(await createStoreReader(session, null, fast).listConversations())
+      .toEqual(ok([{ uid: '42', name: '', isGroup: false, isOfficialAccount: false }]))
+    expect(seen[0]).toMatch(/c\.username \|\| ''/)
+  })
+
   it('rejects a malformed conversation as unrecognised shape', async () => {
     const { session } = fakeSession({ conversations: ok([{ uid: 5, name: 'x', isGroup: false, isOfficialAccount: false }]) })
     expect(await createStoreReader(session, '26.11.10', fast).listConversations())

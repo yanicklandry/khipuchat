@@ -47,6 +47,18 @@ export async function forEachPage(
   }
 }
 
+/**
+ * zalo-sync owns the names of chats it already knows, so an existing chat keeps
+ * its name. A new chat gets Zalo PC's name, or its uid when Zalo PC has none
+ * (contacts whose profile Zalo PC never loaded).
+ */
+function chatName(conv: ZaloPcConversation, account: string): string {
+  const existing = getDb().prepare(
+    "SELECT name FROM chats WHERE platform = 'zalo' AND account = ? AND external_id = ?",
+  ).get(account, conv.uid) as { name: string } | undefined
+  return existing?.name || conv.name || conv.uid
+}
+
 export interface PageCounts { added: number; alreadyPresent: number }
 
 /** Writes one page in one transaction. A failing message is logged and skipped (7.2). */
@@ -55,14 +67,15 @@ export function ingestPage(
 ): PageCounts {
   return getDb().transaction((): PageCounts => {
     const counts: PageCounts = { added: 0, alreadyPresent: 0 }
-    const chatId = upsertChat(toChat(conv, account))
+    const name = chatName(conv, account)
+    const chatId = upsertChat(toChat({ ...conv, name }, account))
     for (const row of collapseDuplicates(rows)) {
       try {
-        const msg = toMessage(row, chatId, ownUid, conv.name)
+        const msg = toMessage(row, chatId, ownUid, name)
         if (getMessageIdByExternalId(chatId, msg.external_id) !== null) counts.alreadyPresent++
         else { insertMessage(msg); counts.added++ }
       } catch (err) {
-        reporter.warn(`Skipped message ${row.msgId} in ${conv.name}: ${(err as Error).message}`)
+        reporter.warn(`Skipped message ${row.msgId} in ${conv.name || conv.uid}: ${(err as Error).message}`)
       }
     }
     return counts

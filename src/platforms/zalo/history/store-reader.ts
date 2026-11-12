@@ -39,7 +39,7 @@ const CONVERSATIONS = call(CALL.conversations, `const cs = await store.getConver
   const arr = Array.isArray(cs) ? cs : Object.values(cs || {});
   return JSON.stringify(arr.map(c => ({
     uid: String(c.userId || c.id || ''),
-    name: c.displayName || c.zaloName || c.username || String(c.userId || c.id),
+    name: c.displayName || c.zaloName || c.username || '',
     isGroup: c.isGroup === true ? true : c.isGroup === false ? false : null,
     isOfficialAccount: !!c.oaInfo,
   })));`)

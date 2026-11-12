@@ -84,7 +84,7 @@ export async function runReadiness(
     value: {
       report: {
         zaloVersion: version, chromium, ownUid, ownName, dmCount: dms.length,
-        sample: { name: first?.name ?? '', oldestTs: oldestMs === null ? null : Math.floor(oldestMs / 1000) },
+        sample: { name: first ? first.name || first.uid : '', oldestTs: oldestMs === null ? null : Math.floor(oldestMs / 1000) },
       },
       reader, dms, skipped: convs.value.length - dms.length, firstRun: binding.value.firstRun,
     },
@@ -122,6 +122,7 @@ export async function runImport(deps: ImportDeps, account: string, configuredUid
 
     const summary: ImportSummary = { conversations: 0, added: 0, alreadyPresent: 0, skipped, failed: [] }
     for (const conv of dms) {
+      const label = conv.name || conv.uid
       let read = 0
       let reason: string
       try {
@@ -130,7 +131,7 @@ export async function runImport(deps: ImportDeps, account: string, configuredUid
           summary.added += c.added
           summary.alreadyPresent += c.alreadyPresent
           read += rows.length
-          reporter.progress(conv.name, read)
+          reporter.progress(label, read)
         })
         if (outcome.ok) { summary.conversations++; continue }
         if (outcome.error.kind === 'connection_lost') {
@@ -140,8 +141,8 @@ export async function runImport(deps: ImportDeps, account: string, configuredUid
       } catch (err) {
         reason = `archive write failed: ${(err as Error).message}`
       }
-      summary.failed.push({ name: conv.name, reason })
-      reporter.warn(`Failed to import ${conv.name}: ${reason}`)
+      summary.failed.push({ name: label, reason })
+      reporter.warn(`Failed to import ${label}: ${reason}`)
     }
     return { ok: true, value: summary }
   } finally {

@@ -65,7 +65,7 @@ export function toMessage(row: ZaloPcRow, chatId: number, ownUid: string, peerNa
     threadType: ZaloThreadType.User,
     isSelf,
     senderId: row.fromUid,
-    senderName: row.dName ?? peerName,
+    senderName: row.dName || peerName,
     content: typeof row.message === 'string' ? row.message : null,
     ts: Number(row.sendDttm),
   }, chatId)

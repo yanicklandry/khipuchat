@@ -188,7 +188,7 @@
   - _Boundary: KhipuRouter_
   - _Depends: 3.3_
 
-- [ ] 4. Validation and documentation
+- [x] 4. Validation and documentation
 - [x] 4.1 Document the command and the new external-process prerequisite
   - In the README's Zalo section, describe:
     - the command and its prerequisites (macOS, Zalo PC installed and logged in);
@@ -200,7 +200,7 @@
   - Observable completion: the README section and the steering row exist and match the shipped command's flags and messages.
   - _Requirements: 6.3, 6.5_
 
-- [ ] 4.2 Run the end-to-end import against the real Zalo PC and confirm parity
+- [x] 4.2 Run the end-to-end import against the real Zalo PC and confirm parity
   - Needs the operator present. Run the import for the default account, then run it again.
   - Confirm that the CLI, MCP, and full-text search, filtered to platform `zalo`, return pre-link messages.
   - Confirm that `git diff` shows no changes to MCP, CLI query, or web query logic, and that Zalo PC is back in normal mode with no debugging port listening.
@@ -211,7 +211,7 @@
     - the results are noted in `research.md`.
   - _Requirements: 2.6, 5.2, 8.1, 8.3, 8.4_
 
-- [ ] 4.3 Run the full regression suite
+- [x] 4.3 Run the full regression suite
   - Run the full vitest suite under Node 24. Check that the new files add no type errors (the repo already has known, unrelated tsc errors).
   - Observable completion: all tests pass with the pass count reported, and `tsc --noEmit` output contains no errors from `src/platforms/zalo/history/` or the modified files.
   - _Requirements: 8.5_
@@ -225,3 +225,4 @@
 - 2.4: `account_mismatch` may carry `expectedUid: null` + `boundAccount` (Zalo user already linked to another account); the CLI (3.3) must word that case.
 - User decision 2026-11-12 (6.4 vs 7.1): a shape error inside ONE conversation mid-import is a per-conversation failure (listed in the summary, exit 1), not an abort; nothing garbled is written. The CLI adds "the importer may need updating" when any failure reason is `shape_unrecognised`. A shape error during readiness still stops everything before any write.
 - 3.2: a store that ignores the paging cursor (repeated page) is a `shape_unrecognised` conversation failure, never a silent stop; the repeated page is not ingested.
+- 4.2 (real run): Zalo PC has no name for contacts whose profile it never loaded. The import never renames an existing chat (zalo-sync owns names), names new chats from Zalo PC or the uid, and falls back to the archive chat name for an empty `dName`. Follow-up candidate: resolve uid-named chats through zca-js user info in zalo-sync.

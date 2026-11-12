@@ -433,7 +433,9 @@ No schema change. Field mapping into existing tables:
 | `messages.sender_id` / `sender_name` | null when sent, else `fromUid` / `dName` |
 | `messages.type` / `text` | `classifyType`, caption for non-text |
 
-**Known existing behaviour**: `upsertChat` overwrites `name` and resets `message_count` to 0. zalo-sync does the same, so it is accepted and left unchanged.
+**Chat names**: zalo-sync owns the names of chats it already knows, so the import keeps an existing chat's name and only names a new chat, from Zalo PC's name or, when Zalo PC has none, the uid (zalo-sync's own fallback). A received message whose `dName` is empty falls back to that archive chat name. Found in the real run (4.2): Zalo PC has no name for contacts whose profile it never loaded.
+
+**Known existing behaviour**: `upsertChat` resets `message_count` to 0. zalo-sync does the same, so it is accepted and left unchanged.
 
 ## Error Handling
 
