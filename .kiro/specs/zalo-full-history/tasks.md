@@ -60,8 +60,8 @@
 - [ ] 2.2 (P) Implement Zalo PC process control for macOS
   - Locate the app: the operator-supplied path first, then `/Applications`, then `~/Applications`. Read its version, and report every path searched when the app is missing.
   - When Zalo PC is running: quit it gracefully, wait for it to exit, and force-stop it only after a timeout.
-  - Then launch it with a random loopback debugging port, wait for its page target, and report whether a restart happened.
-  - On request, relaunch Zalo PC normally, without the debugging flag.
+  - Then launch it hidden and without stealing focus (`open -g -j ... --args`) with a random loopback debugging port, wait for its page target, and report whether a restart happened.
+  - On request, relaunch Zalo PC normally, in the background (`open -g`), without the debugging flag.
   - All shell and process calls are injected, so tests never touch the real app.
   - Observable completion: `tests/zalo-history-app-control.test.ts`, with fake exec and spawn, covers:
     - not installed;
@@ -220,3 +220,4 @@
 - 1.2: CDP `onClose` fires only on connection LOSS, never on our own `close()`; `connection_lost` from the client carries `conversationsDone: 0`, the importer (3.2) must fill the real count. `connect` rejects (throws) after a 10s timeout, so `openReader` must convert that to a Result.
 - 1.3 (GO): match the page target on `/index.html`; poll `store.getUserId()` until non-empty after attach. DM = `isGroup !== true && !oaInfo` (OA = types 5/7 with `oaInfo`). Text is `message` (string); captions are `message.title ?? message.description ?? message.desc`. Rows within a page are oldest first: compute the cursor as the min `(sendDttm, msgId)`, never `rows[last]`. msgId parity with zalo-sync confirmed.
 - 1.3: tell users in docs (4.1) to run Zalo PC "sync messages from phone" first; Zalo PC on this Mac held only days of history for an active chat.
+- User feedback 2026-11-12: launching the Zalo binary directly made windows flash and steal focus. Always use `open -g -j` for the debug launch and `open -g` for the final relaunch.

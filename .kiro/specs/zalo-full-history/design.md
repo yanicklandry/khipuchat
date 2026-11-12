@@ -301,10 +301,10 @@ export function createAppControl(opts: {
 - `locate` checks the given path, then `/Applications/Zalo.app`, then `~/Applications/Zalo.app`, and reads `CFBundleShortVersionString` (2.3, 1.2).
 - `ensureDebugInstance`:
   - If Zalo is running, quit it with `osascript -e 'quit app "Zalo"'`. Wait up to 15s for `pgrep -x Zalo` to clear, then `pkill -x Zalo`. Zalo holds a single-instance lock, so a second launch would hand its flags to the running copy and lose them (2.2).
-  - Launch `<app>/Contents/MacOS/Zalo --remote-debugging-port=<random 20000 to 40000>`, detached.
+  - Launch hidden and without stealing focus: `open -g -j -a <appPath> --args --remote-debugging-port=<random 20000 to 40000>`. Arguments reach the app because it was quit first.
   - Poll `listTargets` every 1s for up to 90s until a `page` target whose url contains `index.html` appears.
   - Report `restarted` so the CLI prints the restart line (2.2).
-- `relaunchNormal` quits the debug instance and starts the app with `open -a <appPath>`, without flags (2.6).
+- `relaunchNormal` quits the debug instance and starts the app with `open -g -a <appPath>`, without flags, so it comes back in the background and never takes focus (2.6).
 
 ### StoreReader (`store-reader.ts`)
 
