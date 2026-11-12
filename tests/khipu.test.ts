@@ -330,3 +330,38 @@ describe('integration: exit-code propagation', () => {
     expect(exitCode).toBe(42)
   }, 15_000)
 })
+
+// ── import subcommand (zalo-full-history 3.4) ─────────────────────────────────
+
+describe('resolveCommand — import subcommand', () => {
+  const ZALO_HISTORY = path.join(SRC, 'platforms', 'zalo', 'history', 'cli.ts')
+
+  it("routes ['import', 'zalo-history', '--account', 'work'] to the zalo history entry with its args", () => {
+    expect(resolveCommand(['import', 'zalo-history', '--account', 'work'])).toEqual({
+      kind: 'run', script: ZALO_HISTORY, args: ['--account', 'work'],
+    })
+  })
+
+  it('forwards --help after the target to the entry itself', () => {
+    expect(resolveCommand(['import', 'zalo-history', '--help'])).toEqual({ kind: 'run', script: ZALO_HISTORY, args: ['--help'] })
+  })
+
+  it("rejects an unknown import target: ['import', 'foo']", () => {
+    const result = resolveCommand(['import', 'foo'])
+    expect(result.kind).toBe('error')
+    expect(result.exitCode).toBe(1)
+    expect(result.message).toMatch(/foo[\s\S]*zalo-history/)
+  })
+
+  it("['import'] with no target is an error showing the import usage", () => {
+    expect(resolveCommand(['import'])).toMatchObject({ kind: 'error', exitCode: 1, message: expect.stringMatching(/khipu import zalo-history/) })
+  })
+
+  it("'khipu import --help' shows the import usage", () => {
+    expect(resolveCommand(['import', '--help'])).toMatchObject({ kind: 'help', exitCode: 0, message: expect.stringMatching(/khipu import zalo-history/) })
+  })
+
+  it('the root usage lists the import command', () => {
+    expect(resolveCommand([]).message).toMatch(/import zalo-history/)
+  })
+})

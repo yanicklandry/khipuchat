@@ -118,7 +118,7 @@
   - _Boundary: AccountRegistry_
   - _Depends: 1.3_
 
-- [ ] 3. Integration
+- [x] 3. Integration
 - [x] 3.1 Implement the importer readiness phase
   - Run these steps in order:
     1. locate the app;
@@ -161,7 +161,7 @@
   - _Boundary: Importer_
   - _Depends: 3.1_
 
-- [ ] 3.3 Build the `import zalo-history` command entry
+- [x] 3.3 Build the `import zalo-history` command entry
   - Parse `--account`, `--app-path`, and `--help`.
   - Resolve the account: an explicit listed account, else `default`, else the only account, else an error listing the choices.
   - Read the optional configured Zalo uid from the account's fields.
@@ -178,7 +178,7 @@
   - _Boundary: Cli_
   - _Depends: 2.5, 3.2_
 
-- [ ] 3.4 Route `khipu import zalo-history` through the khipu CLI
+- [x] 3.4 Route `khipu import zalo-history` through the khipu CLI
   - Add an `import` subcommand that forwards `zalo-history` and its arguments to the new entry, rejects unknown import targets, and appears in the root and subcommand usage text.
   - Observable completion: `tests/khipu.test.ts` asserts that:
     - `import zalo-history --account work` routes to the entry with its args;

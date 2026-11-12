@@ -49,6 +49,11 @@ const QUERY_COMMANDS = new Set([
 
 const PLATFORM_SET = new Set<string>(PLATFORMS)
 
+// import <target> => relative script path (from src/)
+const IMPORT_SCRIPTS: Record<string, string> = {
+  'zalo-history': 'platforms/zalo/history/cli.ts',
+}
+
 // ── Help text ─────────────────────────────────────────────────────────────────
 
 const USAGE = `
@@ -64,6 +69,7 @@ Operational commands:
   setup-sync                 Run sync setup
   setup-env                  Interactively fill .env (missing credentials)
   index                      Index embeddings
+  import zalo-history        Import DM history from the Zalo PC desktop app (macOS)
 
 Query commands:
   ask "<question>" Ask a local Ollama model about your archive (use --help for options)
@@ -73,6 +79,13 @@ Query commands:
 `.trim()
 
 const SUBCOMMAND_USAGE: Record<string, string> = {
+  import: `Usage: khipu import <target> [options]
+
+Targets:
+  zalo-history   Import DM history from the Zalo PC desktop app (macOS)
+
+Run "khipu import zalo-history --help" for its options.`.trim(),
+
   ask: `Usage: khipu ask "<question>"
 
 Ask a natural-language question about your archive using a local Ollama model.
@@ -213,6 +226,16 @@ export function resolveCommand(argv: readonly string[], deps?: ResolveDeps): Com
       message: `Unknown platform: "${arg}". Known platforms: ${PLATFORMS.join(', ')}`,
       exitCode: 1,
     }
+  }
+
+  // import subcommand: forwards the target's own args (including --help)
+  if (sub === 'import') {
+    const importScript = arg ? IMPORT_SCRIPTS[arg] : undefined
+    if (importScript) {
+      return { kind: 'run', script: path.join(SRC, importScript), args: argv.slice(2) }
+    }
+    const what = arg ? `Unknown import target: "${arg}".` : 'Missing import target.'
+    return { kind: 'error', message: `${what}\n\n${SUBCOMMAND_USAGE['import']}`, exitCode: 1 }
   }
 
   // list subcommand
