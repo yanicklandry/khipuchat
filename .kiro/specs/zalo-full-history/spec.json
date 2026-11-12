@@ -1,17 +1,17 @@
 {
   "feature_name": "zalo-full-history",
   "created_at": "2026-11-12T00:00:00Z",
-  "updated_at": "2026-11-12T17:30:00Z",
+  "updated_at": "2026-11-12T18:20:00Z",
   "language": "en",
-  "phase": "requirements-generated",
+  "phase": "design-generated",
   "approvals": {
     "requirements": {
       "generated": true,
       "approved": true
     },
     "design": {
-      "generated": false,
-      "approved": false
+      "generated": true,
+      "approved": true
     },
     "tasks": {
       "generated": false,
@@ -19,5 +19,5 @@
     }
   },
   "ready_for_implementation": false,
-  "note": "Requirements approved after interactive review (silent Zalo PC restart, stop on account mismatch, media type-only, auto readiness check, no filters/pacing in v1). Next: design."
+  "note": "Design approved after interactive review. Next: tasks."
 }

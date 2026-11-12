@@ -54,3 +54,28 @@
 - **Selected Approach**: Treat empirically confirming the renderer-store shape and CDP-attach flow against a real macOS Zalo PC install as a go/no-go gate before building the rest of the importer, rather than assuming the Windows implementation ports cleanly.
 - **Rationale**: Matches the project's established "risk documented, not hidden" standard (`zalo-sync`'s ban-risk disclosure, `signal-direct`'s back-history disclosure) — the scope estimate must reflect a real chance the first milestone is "confirm this works on Mac at all."
 - **Trade-offs**: If the macOS verification spike fails (renderer-store shape differs, CDP attach is blocked in some unforeseen way), the spec may need to be revisited or closed similarly to `facebook-direct`'s "not recommended" outcome — this is an accepted, explicit possibility, not a hidden risk.
+
+## Design-Phase Research (2026-11-12)
+
+### Zalo PC on this Mac (read-only bundle inspection, app not driven)
+- **Findings**: `/Applications/Zalo.app`, bundle `com.vng.zalo`, version 26.11.10, Electron 22.3.9 / Chromium 108.0.5359.215, universal binary, hardened runtime. Runs with `--user-data-dir=~/Library/Application Support/ZaloData`. `app.asar` contains `webpackJsonp`, modules `XS0u` / `fBUP` / `z0WU`, and `getMessageFromConversationByLimit`, `countTotalMessageOfConversation`, `getConversations`. No `remote-debugging` string (the app does not block the flag). Calls `requestSingleInstanceLock`, so Zalo must be fully quit before relaunching with flags.
+- **Implications**: The ZaloBackup mechanism very likely transfers to macOS (LIKELY, not run live). The Chromium 136 `--user-data-dir` rule does not apply (Chromium 108). The go/no-go task remains mandatory.
+
+### ZaloBackup (baok1210/ZaloBackup) observations
+- **Findings**: Store via `window.webpackJsonp.push([[Math.random()],{},[["XS0u"]]]).default`. `getUserId()`, `getMe()`, `getConversations()`, `getMessageFromConversationByLimit(uid, 500, {count, fromMsg:{sendDttm,msgId}})` returns rows newest first. History ends on a short page. Rows: `msgId`, `cliMsgId`, `fromUid` ("0" = me), `toUid`, `sendDttm` (ms string), `msgType` (2 photo, 7 sticker, 18 video, 19 file, 6 link/call), `message` (string or object), `dName`, `serverTime`. Multi-device duplicates share `cliMsgId`, and the phone copy's `msgId` carries a `_NNN` suffix. `countTotalMessageOfConversation` is unreliable. `fBUP.getHistoryMessage` is group-only (404 for DMs).
+- **Licence**: none declared. Reimplement from observations only; do not copy code.
+
+### Build vs adopt: CDP client
+- **Options**: `chrome-remote-interface` 0.34.0 (MIT, maintained), puppeteer-core (already transitive via whatsapp-web.js), or Node 24 global `WebSocket` + `fetch`.
+- **Decision**: Built-in. Only `/json/list`, `/json/version`, and `Runtime.evaluate` are needed. Zero new dependencies, and easy to fake in tests. `chrome-remote-interface` is the documented fallback.
+
+### Codebase integration findings
+- `insertMessage` returns void and its conflict branch updates, so added vs present is counted with a `getMessageIdByExternalId` pre-check (no `db.ts` change).
+- No Zalo own-uid is persisted anywhere. Introduce an optional `ZALO_UID` account field for the mismatch check (5.4).
+- `mapChat`/`mapMessage` in `zalo/sync.ts` are pure and are reused for identity parity. `mapMessage` emits `other` and drops captions for non-text, so the importer refines type and text afterwards.
+- `sync_state('zalo', account)` is written only by `runPlatformSync`, so the importer avoids that path (5.6).
+
+## Synthesis Outcomes
+- **Generalization**: None worth taking. A generic "Electron app history reader" has no second consumer.
+- **Build vs adopt**: Adopt the zalo-sync mappers and db helpers. Build the minimal CDP client (above).
+- **Simplification**: No separate "transport" vs "session" layer. One `cdp.ts`, with process control isolated in `app-control.ts` so tests fake it. No dry-run mode, filters, or throttling (removed in requirements review).
