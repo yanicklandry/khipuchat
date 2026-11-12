@@ -12,7 +12,7 @@
   - Observable completion: the new types module compiles under the project's strict settings, and every later importer module can import its contracts from it.
   - _Requirements: 1.2, 1.3, 5.4, 6.2, 7.3_
 
-- [ ] 1.2 Build the minimal loopback CDP client
+- [x] 1.2 Build the minimal loopback CDP client
   - List debugging targets and read the browser version from the local debugging port, always on `127.0.0.1`.
   - Open a session to a chosen page target, and evaluate an expression that resolves to a JSON string, parsing it into a typed result. Map renderer exceptions to an attach error.
   - Reject any target whose WebSocket URL is not loopback.
@@ -215,3 +215,6 @@
   - Run the full vitest suite under Node 24. Check that the new files add no type errors (the repo already has known, unrelated tsc errors).
   - Observable completion: all tests pass with the pass count reported, and `tsc --noEmit` output contains no errors from `src/platforms/zalo/history/` or the modified files.
   - _Requirements: 8.5_
+
+## Implementation Notes
+- 1.2: CDP `onClose` fires only on connection LOSS, never on our own `close()`; `connection_lost` from the client carries `conversationsDone: 0`, the importer (3.2) must fill the real count. `connect` rejects (throws) after a 10s timeout, so `openReader` must convert that to a Result.
