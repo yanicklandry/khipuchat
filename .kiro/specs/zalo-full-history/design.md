@@ -99,7 +99,8 @@ src/platforms/zalo/history/
 ├── app-control.ts    # Zalo PC lifecycle on macOS: locate, isRunning, quit, launchDebug, waitForPage, bundleVersion
 ├── store-reader.ts   # Renderer expressions + shape guards: probeStore, getMe, listConversations, getMessagePage
 ├── mapping.ts        # Pure: isDmConversation, collapseDuplicates, toChat, toMessage, classifyType
-├── importer.ts       # Orchestrator: readiness check, per-conversation paging, idempotent ingestion, summary
+├── importer.ts       # Orchestrator: readiness check, per-conversation loop, failure isolation, teardown, summary
+├── paging.ts         # Backward cursor paging and one-transaction-per-page idempotent ingestion
 ├── uid-store.ts      # Account <=> Zalo uid bindings in .zalo_uids.json (learned on first run)
 └── cli.ts            # Entry: args, account resolution, disclosure, wiring real ports, exit codes
 tests/
@@ -374,13 +375,16 @@ export function createUidStore(filePath?: string): UidStore   // default ./.zalo
 ```typescript
 export interface ImportDeps {
   app: AppControl
-  openReader: (port: number, zaloVersion: string) => Promise<Result<{ reader: StoreReader; session: CdpSession }>>
+  openReader: (instance: { port: number; restarted: boolean; target: CdpTarget }, zaloVersion: string) =>
+    Promise<Result<{ reader: StoreReader; session: CdpSession; chromium: string }>>
   reporter: Reporter
   uidStore: UidStore
   pageSize?: number            // default 500
 }
 
-export function runReadiness(deps: ImportDeps, account: string, configuredUid: string | null): Promise<Result<{ report: ReadinessReport; reader: StoreReader; dms: ZaloPcConversation[] }>>
+export interface Teardown { launched?: boolean; session?: CdpSession }
+export function runReadiness(deps: ImportDeps, account: string, configuredUid: string | null, teardown: Teardown):
+  Promise<Result<{ report: ReadinessReport; reader: StoreReader; dms: ZaloPcConversation[]; skipped: number; firstRun: boolean }>>
 export function runImport(deps: ImportDeps, account: string, configuredUid: string | null): Promise<Result<ImportSummary>>
 ```
 - **Trigger**: called once by the CLI.
@@ -393,7 +397,8 @@ export function runImport(deps: ImportDeps, account: string, configuredUid: stri
   3. A row that throws is logged and skipped (7.2).
   This gives the counts without changing `db.ts` (5.1, 5.2, 6.2).
 - **Isolation**: a non-connection error inside one conversation records it in `failed` and continues (7.1). `connection_lost` aborts with `conversationsDone` (7.3).
-- **Teardown**: always closes the session and calls `app.relaunchNormal()` in a `finally`, including after errors (2.6).
+- **Teardown**: `runReadiness` records what it opened in a `Teardown` object (`launched` is set before `ensureDebugInstance`, `session` after attach). `runImport`'s `finally` closes the session and, once a launch was attempted (including `launch_failed`), calls `app.relaunchNormal()`, warning if the reopen fails (2.6). Not located means nothing was launched, so there is no relaunch.
+- **Failure reasons**: a thrown exception inside one conversation (for example a DB error) is recorded as that conversation's failure, like a returned error. Shape errors inside one conversation are per-conversation failures too: that page is not written (6.4, 7.1). Decided by the user on 2026-11-12; the CLI then adds an "importer may need updating" hint. A repeated page (store ignored the cursor) is such a failure, never a silent stop.
 - Never calls `setPlatformLastSyncedAt`, `runPlatformSync`, or `runSyncEntrypoint` (5.6).
 
 ### Cli (`cli.ts`)
@@ -409,7 +414,8 @@ export function exitCodeFor(result: Result<ImportSummary>): 0 | 1
 - `resolveAccount`: use `--account` if it is listed. Otherwise use `default` if listed, else the only account. If there are several and none is `default`, return an error listing them (5.3).
 - `configuredUid` comes from the account's optional `ZALO_UID` field: `khipu.config.json`, or the `ZALO_UID` env var for legacy installs. Usually it is unset and the uid is learned on first run.
 - Prints `DISCLOSURE` before anything else: "Recovers only history already synced to this Zalo PC install. Uses undocumented Zalo PC internals that may break on app updates. Zalo PC will be restarted." (6.3).
-- Calls `initDb('./khipuchat.db')`, matching zalo-sync.
+- Calls `initDb('./khipuchat.db')`, matching zalo-sync, but only after the arguments and account are valid, so `--help` and argument errors never open the archive. `run(argv, io)` takes its ports (`CliIo`: output, registry lookups, `openArchive`, `runImport`) injected so tests never touch Zalo PC or the real archive (8.5); `main()` wires the real ones.
+- Loads `.env` (`dotenv/config`) so `DB_KEY` and a legacy `ZALO_UID` apply.
 - Exit code 1 for any `ImportError` or `summary.failed.length > 0`, otherwise 0 (1.3, 7.4).
 
 ## Data Models

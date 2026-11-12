@@ -119,7 +119,7 @@
   - _Depends: 1.3_
 
 - [ ] 3. Integration
-- [ ] 3.1 Implement the importer readiness phase
+- [x] 3.1 Implement the importer readiness phase
   - Run these steps in order:
     1. locate the app;
     2. launch it in debug mode;
@@ -137,7 +137,7 @@
   - _Boundary: Importer_
   - _Depends: 2.1, 2.2, 2.3, 2.4_
 
-- [ ] 3.2 Implement history paging, idempotent ingestion, and teardown
+- [x] 3.2 Implement history paging, idempotent ingestion, and teardown
   - Wrap the readiness phase in a single `finally` that always closes the session and relaunches Zalo PC normally. This applies on success, on readiness failures that happen after launch, and on every import error.
   - On a first run, bind the account to the detected Zalo user only after readiness fully succeeds. Print the link line, then start the first transaction.
   - Paging: for each DM, page backward from newest to oldest in pages of 500. Advance the cursor to each page's oldest row, and stop on a short page.
@@ -223,3 +223,5 @@
 - User feedback 2026-11-12: launching the Zalo binary directly made windows flash and steal focus. Always use `open -g -j` for the debug launch and `open -g` for the final relaunch.
 - 2.2 review: the importer's `finally` (3.2) must call `relaunchNormal` after ANY launch attempt, including `launch_failed` (a page-target timeout leaves Zalo in debug mode), and must print its error if the reopen fails.
 - 2.4: `account_mismatch` may carry `expectedUid: null` + `boundAccount` (Zalo user already linked to another account); the CLI (3.3) must word that case.
+- User decision 2026-11-12 (6.4 vs 7.1): a shape error inside ONE conversation mid-import is a per-conversation failure (listed in the summary, exit 1), not an abort; nothing garbled is written. The CLI adds "the importer may need updating" when any failure reason is `shape_unrecognised`. A shape error during readiness still stops everything before any write.
+- 3.2: a store that ignores the paging cursor (repeated page) is a `shape_unrecognised` conversation failure, never a silent stop; the repeated page is not ingested.
