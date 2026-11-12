@@ -79,3 +79,31 @@
 - **Generalization**: None worth taking. A generic "Electron app history reader" has no second consumer.
 - **Build vs adopt**: Adopt the zalo-sync mappers and db helpers. Build the minimal CDP client (above).
 - **Simplification**: No separate "transport" vs "session" layer. One `cdp.ts`, with process control isolated in `app-control.ts` so tests fake it. No dry-run mode, filters, or throttling (removed in requirements review).
+
+## macOS go/no-go result (2026-11-12): **GO**
+
+Probe: a throwaway CDP script (scratchpad, not committed) using `src/platforms/zalo/history/cdp.ts`, run 4 times against this Mac. No message text was printed. After every run Zalo PC was quit and relaunched normally.
+
+- **Environment**: Zalo PC 26.11.10, `Chrome/108.0.5359.215`. Quitting via `osascript` worked every time (no force-kill needed). Launching `Contents/MacOS/Zalo --remote-debugging-port=<random>` works; no `--user-data-dir` is needed.
+- **Targets**: 3 `page` targets: `pc-dist/index.html` (the one to use), `pc-dist/znotification.html`, `pc-dist/shared-worker.html`. Match on `/index.html`, not just `index.html`.
+- **Store**: `window.webpackJsonp` exists and module `XS0u` resolves. `getUserId`, `getMe`, `getConversations`, `getMessageFromConversationByLimit` and `countTotalMessageOfConversation` are all functions. `getUserId()` returns the logged-in uid. The store needs a few seconds after page load before `getUserId()` is non-empty, so poll it.
+- **Conversations**: 123 in total. `getConversations()` returns an array, and the conversation id is in `userId`.
+  - Groups: `isGroup === true` on exactly 2 conversations, which are also the only 2 with a `g` id prefix (type 1).
+  - **Official Accounts**: `oaInfo` is truthy (types 5 and 7; 7 conversations).
+  - DMs: type 0 or type undefined, with no `oaInfo`.
+  - `isGroup` is never null here.
+- **Message rows**:
+  - `msgId`, `cliMsgId`, `fromUid`, `toUid`, `sendDttm` (epoch ms), `serverTime` and `dName` are all non-empty strings, `msgType` is a number, and `toUid` equals the conversation uid.
+  - Direction: `fromUid` is `"0"` for sent messages and the contact's uid for received ones.
+  - **Text** (msgType 1): `message` is a string; `content` and `msgText` are null.
+  - Location (17): `message` is an object with `title`, `desc`, `lat`, `lo`.
+  - Card/link (25): `message` is an object with `title`, `description`, `href`.
+  - **Captions must check `title`, then `description`, then `desc`.**
+  - Other msgTypes seen: 21 and 52 (one bulk sender), not mapped. The ZaloBackup mapping (2 image, 7 sticker, 18 video) was not observed on this install and remains unverified.
+- **Ordering and paging**: inside a page, rows come **oldest first**. Each next page (cursor = `{sendDttm, msgId}` of the oldest row) is strictly older, the cursor row is excluded, and there are no duplicates.
+  - With `LIMIT=20`: 52 messages in 3 pages and 199 messages in 10 pages (back to 2022-11-10). Both totals match `countTotalMessageOfConversation`.
+  - The history ends on a short page.
+  - No `_NNN`-suffixed msgIds appeared in these chats, so the multi-device collapse is still unexercised.
+- **msgId parity with zalo-sync: CONFIRMED**. 3 of 3 live-captured ids (2 received, 1 sent) are identical to Zalo PC's `msgId`. `cliMsgId` differs. Dedupe on `(external_id = msgId, chat_id)` works with no `db.ts` change.
+- **Fidelity observation**: Zalo PC only holds what has synced to this install. The test DM goes back only 3 days; the largest DM has 199 messages. Users wanting deeper history must first use Zalo PC's own "sync messages from phone" feature. Document this in 4.1.
+- **Verdict: GO.** No design change required. Implementation notes recorded in tasks.md.

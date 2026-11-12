@@ -21,7 +21,7 @@
   - Observable completion: `tests/zalo-history-cdp.test.ts`, using a fake WebSocket and fetch, confirms JSON result parsing, exception mapping, non-loopback rejection, and lost-connection behaviour, and `package.json` is unchanged.
   - _Requirements: 2.5, 7.3, 8.1, 8.5_
 
-- [ ] 1.3 Run the go/no-go spike against the real Zalo PC on this Mac
+- [x] 1.3 Run the go/no-go spike against the real Zalo PC on this Mac
   - Prerequisites:
     - The operator is present: Zalo PC 26.11.10 is quit, relaunched with a loopback debugging port, then relaunched normally at the end.
     - The archive already holds zalo-sync messages for at least one DM that is also visible in Zalo PC. If not, run `khipu sync zalo` first.
@@ -218,3 +218,5 @@
 
 ## Implementation Notes
 - 1.2: CDP `onClose` fires only on connection LOSS, never on our own `close()`; `connection_lost` from the client carries `conversationsDone: 0`, the importer (3.2) must fill the real count. `connect` rejects (throws) after a 10s timeout, so `openReader` must convert that to a Result.
+- 1.3 (GO): match the page target on `/index.html`; poll `store.getUserId()` until non-empty after attach. DM = `isGroup !== true && !oaInfo` (OA = types 5/7 with `oaInfo`). Text is `message` (string); captions are `message.title ?? message.description ?? message.desc`. Rows within a page are oldest first: compute the cursor as the min `(sendDttm, msgId)`, never `rows[last]`. msgId parity with zalo-sync confirmed.
+- 1.3: tell users in docs (4.1) to run Zalo PC "sync messages from phone" first; Zalo PC on this Mac held only days of history for an active chat.
