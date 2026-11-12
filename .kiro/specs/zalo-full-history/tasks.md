@@ -3,7 +3,7 @@
 > **Gate:** only 1.1 and 1.2 may start before task 1.3 records a GO. Every task from 2.x onward depends on 1.3.
 
 - [ ] 1. Foundation and macOS go/no-go gate
-- [ ] 1.1 Define the shared importer types and port contracts
+- [x] 1.1 Define the shared importer types and port contracts
   - Declare the following exactly as specified in design.md:
     - the Zalo PC conversation, message row, and page cursor shapes;
     - the import error union with its failing step, including a `uid_store_invalid` variant (step `account`, carrying the file path);
