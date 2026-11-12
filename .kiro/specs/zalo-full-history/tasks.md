@@ -74,7 +74,7 @@
   - _Boundary: AppControl_
   - _Depends: 1.2, 1.3_
 
-- [ ] 2.3 (P) Implement the renderer store reader with shape validation
+- [x] 2.3 (P) Implement the renderer store reader with shape validation
   - Build read-only renderer expressions, using the names confirmed in 1.3, to:
     - probe the store;
     - read the logged-in user;
@@ -111,7 +111,7 @@
   - _Boundary: UidStore_
   - _Depends: 1.3_
 
-- [ ] 2.5 (P) Accept an optional legacy `ZALO_UID` in the account registry
+- [x] 2.5 (P) Accept an optional legacy `ZALO_UID` in the account registry
   - Today the legacy (no config file) optional-field map holds one variable per platform. Widen it to a list, so zalo can expose both `ZALO_SESSION` and `ZALO_UID` while whatsapp keeps its single optional field.
   - Observable completion: `tests/account-registry.test.ts` gains cases showing that a legacy `ZALO_UID` env var appears in the default zalo account's fields, and that existing whatsapp and zalo session behaviour is unchanged. All existing registry tests still pass.
   - _Requirements: 5.4_

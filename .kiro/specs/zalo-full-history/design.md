@@ -314,7 +314,7 @@ export function createAppControl(opts: {
 
 ```typescript
 export interface StoreReader {
-  probeStore(): Promise<Result<{ chromium: string }>>
+  probeStore(): Promise<Result<true>>   // chromium comes from CdpClient.version
   getMe(): Promise<Result<{ uid: string; name: string } | null>>
   listConversations(): Promise<Result<ZaloPcConversation[]>>
   getMessagePage(uid: string, cursor: PageCursor | null, limit: number): Promise<Result<ZaloPcRow[]>>
@@ -322,10 +322,10 @@ export interface StoreReader {
 
 export function createStoreReader(session: CdpSession, zaloVersion: string | null): StoreReader
 ```
-- All expressions resolve the store through `window.webpackJsonp.push([[Math.random()],{},[["XS0u"]]]).default`. They call only read functions: `getUserId`, `getMe`, `getConversations`, `getMessageFromConversationByLimit(uid, limit, { count, fromMsg, inclusive: false })` (1.4).
+- All expressions resolve the store through `window.webpackJsonp.push([[Math.random()],{},[["XS0u"]]]).default`. They call only read functions: `getUserId`, `getMe`, `getConversations`, `getMessageFromConversationByLimit(uid, limit, { count, fromMsg, include: false })` (1.4).
 - `probeStore` checks that `webpackJsonp` exists, module `XS0u` resolves, and the four functions are callable. Otherwise it returns `shape_unrecognised` naming what is missing (6.4).
 - Every returned row passes a hand-written guard (required fields present with expected primitive types). One invalid row in a page fails the page with `shape_unrecognised`, so garbled data is never imported (6.4).
-- `getMe` returning an empty uid maps to `null`, which the importer treats as `not_logged_in` (2.4).
+- `getMe` reads `getUserId()` first and only calls `getMe()` when it is non-empty; an empty uid (after polling) maps to `null`, which the importer treats as `not_logged_in` (2.4). Renderer exceptions map to `shape_unrecognised`; timeouts and `connection_lost` pass through.
 - Never calls REST/network modules (`fBUP`) or decryption helpers, and never reads session or key material (8.1, 8.2).
 
 ### Mapping (`mapping.ts`)
