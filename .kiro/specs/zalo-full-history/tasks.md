@@ -189,7 +189,7 @@
   - _Depends: 3.3_
 
 - [ ] 4. Validation and documentation
-- [ ] 4.1 Document the command and the new external-process prerequisite
+- [x] 4.1 Document the command and the new external-process prerequisite
   - In the README's Zalo section, describe:
     - the command and its prerequisites (macOS, Zalo PC installed and logged in);
     - that Zalo PC is restarted twice;
