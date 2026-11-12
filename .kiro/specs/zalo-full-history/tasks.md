@@ -43,7 +43,7 @@
   - _Requirements: 1.1, 1.2, 1.4, 3.1, 3.2, 4.2_
 
 - [ ] 2. Core components
-- [ ] 2.1 (P) Implement the pure history-to-archive mapping
+- [x] 2.1 (P) Implement the pure history-to-archive mapping
   - Decide whether a conversation is a DM, skipping groups and any Official Account marker confirmed in 1.3.
   - Collapse multi-device duplicate rows that share a client message id. Keep the unsuffixed copy first, then the latest server time, then the larger id.
   - Produce chat and message records by delegating to zalo-sync's existing mappers, so external ids, platform, chat type, and sender rules match exactly.

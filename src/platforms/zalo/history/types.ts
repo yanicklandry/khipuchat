@@ -7,6 +7,8 @@ export interface ZaloPcConversation {
   name: string
   /** null when Zalo PC did not say either way. */
   isGroup: boolean | null
+  /** Official Account (Zalo PC sets `oaInfo`; types 5 and 7). Confirmed in task 1.3. */
+  isOfficialAccount: boolean
 }
 
 /** One message row from Zalo PC's renderer store, normalized to strings. */
