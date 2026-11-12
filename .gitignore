@@ -10,3 +10,4 @@ khipuchat.db
 media/
 .tukuy/logs/
 .zalo_session.json
+.zalo_uids.json

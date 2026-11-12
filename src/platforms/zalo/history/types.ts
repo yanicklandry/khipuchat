@@ -43,7 +43,14 @@ export type ImportError =
   | { kind: 'attach_failed'; step: 'attach'; message: string }
   | { kind: 'not_logged_in'; step: 'login' }
   | { kind: 'shape_unrecognised'; step: 'shape'; detail: string; zaloVersion: string | null }
-  | { kind: 'account_mismatch'; step: 'account'; expectedUid: string; actualUid: string }
+  | {
+      kind: 'account_mismatch'
+      step: 'account'
+      /** null when the account has no uid yet but the uid is linked to `boundAccount`. */
+      expectedUid: string | null
+      actualUid: string
+      boundAccount?: string
+    }
   | { kind: 'uid_store_invalid'; step: 'account'; path: string }
   | { kind: 'connection_lost'; step: 'read'; conversationsDone: number }
 
