@@ -57,7 +57,7 @@
   - _Boundary: Mapping_
   - _Depends: 1.3_
 
-- [ ] 2.2 (P) Implement Zalo PC process control for macOS
+- [x] 2.2 (P) Implement Zalo PC process control for macOS
   - Locate the app: the operator-supplied path first, then `/Applications`, then `~/Applications`. Read its version, and report every path searched when the app is missing.
   - When Zalo PC is running: quit it gracefully, wait for it to exit, and force-stop it only after a timeout.
   - Then launch it hidden and without stealing focus (`open -g -j ... --args`) with a random loopback debugging port, wait for its page target, and report whether a restart happened.
@@ -93,7 +93,7 @@
   - _Boundary: StoreReader_
   - _Depends: 1.3_
 
-- [ ] 2.4 (P) Implement the account-to-Zalo-user binding store
+- [x] 2.4 (P) Implement the account-to-Zalo-user binding store
   - Keep account-to-Zalo-uid bindings in a local JSON file, `.zalo_uids.json`, and add that file to `.gitignore`.
   - A configured uid takes priority over the file.
   - Report a mismatch when this account is bound to a different uid, or when the uid is already bound to another account. Otherwise report a first run.
@@ -221,3 +221,5 @@
 - 1.3 (GO): match the page target on `/index.html`; poll `store.getUserId()` until non-empty after attach. DM = `isGroup !== true && !oaInfo` (OA = types 5/7 with `oaInfo`). Text is `message` (string); captions are `message.title ?? message.description ?? message.desc`. Rows within a page are oldest first: compute the cursor as the min `(sendDttm, msgId)`, never `rows[last]`. msgId parity with zalo-sync confirmed.
 - 1.3: tell users in docs (4.1) to run Zalo PC "sync messages from phone" first; Zalo PC on this Mac held only days of history for an active chat.
 - User feedback 2026-11-12: launching the Zalo binary directly made windows flash and steal focus. Always use `open -g -j` for the debug launch and `open -g` for the final relaunch.
+- 2.2 review: the importer's `finally` (3.2) must call `relaunchNormal` after ANY launch attempt, including `launch_failed` (a page-target timeout leaves Zalo in debug mode), and must print its error if the reopen fails.
+- 2.4: `account_mismatch` may carry `expectedUid: null` + `boundAccount` (Zalo user already linked to another account); the CLI (3.3) must word that case.

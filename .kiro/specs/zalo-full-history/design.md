@@ -210,7 +210,7 @@ sequenceDiagram
 ### Types (`types.ts`)
 
 ```typescript
-export interface ZaloPcConversation { uid: string; name: string; isGroup: boolean | null }
+export interface ZaloPcConversation { uid: string; name: string; isGroup: boolean | null; isOfficialAccount: boolean }
 
 export interface ZaloPcRow {
   msgId: string            // normalized to string; may carry a "_NNN" device suffix
@@ -234,7 +234,7 @@ export type ImportError =
   | { kind: 'attach_failed'; step: 'attach'; message: string }
   | { kind: 'not_logged_in'; step: 'login' }
   | { kind: 'shape_unrecognised'; step: 'shape'; detail: string; zaloVersion: string | null }
-  | { kind: 'account_mismatch'; step: 'account'; expectedUid: string; actualUid: string }
+  | { kind: 'account_mismatch'; step: 'account'; expectedUid: string | null; actualUid: string; boundAccount?: string }
   | { kind: 'uid_store_invalid'; step: 'account'; path: string }
   | { kind: 'connection_lost'; step: 'read'; conversationsDone: number }
 
@@ -286,25 +286,27 @@ export function createCdpClient(deps?: { fetch?: typeof fetch; WebSocket?: typeo
 export interface AppControl {
   locate(): Result<{ appPath: string; version: string }>
   isRunning(): boolean
-  ensureDebugInstance(): Promise<Result<{ port: number; restarted: boolean }>>
-  relaunchNormal(): Promise<void>
+  ensureDebugInstance(): Promise<Result<{ port: number; restarted: boolean; target: CdpTarget }>>
+  relaunchNormal(): Promise<Result<true>>   // a failed reopen is reported, never silent
 }
 
 export function createAppControl(opts: {
   appPath?: string                      // from --app-path, default /Applications/Zalo.app
-  exec?: (cmd: string, args: string[]) => { status: number; stdout: string }
-  spawnDetached?: (bin: string, args: string[]) => void
   cdp: CdpClient
+  exec?: (cmd: string, args: string[]) => { status: number; stdout: string }  // stdout carries stderr on failure
+  exists?: (p: string) => boolean
+  home?: string
   sleep?: (ms: number) => Promise<void>
+  randomPort?: () => number
 }): AppControl
 ```
 - `locate` checks the given path, then `/Applications/Zalo.app`, then `~/Applications/Zalo.app`, and reads `CFBundleShortVersionString` (2.3, 1.2).
 - `ensureDebugInstance`:
-  - If Zalo is running, quit it with `osascript -e 'quit app "Zalo"'`. Wait up to 15s for `pgrep -x Zalo` to clear, then `pkill -x Zalo`. Zalo holds a single-instance lock, so a second launch would hand its flags to the running copy and lose them (2.2).
+  - If Zalo is running, quit it with `osascript -e 'quit app id "com.vng.zalo"'`. Wait up to 15s for `pgrep -x Zalo` to clear, then `pkill -x Zalo`, then `pkill -9 -x Zalo`. If it is still running, return `launch_failed` without launching. Zalo holds a single-instance lock, so a second launch would hand its flags to the running copy and lose them (2.2).
   - Launch hidden and without stealing focus: `open -g -j -a <appPath> --args --remote-debugging-port=<random 20000 to 40000>`. Arguments reach the app because it was quit first.
   - Poll `listTargets` every 1s for up to 90s until a `page` target whose url contains `index.html` appears.
   - Report `restarted` so the CLI prints the restart line (2.2).
-- `relaunchNormal` quits the debug instance and starts the app with `open -g -a <appPath>`, without flags, so it comes back in the background and never takes focus (2.6).
+- `relaunchNormal` quits the debug instance and starts the app with `open -g -a <appPath>` (or `open -g -b com.vng.zalo` when no path is known), without flags, so it comes back in the background and never takes focus (2.6). A failed reopen returns `launch_failed` ("open it manually").
 
 ### StoreReader (`store-reader.ts`)
 
@@ -348,13 +350,10 @@ export function classifyType(msgType: number, message: ZaloPcRow['message']): Me
 **Contracts**: Service [x] / State [x]
 
 ```typescript
-export type BindingCheck =
-  | { ok: true; firstRun: boolean }
-  | { ok: false; expectedUid: string; actualUid: string; boundAccount: string }
-
 export interface UidStore {
-  checkBinding(account: string, ownUid: string, configuredUid: string | null): BindingCheck
-  bind(account: string, ownUid: string): void
+  // Errors: account_mismatch (expectedUid null + boundAccount for the cross-account case) or uid_store_invalid.
+  checkBinding(account: string, ownUid: string, configuredUid: string | null): Result<{ firstRun: boolean }>
+  bind(account: string, ownUid: string): Result<true>   // refuses to overwrite a malformed file
 }
 
 export function createUidStore(filePath?: string): UidStore   // default ./.zalo_uids.json
@@ -366,7 +365,7 @@ export function createUidStore(filePath?: string): UidStore   // default ./.zalo
   3. Otherwise, if `ownUid` is bound to a different account, report a mismatch naming `boundAccount`. This stops a personal Zalo PC login from being imported into a work account.
   4. Otherwise return `firstRun: true`.
 - `bind` is called only after a successful readiness check on a first run, before the first message write. It writes atomically (temp file plus rename).
-- A missing or unreadable file is treated as empty. A malformed file stops the import with an error naming the file, because silently dropping bindings would disable the check.
+- A missing file is treated as empty. An unreadable or malformed file returns `uid_store_invalid` naming the file, because silently dropping bindings would disable the check.
 
 ### Importer (`importer.ts`)
 
