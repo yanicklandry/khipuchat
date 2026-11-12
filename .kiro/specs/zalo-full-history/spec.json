@@ -1,9 +1,9 @@
 {
   "feature_name": "zalo-full-history",
   "created_at": "2026-11-12T00:00:00Z",
-  "updated_at": "2026-11-12T18:20:00Z",
+  "updated_at": "2026-11-12T18:50:00Z",
   "language": "en",
-  "phase": "design-generated",
+  "phase": "tasks-generated",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -14,10 +14,10 @@
       "approved": true
     },
     "tasks": {
-      "generated": false,
-      "approved": false
+      "generated": true,
+      "approved": true
     }
   },
-  "ready_for_implementation": false,
-  "note": "Design approved after interactive review. Next: tasks."
+  "ready_for_implementation": true,
+  "note": "Tasks generated (15 sub-tasks). Task 1.3 is the real-Mac go/no-go gate."
 }

@@ -112,7 +112,7 @@ tests/
 
 ### Modified Files
 - `src/khipu.ts`: add an `import` branch routing `import zalo-history` to `src/platforms/zalo/history/cli.ts`, plus `USAGE`/`SUBCOMMAND_USAGE` entries.
-- `src/account-registry.ts`: add optional `ZALO_UID` to the legacy zalo account fields (config-file accounts already accept arbitrary fields).
+- `src/account-registry.ts`: widen the legacy optional-field map from one variable per platform to a list, and add `ZALO_UID` for zalo (config-file accounts already accept arbitrary fields).
 - `.gitignore`: add `.zalo_uids.json`.
 - `tests/khipu.test.ts`: routing cases for `import zalo-history` and unknown `import` targets.
 - `README.md` (Zalo section): command, prerequisites, bounded fidelity, restart behaviour, manual Export Data fallback (6.5).
@@ -235,6 +235,7 @@ export type ImportError =
   | { kind: 'not_logged_in'; step: 'login' }
   | { kind: 'shape_unrecognised'; step: 'shape'; detail: string; zaloVersion: string | null }
   | { kind: 'account_mismatch'; step: 'account'; expectedUid: string; actualUid: string }
+  | { kind: 'uid_store_invalid'; step: 'account'; path: string }
   | { kind: 'connection_lost'; step: 'read'; conversationsDone: number }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: ImportError }
@@ -438,6 +439,7 @@ No schema change. Field mapping into existing tables:
 | `not_logged_in` | login | "Zalo PC is not logged in. Log in to Zalo PC, then re-run." | 1 |
 | `shape_unrecognised` | shape | "This Zalo PC version (<v>) is not supported by the importer: <detail>. The importer needs updating." | 1 |
 | `account_mismatch` | account | "Zalo PC is logged in as <actual>, but account <name> expects <expected>. Nothing was imported." | 1 |
+| `uid_store_invalid` | account | "The Zalo account link file <path> is corrupt. Fix or delete it, then re-run." | 1 |
 | `connection_lost` | read | "Lost connection to Zalo PC after <n> conversations. Re-run to continue; nothing is duplicated." | 1 |
 | per-conversation failure | read | listed in summary | 1 after summary |
 
