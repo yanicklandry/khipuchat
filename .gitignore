@@ -9,3 +9,4 @@ khipuchat.db
 .wwebjs_cache/
 media/
 .tukuy/logs/
+.zalo_session.json
