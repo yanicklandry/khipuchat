@@ -9,6 +9,10 @@
  *
  * Confirmed against zca-js@2.2.0 (see tasks.md ## Implementation Notes).
  */
+import { writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import path from 'path'
+import { spawn } from 'child_process'
 import { readSession, writeSession, resolveSessionPath, type SavedSession } from './session'
 
 export enum ZaloThreadType {
@@ -88,7 +92,7 @@ const GOT_LOGIN_INFO = 4
 
 interface RawQrEvent {
   type: number
-  data: { code?: string; imei?: string; userAgent?: string; cookie?: unknown } | null
+  data: { code?: string; image?: string; imei?: string; userAgent?: string; cookie?: unknown } | null
 }
 
 interface RawZalo {
@@ -103,7 +107,6 @@ interface ZaloModule {
   Zalo: new (options?: Record<string, unknown>) => RawZalo
 }
 
-type QrcodeTerminal = { generate(text: string, opts?: { small?: boolean }): void }
 
 function normalize(m: RawMessage): ZaloMessage {
   return {
@@ -137,13 +140,14 @@ function wrapApi(api: RawApi): ZaloClient {
 }
 
 async function loginWithQr(zalo: RawZalo, sessionPath: string): Promise<RawApi> {
-  const raw = (await import('qrcode-terminal')) as unknown
-  const qrGen = ((raw as { default?: QrcodeTerminal }).default ?? (raw as QrcodeTerminal))
   return zalo.loginQR({}, (event) => {
-    if (event.type === QR_GENERATED && event.data?.code) {
-      process.stdout.write('\n')
-      qrGen.generate(event.data.code, { small: true })
-      console.log('[zalo] Scan the QR code above with the Zalo mobile app.')
+    // The login QR is Zalo's PNG image; `data.code` is only an identifier, and a QR
+    // re-drawn from it is NOT recognised by the Zalo app as a login request.
+    if (event.type === QR_GENERATED && event.data?.image) {
+      const qrFile = path.join(tmpdir(), 'khipu-zalo-qr.png')
+      writeFileSync(qrFile, event.data.image.replace(/^data:image\/png;base64,/, ''), 'base64')
+      console.log(`[zalo] Login QR saved to ${qrFile}. Scan it with the QR scanner inside the Zalo app.`)
+      if (process.platform === 'darwin') spawn('open', [qrFile], { stdio: 'ignore', detached: true }).unref()
     } else if (event.type === QR_SCANNED) {
       console.log('[zalo] QR scanned — finishing login…')
     } else if (event.type === GOT_LOGIN_INFO && event.data?.imei && event.data.userAgent) {

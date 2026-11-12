@@ -31,20 +31,21 @@ const LOCAL_ONLY_PLATFORMS: ReadonlySet<Platform> = new Set([
 const LEGACY_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
   telegram: ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_PHONE_NUMBER'],
   discord: ['DISCORD_TOKEN'],
-  slack: ['SLACK_USER_TOKEN'],
+  slack: ['SLACK_USER_TOKEN', 'SLACK_COOKIE'],
   email: ['EMAIL_IMAP_HOST', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'],
   signal: ['BEEPER_ACCESS_TOKEN'],
   facebook: ['BEEPER_ACCESS_TOKEN'],
 }
 
 /**
- * Optional env vars LOCAL_ONLY_PLATFORMS still read (a custom session path),
+ * Optional env vars LOCAL_ONLY_PLATFORMS still read (a custom session path, and
+ * for zalo the Zalo user id used by `khipu import zalo-history`'s account check),
  * even though their presence/absence never affects whether the platform is
  * considered "configured" (LOCAL_ONLY_PLATFORMS always get a 'default' account).
  */
-const LOCAL_ONLY_OPTIONAL_ENV_VARS: Partial<Record<Platform, string>> = {
-  whatsapp: 'WHATSAPP_SESSION',
-  zalo: 'ZALO_SESSION',
+const LOCAL_ONLY_OPTIONAL_ENV_VARS: Partial<Record<Platform, readonly string[]>> = {
+  whatsapp: ['WHATSAPP_SESSION'],
+  zalo: ['ZALO_SESSION', 'ZALO_UID'],
 }
 
 // ── $VAR resolution ───────────────────────────────────────────────────────────
@@ -90,8 +91,7 @@ function buildLegacyAccounts(
   // "configured"), but still thread through an optional custom session path.
   for (const platform of LOCAL_ONLY_PLATFORMS) {
     const fields: Record<string, string> = {}
-    const optionalVar = LOCAL_ONLY_OPTIONAL_ENV_VARS[platform]
-    if (optionalVar) {
+    for (const optionalVar of LOCAL_ONLY_OPTIONAL_ENV_VARS[platform] ?? []) {
       const val = env[optionalVar]
       if (val) fields[optionalVar] = val
     }

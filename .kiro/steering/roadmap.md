@@ -64,6 +64,11 @@ All Phase 1/2 specs above are implemented and validated. This phase adds new que
 - [x] zalo-sync -- Zalo personal adapter via `zca-js` (MIT) QR-session, whatsapp-web.js-style; live capture + best-effort recent-window backfill (NOT full history); registers `zalo` platform. Dependencies: platform-abstraction
 - [x] signal-direct -- Beeper-independent Signal path: `signal-cli` daemon (JSON-RPC over socket, run as a separate GPLv3 process) linked as a secondary device; live-from-link-forward sync into existing chats/messages tables + image pipeline. Full back-history is best-effort/unverified (45-day media cap). Dependencies: signal-platform, platform-abstraction
 
+## Phase 4 (2026-11-12 discovery) — Specs
+Discovery + viability research recorded in each spec's brief.md/research.md.
+- [ ] zalo-full-history -- Recover full Zalo DM history (not just live-sync/recent-window) by reading the official Zalo PC desktop app's already-decrypted renderer store via the Chrome DevTools Protocol (CDP) — a pure local read of the user's own authenticated session, no new server-facing calls, lower risk than the existing live zca-js adapter. DM full-history APIs were confirmed removed server-side by Zalo; this is the only viable recovery mechanism found. **Unverified on macOS** (prior art `baok1210/ZaloBackup` is Windows-only) — first task/milestone is an explicit go/no-go spike confirming the renderer-store shape and CDP-attach flow against a real macOS Zalo PC install before the rest of the importer is built. Dependencies: zalo-sync. Next: `/kiro-spec-init zalo-full-history`.
+- [x] facebook-direct -- Discovery concluded **not recommended**: no first-party "linked device" mechanism exists for Facebook Messenger (unlike Signal); every technical path (unofficial fca-unofficial-style session emulation, browser automation) is a ToS violation with real account-ban risk, and the main unofficial library was archived May 2026. Staying on the Beeper adapter for Facebook Messenger is the pragmatic choice. No requirements/design/tasks generated; not proceeding unless the risk tradeoff is explicitly revisited.
+
 ## Existing Spec Updates
 - [x] web-ui -- extended by web-ui-enhancements (chat layout + semantic search UI)
 - [x] platform-abstraction -- extended by incremental-sync (PlatformAdapter interface addition)
@@ -84,4 +89,3 @@ All Phase 1/2 specs above are implemented and validated. This phase adds new que
 - React web UI (vs current plain HTML; tradeoff: complexity vs richer UX)
 - Remote/cloud deployment option (Mac Mini, VPS)
 - Signal full back-history importer (local plaintext-backup / signalbackup-tools parser — the only route to complete text + pre-45-day images; fallback for signal-direct's link-forward limitation)
-- Zalo full-history fidelity (zca-js is live/recent-window only; deeper history not reliably retrievable)

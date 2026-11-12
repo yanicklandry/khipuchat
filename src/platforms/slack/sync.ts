@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import Database from 'better-sqlite3-multiple-ciphers'
 import { initDb, upsertChat, insertMessage, type Chat, type Message } from '../../db'
 import { runSyncEntrypoint } from '../../sync-runner'
@@ -94,19 +95,21 @@ export function createSlackAdapter(account: string, credentials: AccountCredenti
     account,
     async runBackfill(_db: Database.Database): Promise<void> {
       const token = credentials.fields['SLACK_USER_TOKEN'] ?? ''
+      const cookie = credentials.fields['SLACK_COOKIE'] || undefined
       if (!token) {
         process.stderr.write('[slack] SLACK_USER_TOKEN is not set. Export it and re-run.\n')
         process.exit(1)
       }
-      await runBackfillImpl(createSlackClient(token), account)
+      await runBackfillImpl(createSlackClient(token, cookie), account)
     },
     async syncIncremental(_db: Database.Database, since: Date): Promise<void> {
       const token = credentials.fields['SLACK_USER_TOKEN'] ?? ''
+      const cookie = credentials.fields['SLACK_COOKIE'] || undefined
       if (!token) {
         process.stderr.write('[slack] SLACK_USER_TOKEN is not set. Export it and re-run.\n')
         process.exit(1)
       }
-      await runIncrementalImpl(createSlackClient(token), since, account)
+      await runIncrementalImpl(createSlackClient(token, cookie), since, account)
     },
     startListener(_db: Database.Database): void {},
   }
@@ -114,7 +117,10 @@ export function createSlackAdapter(account: string, credentials: AccountCredenti
 
 export const slackAdapter: PlatformAdapter = createSlackAdapter('default', {
   name: 'default',
-  fields: { SLACK_USER_TOKEN: process.env['SLACK_USER_TOKEN'] ?? '' },
+  fields: {
+    SLACK_USER_TOKEN: process.env['SLACK_USER_TOKEN'] ?? '',
+    SLACK_COOKIE: process.env['SLACK_COOKIE'] ?? '',
+  },
 })
 
 async function main(): Promise<void> {

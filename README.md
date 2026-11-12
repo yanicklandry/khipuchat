@@ -152,6 +152,36 @@ When `file_available` is `false`, the `error` field and any retained `ocr_text` 
 
 On a non-image message ID, or when the message is not found, the CLI exits non-zero with an error message. On a missing or non-numeric argument, usage is printed and the CLI exits non-zero.
 
+## Zalo history import (macOS)
+
+`khipu sync zalo` only captures messages that arrive while it runs, because Zalo no longer serves past DM history to third-party clients. To bring in your older DMs, import them once from the official Zalo PC desktop app:
+
+```bash
+khipu import zalo-history                    # default (or only) Zalo account
+khipu import zalo-history --account work     # a named account from khipu.config.json
+khipu import zalo-history --app-path /path/to/Zalo.app
+```
+
+**Prerequisites**
+- macOS, with Zalo PC installed in `/Applications` or `~/Applications` (or pass `--app-path`).
+- Zalo PC logged in to the account you want to import.
+- Recommended: in Zalo PC, run "sync messages from phone" first. Zalo PC often holds only recent days of history for a chat until you do.
+
+**What happens**
+- Zalo PC is restarted twice, hidden in the background, without taking focus. The first restart enables local debugging on a random loopback port (127.0.0.1 only). After the import, Zalo PC is quit and reopened normally, so no debugging port stays open. If the reopen fails, the importer tells you to open Zalo PC yourself.
+- A read-only check runs first and prints the Zalo PC version, the number of DM conversations, and the oldest readable message in your most recent DM. If any step fails (not installed, not logged in, unrecognised data, account mismatch), nothing is written and the command exits 1.
+- Each DM is read back to its oldest locally available message and saved one page at a time. Groups and Official Accounts are skipped. Re-running is safe: messages already in the archive (from an earlier import or from `khipu sync zalo`) are counted as "already present" and never duplicated, and `khipu sync zalo`'s own sync position is not changed.
+- A conversation that fails is listed in the summary and the others continue; the exit code is then 1. If the connection to Zalo PC is lost, re-run to finish the rest.
+
+**Bounded fidelity**
+The import recovers only history already synced to this Zalo PC install, not your full Zalo history. Images, stickers, files, and other media are recorded with their type and caption only; no media is downloaded. The importer relies on undocumented Zalo PC internals, so a Zalo PC update may break it. In that case it stops with "The importer needs updating" instead of writing garbled data.
+
+**Account linking**
+On the first run, the account is linked to the Zalo user logged in to Zalo PC, and the link is saved in `./.zalo_uids.json` (git-ignored). Later runs stop with "Nothing was imported" if Zalo PC is logged in as a different user, or if that Zalo user is already linked to another account. To pin the identity yourself, set `ZALO_UID` (in `.env`, or as a field on the zalo account in `khipu.config.json`); it takes precedence over the file. If the link file is reported corrupt, fix or delete it and re-run.
+
+**Manual fallback: Export Data**
+For a single conversation that Zalo PC does not hold locally, Zalo PC's own Settings, Data, Export Data feature can save it to a file, one conversation at a time. KhipuChat does not read these exports; keep them as a personal backup.
+
 ## Multi-account configuration
 
 By default, KhipuChat reads credentials from environment variables. For multiple accounts on the same platform, create a `khipu.config.json` file in the project root:
