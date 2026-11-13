@@ -1,0 +1,22 @@
+{
+  "feature_name": "slack-all-workspaces",
+  "created_at": "2026-11-12T11:58:27Z",
+  "updated_at": "2026-11-12T15:00:00.000Z",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true
+}

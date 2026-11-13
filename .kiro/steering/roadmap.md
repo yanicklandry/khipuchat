@@ -69,6 +69,46 @@ Discovery + viability research recorded in each spec's brief.md/research.md.
 - [ ] zalo-full-history -- Recover full Zalo DM history (not just live-sync/recent-window) by reading the official Zalo PC desktop app's already-decrypted renderer store via the Chrome DevTools Protocol (CDP) — a pure local read of the user's own authenticated session, no new server-facing calls, lower risk than the existing live zca-js adapter. DM full-history APIs were confirmed removed server-side by Zalo; this is the only viable recovery mechanism found. **Unverified on macOS** (prior art `baok1210/ZaloBackup` is Windows-only) — first task/milestone is an explicit go/no-go spike confirming the renderer-store shape and CDP-attach flow against a real macOS Zalo PC install before the rest of the importer is built. Dependencies: zalo-sync. Next: `/kiro-spec-init zalo-full-history`.
 - [x] facebook-direct -- Discovery concluded **not recommended**: no first-party "linked device" mechanism exists for Facebook Messenger (unlike Signal); every technical path (unofficial fca-unofficial-style session emulation, browser automation) is a ToS violation with real account-ban risk, and the main unofficial library was archived May 2026. Staying on the Beeper adapter for Facebook Messenger is the pragmatic choice. No requirements/design/tasks generated; not proceeding unless the risk tradeoff is explicitly revisited.
 
+## Phase 5 (2026-11-12 discovery): Important-message alerting
+Scenario driving this phase: a new transaction lands in Slack `#08-expedition`, which means an ADV report must be generated. khipuchat, always running on a cloud server, sees the message within minutes, an intermediate LLM (Muse Spark, or a local Ollama model) triages it with knowledge of whether the user's phone and laptop are together and where, decides it is important, and pushes a notification to the right device (and, later, kicks off the action itself).
+
+### Phase 5 approach decision
+- **Chosen**: Cloud VM hub. khipuchat runs on a Linux server the user controls (Docker). Sources that work on Linux run there (Slack, Telegram, Discord, Email, Signal via signal-cli). macOS-only sources (iMessage, WhatsApp session, Zalo) stay on the Mac and are out of scope for the cloud box in this phase.
+- **Slack access**: browser session token (`xoxc-` + `d` cookie) backend as the default, already accepted by `src/platforms/slack/client.ts`. Works on every workspace the user can log into, admin or not, with no app install. Official `xoxp` app remains an option where installable. Polling, short interval for watched channels.
+- **Triage LLM**: Muse Spark via Meta Model API (OpenAI-compatible, tool calling, US-only preview) behind a provider abstraction; Ollama stays as the local option. Note: `muse.ai` (Meta's consumer Muse agent) has no public API, so it cannot be the intermediate assistant.
+- **Location**: phone via OwnTracks (HTTP mode, posts to khipuchat), laptop via a launchd user agent wrapping CoreLocationCLI. Co-location computed server-side (distance + staleness thresholds).
+- **Notifications**: ntfy as the hub, Pushover for critical iOS alerts that bypass Do Not Disturb, Telegram bot as a cheap fallback.
+- **Why**: matches the "always on, in the cloud" requirement and khipuchat's goal of REPLACING Beeper (no Beeper dependency added anywhere in this phase).
+- **Rejected alternatives**:
+  - Beeper Slack bridge / headless Beeper Desktop: rejected, khipuchat exists to replace Beeper.
+  - Own Slack app (`xoxp`) only: blocked on workspaces with "require app approval"; non-Marketplace apps throttled to ~1 req/min for history since 2026-03-03.
+  - Reading Slack desktop's local cache (LevelDB/IndexedDB): incomplete, undocumented, Mac-only; kept as a possible later spike (CDP read like zalo-full-history) only.
+  - Apple Find My cache for location: encrypted since macOS 14.4, fragile decryptors.
+  - Home Mac Mini hub: keeps all sources but is not the requested cloud server; Hybrid (Mac collector + cloud brain): most coverage, most moving parts, deferred.
+
+### Phase 5 constraint changes (supersede the Constraints section above for this phase)
+- **"Self-hosted only, no external services, no cloud" is rewritten**: khipuchat MAY run on a cloud server the user controls, and MAY send message content to an opted-in cloud LLM (Muse Spark) and to notification services (ntfy/Pushover/Telegram). Each outbound flow is explicit, configured, and logged. Local-only remains the default when nothing is configured.
+- **"MCP communicates via stdio only"** stays for MCP. New HTTP ingress (location reports, notification action callbacks) is a separate authenticated endpoint, never the MCP channel.
+- **"Sending messages on any platform" stays out of scope**: notifications go to the user only. Replying on Slack is not in this phase.
+- No new Beeper dependency.
+
+### Phase 5 specs (dependency order)
+Cross-spec decisions binding all Phase 5 specs: `.kiro/specs/phase5-cross-spec-decisions.md`.
+- [x] cloud-deployment -- (P1) Make khipuchat run unattended on a Linux server: fix Dockerfile (Node 24), DB volume path, compose sync loop; Linux-safe platform gating replacing hardcoded `LOCAL_ONLY_PLATFORMS`; authenticated HTTP ingress for later specs; secrets and backup guidance. Dependencies: none
+- [x] message-events -- (P1) Durable "new message" event stream: `insertMessage` distinguishes insert vs update, `pollCycle` records new rows into a `message_events` outbox with consumer cursors (at-least-once); consumers are pluggable. Dependencies: none (owns `src/schema-registry.ts`, `src/daemon-services.ts`, `src/daemon-wiring.ts`, the CLI-entry pattern (D14), and the daemon sync-time write formerly listed as watch-lastsync)
+- [x] llm-provider -- (P1) Provider abstraction behind `ask.ts`'s `AskClient`: Ollama (existing), OpenAI-compatible (Muse Spark via Meta Model API as first target), structured-output support; per-provider config and an explicit "content leaves the machine" opt-in. Dependencies: none
+- [x] slack-all-workspaces -- (P1) Slack access on every workspace the user belongs to without admin: session-token (`xoxc`+`d`) backend as default with token-expiry detection and re-auth flow, `xoxp` kept where installable; thread replies (`conversations.replies`); per-channel poll interval so watched channels are near-realtime; fix `is_sender` and channel type mapping. Dependencies: cloud-deployment, message-events
+- [x] presence-context -- (P2) Phone + laptop location ingestion (OwnTracks HTTP endpoint, laptop launchd reporter), `device_locations` table, co-location + place resolution, `get_presence` tool on MCP/CLI/ask surfaces. Dependencies: cloud-deployment, message-events (schema registry)
+- [x] triage-agent -- (P1) Consume message-events, rule prefilter (watchlist e.g. `#08-expedition`, keywords, senders), build context (message + thread + presence), LLM returns structured verdict {important, urgency, reason, suggested_action}; decision log for audit/tuning; `khipu triage` CLI to replay/test. Dependencies: message-events, llm-provider, presence-context, cloud-deployment; soft: slack-all-workspaces (rules lint)
+- [x] notifier -- (P1) Delivery channels ntfy / Pushover / Telegram bot; presence-aware routing (together = laptop/desktop, apart = phone; critical = Pushover); dedupe, rate limit, quiet hours; delivery log. Dependencies: triage-agent, presence-context, cloud-deployment (ingress + signed capability links), message-events, slack-all-workspaces (account health)
+- [x] action-runner -- (P3) "Do the action": allowlisted action registry (first: generate ADV report by invoking a user-provided command), ask-first approval via notification action buttons, optional auto mode per action; run log. The ADV report generator itself is not owned here. Dependencies: triage-agent, notifier, cloud-deployment, message-events (daemon-services, daemon-wiring, schema-registry), presence-context (launchd plist helper)
+
+### Phase 5 direct implementation candidates (found during discovery scan)
+- [x] watch-lastsync -- absorbed by message-events (decision D1): `src/watch.ts` never calls `setPlatformLastSyncedAt`, so the daemon's `since` never advances; without it every daemon event is `backfill` and triage ignores it.
+- [ ] setup-sync-stale-path -- `src/setup-sync.ts` launchd plist points `SYNC_SCRIPT` at nonexistent `src/sync.ts`. Use presence-context's shared `src/launchd-plist.ts` helper once it exists (decision D9).
+- [x] ci-node-24 -- absorbed by cloud-deployment task 7.4 (Node 24 + `[master, main]` triggers); do not open a separate PR.
+- [ ] beeper-base-url -- not needed for Phase 5; noted only: `http://localhost:23373` is hardcoded in 3 legacy Beeper clients, which are slated for replacement anyway.
+
 ## Existing Spec Updates
 - [x] web-ui -- extended by web-ui-enhancements (chat layout + semantic search UI)
 - [x] platform-abstraction -- extended by incremental-sync (PlatformAdapter interface addition)
