@@ -79,7 +79,7 @@
   - _Requirements: 3.2, 3.3, 4.1, 4.2, 4.3, 4.4, 5.1, 5.4, 6.1, 6.2, 6.3_
   - _Boundary: Validation (tests only)_
   - _Depends: 4.1_
-- [ ] 5.2 Parity with stdio and no archive modification
+- [x] 5.2 Parity with stdio and no archive modification
   - Unset `MCP_SECRET` for the stdio side of the test so the stdio handler's existing secret check does not reject calls
   - Call every registry tool with the same arguments through the stdio server's call handler and through the remote endpoint, and assert identical content
   - Semantic tools run against an unindexed archive in this test, so parity compares their not-indexed responses; no embedding model download is needed
