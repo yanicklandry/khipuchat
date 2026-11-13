@@ -78,3 +78,13 @@ export async function dispatchTool(name: string, args: Record<string, unknown>):
   else throw new Error(`Unknown tool: ${name}`)
   return result
 }
+
+// ── Result formatter (shared by stdio and remote MCP) ───────────────────────────
+
+// A type alias (not an interface) so it stays assignable to the SDK's open ServerResult type.
+export type ToolContent = { content: { type: 'text'; text: string }[] }
+
+/** Wrap a tool result as a single MCP text content item holding its JSON serialization. */
+export function toToolContent(result: unknown): ToolContent {
+  return { content: [{ type: 'text', text: JSON.stringify(result) }] }
+}

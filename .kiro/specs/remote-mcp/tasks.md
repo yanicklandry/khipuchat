@@ -1,7 +1,7 @@
 # Implementation Plan
 
-- [ ] 1. Foundation: shared tool result formatting
-- [ ] 1.1 Share one tool result formatter between stdio and remote MCP
+- [x] 1. Foundation: shared tool result formatting
+- [x] 1.1 Share one tool result formatter between stdio and remote MCP
   - Move the inline tool result wrapping (single text content holding the JSON-serialized result) from the stdio MCP server into the tool registry as a shared formatter, and make the stdio server use it
   - The stdio server's public factory keeps its no-argument signature and its `MCP_SECRET` check exactly as today
   - Existing MCP, security, and ask-parity test suites pass unchanged, and a new unit test shows the formatter output equals the previous inline shape

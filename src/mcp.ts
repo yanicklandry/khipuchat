@@ -3,7 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { initDb } from './db'
 import { isClaudeConfigured } from './setup-claude'
-import { TOOL_DEFINITIONS, dispatchTool } from './tool-registry'
+import { TOOL_DEFINITIONS, dispatchTool, toToolContent } from './tool-registry'
 
 export {
   parseTemporalFilters,
@@ -44,7 +44,7 @@ export function createMcpServer(): Server {
     }
     const { name, arguments: a = {} } = req.params
     const result = await dispatchTool(name, a as Record<string, unknown>)
-    return { content: [{ type: 'text', text: JSON.stringify(result) }] }
+    return toToolContent(result)
   })
 
   return server
