@@ -8,7 +8,7 @@
   - _Requirements: 1.2, 4.7_
   - _Boundary: tool-registry, McpEntry_
 
-- [ ] 2. Core: configuration and audit
+- [x] 2. Core: configuration and audit
 - [x] 2.1 (P) Parse and validate remote MCP settings
   - Discover clients from `MCP_TOKEN_<CLIENT>` settings (suffix 1 to 32 of uppercase letters, digits, underscores; keys ending in `_FILE` are never clients), lowercase client names, and keep only a digest of each token
   - Reject startup inputs with typed errors in a fixed order: no clients, invalid client name, unresolved `_FILE` companion (file setting present, value absent), token under 32 characters, duplicate token across clients, empty allowlist, allowlist naming an unknown tool, allowlist without a matching token, invalid port
@@ -17,7 +17,7 @@
   - Unit tests with injected env cover every error kind, the defaults, allowlist parsing, the `_FILE` rules, `MCP_SECRET` alone yielding no clients, a removed token no longer present after re-parse, and the loopback check, and they pass
   - _Requirements: 1.4, 1.7, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 3.6, 4.1, 4.2, 4.5, 4.6_
   - _Boundary: RemoteMcpConfig_
-- [ ] 2.2 (P) Record audit and auth-failure lines
+- [x] 2.2 (P) Record audit and auth-failure lines
   - Format one stderr line per event with ISO timestamp and key=value fields for: initialize, tools/list, tools/call (client, tool, outcome ok/error/denied, duration ms), tool-error (client, tool, error message), and auth-failed (reason, method, path without query, client address)
   - The event type has no field for arguments, results, or tokens, so they cannot be logged
   - Define the auth-failure reason categories (origin, missing, malformed, unknown token, query token) here, so the authentication task imports them
