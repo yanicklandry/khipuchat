@@ -89,7 +89,7 @@
   - _Boundary: Validation (tests only)_
   - _Depends: 4.1_
 - [ ] 6. Documentation and spec alignment
-- [ ] 6.1 (P) Write the remote MCP guide
+- [x] 6.1 (P) Write the remote MCP guide
   - Cover token generation, `MCP_TOKEN_<CLIENT>` and `MCP_TOOLS_<CLIENT>`, the settings table, and starting `khipu mcp --http`
   - Cover publishing through Tailscale Funnel (and why Serve alone is not reachable by cloud services) and through Cloudflare Tunnel, verifying with `curl` through the public URL (no token 401, valid token 200), connecting a cloud client (URL plus bearer header; OAuth-only clients unsupported), uptime (Mac awake versus server deployment, macOS-only sources stay on the Mac), privacy and revocation, the audit line format, and the optional compose profile
   - Link the guide from the README

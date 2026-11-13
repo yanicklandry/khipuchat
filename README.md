@@ -134,6 +134,10 @@ If you run `khipu setup-claude` or `khipu setup-sync` again (e.g. after a Node u
 | `ocr_available` | `boolean` | `true` when `ocr_text` is non-null |
 | `error` | `string` | Human-readable reason why the file is unavailable (only present when `file_available: false`) |
 
+### Remote access for cloud clients
+
+The MCP server runs over stdio by default. To let a cloud service (for example Muse.ai) query the archive, start the opt-in remote endpoint with `khipu mcp --http`: it serves the same tools over Streamable HTTP with per-client bearer tokens and optional tool allowlists. See [docs/REMOTE-MCP.md](docs/REMOTE-MCP.md) for tokens, publishing through Tailscale Funnel or Cloudflare Tunnel, verification, and privacy.
+
 ## CLI tools
 
 Run any MCP tool from the terminal with `npm run cli <tool> [args]`.
