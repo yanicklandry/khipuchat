@@ -256,7 +256,7 @@ Every request writes one line to stderr, prefixed `[remote-mcp]`, with an ISO ti
 - `auth-failed` `reason` is one of `origin`, `missing`, `malformed`, `unknown-token`, `query-token`. `path` never includes the query string.
 - The log never contains tool arguments, tool results, message content, or tokens.
 
-Behind a tunnel, `addr` is usually the tunnel's local address rather than the caller's.
+Behind a tunnel, `addr` is the caller's address taken from the `X-Forwarded-For` header, which is trusted only when the connection comes from loopback (where Tailscale Funnel and cloudflared connect from). A direct connection shows its socket address.
 
 ## Troubleshooting
 
