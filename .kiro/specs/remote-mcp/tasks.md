@@ -112,7 +112,7 @@
   - _Requirements: 2.5_
   - _Boundary: Validation (tests only)_
   - _Depends: 4.3, 6.2, cloud-deployment 1.4_
-  - _Blocked: cloud-deployment task 1.4 (secret-file loader) is not implemented yet_
+  - _Blocked: cloud-deployment task 1.4 (secret-file loader) is not implemented yet; tracked in GitHub issue #10_
 
 ## Implementation Notes
 - 3.2: tool-error audit lines log only the error type name, never the message, because tool errors can echo argument values (Req 6.2); design.md updated to match.
