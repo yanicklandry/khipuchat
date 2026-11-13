@@ -46,7 +46,7 @@
   - _Depends: 1.1, 2.1, 2.2_
 
 - [ ] 4. Integration: HTTP app, process runner, and CLI entry
-- [ ] 4.1 Compose the remote MCP HTTP app
+- [x] 4.1 Compose the remote MCP HTTP app
   - Apply the fixed middleware order: no-cache and nosniff headers on every response, unauthenticated `GET /healthz` (200 healthy / 503 unavailable with fixed bodies), authentication for every other path, JSON body parsing limited to 1 MiB, `POST /mcp`, 405 with `Allow: POST` for `GET` and `DELETE /mcp`, 404 for other paths, and a generic error handler (413 too large, 400 invalid JSON, 500 otherwise)
   - For `POST /mcp`, record initialize and tools/list audit events from the JSON-RPC method names, then serve the request through a new client-scoped server and a stateless Streamable HTTP transport with JSON responses, closing both when the response ends
   - Health is checked through an injected function backed by a trivial archive query
@@ -116,3 +116,4 @@
 ## Implementation Notes
 - 3.2: tool-error audit lines log only the error type name, never the message, because tool errors can echo argument values (Req 6.2); design.md updated to match.
 - 1.1: `ToolContent` must be a type alias, not an interface, to stay assignable to the SDK `ServerResult`.
+- 4.1: express.json must parse every Content-Type the SDK transport accepts (`includes('application/json')`, case-sensitive like the SDK), and POST /mcp answers 415 when the body was not parsed; otherwise the SDK reads the raw stream with no size limit. The SDK also requires `Accept: application/json, text/event-stream` (406 otherwise).

@@ -332,7 +332,7 @@ export function toToolContent(result: unknown): ToolContent  // { content: [{ ty
 | Method | Endpoint | Auth | Request | Response | Errors |
 |--------|----------|------|---------|----------|--------|
 | GET | /healthz | none | | 200 `{"status":"ok"}` | 503 `{"status":"unavailable"}` |
-| POST | /mcp | Bearer | JSON-RPC message, at most 1 MiB | JSON-RPC response (`application/json`) | 401, 403, 413, 400 (invalid JSON), 500 |
+| POST | /mcp | Bearer | JSON-RPC message, at most 1 MiB | JSON-RPC response (`application/json`) | 401, 403, 413, 415 (Content-Type the SDK would not accept, or unsupported charset), 400 (invalid JSON), 500 |
 | GET, DELETE | /mcp | Bearer | | | 405 with `Allow: POST` |
 | any | other | Bearer | | | 404 `{"error":"not found"}` |
 
@@ -395,6 +395,7 @@ Sections: What it is and when to use it; Generate a token (`openssl rand -hex 32
 | Missing / malformed / unknown / query token | 401 `{"error":"unauthorized"}`, `WWW-Authenticate: Bearer` | `auth-failed reason=...` |
 | Body over 1 MiB | 413 `{"error":"payload too large"}` | none |
 | Invalid JSON | 400 `{"error":"bad request"}` | none |
+| Body not parsed as JSON (Content-Type without `application/json`, unsupported charset or encoding) | 415 `{"error":"unsupported media type"}`, before any audit or transport | none |
 | Tool outside allowlist | JSON-RPC error `InvalidParams` "Tool not available" | `tools/call outcome=denied` |
 | Tool throws | JSON-RPC error `InternalError` "Tool failed" | `outcome=error` + `tool-error` |
 | Unexpected middleware error | 500 `{"error":"internal error"}` | error message |
