@@ -26,7 +26,7 @@
   - _Requirements: 3.5, 6.1, 6.2, 6.3_
   - _Boundary: RemoteMcpAudit_
 
-- [ ] 3. Core: authentication and scoped MCP sessions
+- [x] 3. Core: authentication and scoped MCP sessions
 - [x] 3.1 (P) Authenticate requests by Origin and bearer token
   - Reject a present Origin header not in the allowed list with 403 and a generic body before any token check; allow requests without an Origin header to proceed to the token check
   - Accept only `Authorization: Bearer <token>` (scheme case-insensitive); classify missing, malformed (including Basic), unknown, and query-string-only tokens; answer all of them with the same 401 body and a `WWW-Authenticate: Bearer` header, and record an auth-failed audit event with the reason
@@ -36,7 +36,7 @@
   - _Requirements: 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
   - _Boundary: RemoteMcpAuth_
   - _Depends: 2.1, 2.2_
-- [ ] 3.2 (P) Build a per-request MCP server scoped to one client
+- [x] 3.2 (P) Build a per-request MCP server scoped to one client
   - List only the tools the client may use, in registry order, with the registry's definitions unchanged
   - On a call outside the client's tools (including names that are not tools), return the MCP error "Tool not available" without running anything and record a denied audit event
   - On a permitted call, dispatch through the shared registry, return the shared formatter's output, and record an ok audit event with duration; on a thrown error, record error and tool-error events and return a generic "Tool failed" MCP error without internal details
@@ -112,3 +112,7 @@
   - _Requirements: 2.5_
   - _Boundary: Validation (tests only)_
   - _Depends: 4.3, 6.2, cloud-deployment 1.4_
+
+## Implementation Notes
+- 3.2: tool-error audit lines log only the error type name, never the message, because tool errors can echo argument values (Req 6.2); design.md updated to match.
+- 1.1: `ToolContent` must be a type alias, not an interface, to stay assignable to the SDK `ServerResult`.

@@ -287,7 +287,7 @@ export function findClient(
 - Tool call: `ts=... client=muse op=tools/call tool=search_messages outcome=ok ms=12`.
 - Other ops: `op=initialize` or `op=tools/list`, no tool, no outcome.
 - Auth failure: `ts=... op=auth-failed reason=unknown-token method=POST path=/mcp addr=100.64.0.3` (path without query).
-- Tool error: `op=tools/call outcome=error` plus a separate `op=tool-error client=... tool=... error=<message>` line; the message comes from the thrown error, never from arguments, and is not sent to the client.
+- Tool error: `op=tools/call outcome=error` plus a separate `op=tool-error client=... tool=... message=<error type>` line. Only the thrown error's type name (for example `Error`, `SqliteError`) is logged, because tool error messages can echo argument values such as ids or search text (Req 6.2). Nothing about the error is sent to the client.
 
 ```typescript
 export type AuditOutcome = 'ok' | 'error' | 'denied'
