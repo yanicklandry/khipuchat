@@ -54,7 +54,7 @@
   - _Requirements: 1.1, 3.1, 5.1, 5.3, 5.5, 5.6, 6.3_
   - _Boundary: RemoteMcpApp_
   - _Depends: 3.1, 3.2_
-- [ ] 4.2 Run the remote MCP endpoint as a process
+- [x] 4.2 Run the remote MCP endpoint as a process
   - Validate settings (exit status 1 with the formatted error on failure), open the archive at the path given by the caller, start the app on the configured host and port, and exit 1 with a message naming the address when the port is in use
   - Log the listen URL and one line per client with its allowed tool count, never a token; log a warning that the endpoint is reachable from the network without TLS when the host is not loopback
   - On SIGINT or SIGTERM stop accepting connections, let in-flight requests finish for up to 10 seconds, then close remaining connections and resolve with status 0
@@ -117,3 +117,4 @@
 - 3.2: tool-error audit lines log only the error type name, never the message, because tool errors can echo argument values (Req 6.2); design.md updated to match.
 - 1.1: `ToolContent` must be a type alias, not an interface, to stay assignable to the SDK `ServerResult`.
 - 4.1: express.json must parse every Content-Type the SDK transport accepts (`includes('application/json')`, case-sensitive like the SDK), and POST /mcp answers 415 when the body was not parsed; otherwise the SDK reads the raw stream with no size limit. The SDK also requires `Accept: application/json, text/event-stream` (406 otherwise).
+- 4.2: runRemoteMcp rejects (does not resolve 1) when initDb throws; mcp.ts main()'s catch turns that into exit 1. While stopping, closeIdleConnections() runs after each response so keep-alive sockets do not hold close() for 5 s.
