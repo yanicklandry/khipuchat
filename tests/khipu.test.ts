@@ -43,6 +43,20 @@ describe('resolveCommand — operational subcommands', () => {
   }
 })
 
+describe('resolveCommand: mcp --http', () => {
+  it("forwards --http to src/mcp.ts", () => {
+    const result = resolveCommand(['mcp', '--http'])
+    expect(result.kind).toBe('run')
+    expect(result.script).toBe(script('mcp.ts'))
+    expect(result.args).toEqual(['--http'])
+  })
+
+  it('help text shows mcp [--http] with the remote port', () => {
+    const { message } = resolveCommand([])
+    expect(message).toContain('mcp [--http]               Start the MCP server (stdio, or remote HTTP on port 3335)')
+  })
+})
+
 // ── sync subcommand ────────────────────────────────────────────────────────────
 
 describe('resolveCommand — sync subcommand', () => {
@@ -329,6 +343,20 @@ describe('integration: exit-code propagation', () => {
     const exitCode = await spawnScript(fixture, [])
     expect(exitCode).toBe(42)
   }, 15_000)
+
+  it('forwards SIGTERM to the child and removes its signal handlers afterwards', async () => {
+    const before = ['SIGTERM', 'SIGHUP', 'SIGINT'].map((s) => process.listenerCount(s))
+    const existing = new Set(process.listeners('SIGTERM'))
+    const fixture = path.join(__dirname, 'fixtures', 'exit-on-sigterm.ts')
+    const done = spawnScript(fixture, [])
+    const added = process.listeners('SIGTERM').filter((l) => !existing.has(l))
+    expect(added).toHaveLength(1)
+    // Give tsx time to start the child and install its SIGTERM handler.
+    await new Promise((r) => setTimeout(r, 3000))
+    ;(added[0] as () => void)()
+    expect(await done).toBe(7)
+    expect(['SIGTERM', 'SIGHUP', 'SIGINT'].map((s) => process.listenerCount(s))).toEqual(before)
+  }, 20_000)
 })
 
 // ── import subcommand (zalo-full-history 3.4) ─────────────────────────────────

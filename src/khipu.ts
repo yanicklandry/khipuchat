@@ -60,7 +60,7 @@ const USAGE = `
 Usage: khipu <command> [args]
 
 Operational commands:
-  mcp                        Start the MCP server (stdio)
+  mcp [--http]               Start the MCP server (stdio, or remote HTTP on port 3335)
   web                        Start the web UI (port 3333)
   sync                       Show sync status for all platforms
   sync all [--once] [--force] Run the sync daemon
@@ -270,7 +270,26 @@ export function spawnScript(script: string, args: readonly string[]): Promise<nu
     const child = spawn(process.execPath, [TSX_BIN, script, ...args], {
       stdio: 'inherit',
     })
-    child.on('close', (code) => resolve(code ?? 1))
+    // Forward stop signals so `docker stop` or a supervisor signalling only this process
+    // still lets the child shut down gracefully. SIGINT is not forwarded: Ctrl-C already
+    // reaches the whole process group, and a second SIGINT could re-trigger a child's own
+    // shutdown handler. A SIGINT sent only to this PID is therefore ignored; use SIGTERM.
+    const forward = (signal: NodeJS.Signals) => (): void => { child.kill(signal) }
+    const handlers: [NodeJS.Signals, () => void][] = [
+      ['SIGTERM', forward('SIGTERM')],
+      ['SIGHUP', forward('SIGHUP')],
+      ['SIGINT', () => {}],
+    ]
+    for (const [signal, handler] of handlers) process.on(signal, handler)
+    let settled = false
+    const finish = (code: number): void => {
+      if (settled) return
+      settled = true
+      for (const [signal, handler] of handlers) process.off(signal, handler)
+      resolve(code)
+    }
+    child.on('error', () => finish(1))
+    child.on('close', (code) => finish(code ?? 1))
   })
 }
 

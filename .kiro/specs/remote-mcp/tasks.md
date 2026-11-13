@@ -45,7 +45,7 @@
   - _Boundary: RemoteMcpSession_
   - _Depends: 1.1, 2.1, 2.2_
 
-- [ ] 4. Integration: HTTP app, process runner, and CLI entry
+- [x] 4. Integration: HTTP app, process runner, and CLI entry
 - [x] 4.1 Compose the remote MCP HTTP app
   - Apply the fixed middleware order: no-cache and nosniff headers on every response, unauthenticated `GET /healthz` (200 healthy / 503 unavailable with fixed bodies), authentication for every other path, JSON body parsing limited to 1 MiB, `POST /mcp`, 405 with `Allow: POST` for `GET` and `DELETE /mcp`, 404 for other paths, and a generic error handler (413 too large, 400 invalid JSON, 500 otherwise)
   - For `POST /mcp`, record initialize and tools/list audit events from the JSON-RPC method names, then serve the request through a new client-scoped server and a stateless Streamable HTTP transport with JSON responses, closing both when the response ends
@@ -62,7 +62,7 @@
   - _Requirements: 1.3, 1.5, 1.6, 1.7, 2.2, 2.3, 2.4, 4.5, 4.6, 5.7_
   - _Boundary: RemoteMcpRunner_
   - _Depends: 2.1, 4.1_
-- [ ] 4.3 Wire `--http` into the MCP entrypoint and CLI help
+- [x] 4.3 Wire `--http` into the MCP entrypoint and CLI help
   - When the MCP entrypoint is started with `--http`, load the remote runner on demand (so stdio never loads the HTTP stack) and pass it the environment and the same archive path stdio uses; without `--http` the stdio path runs exactly as today
   - Update the `khipu` help text to show `mcp [--http]` with the remote port
   - A test with an injected runner shows `--http` routes to the remote runner with the stdio archive path and that no flag keeps the stdio path; a recorded manual check shows `khipu mcp --http` with a valid client token answers `/healthz` on `127.0.0.1:3335`; the CLI router tests and existing MCP tests pass
@@ -118,3 +118,4 @@
 - 1.1: `ToolContent` must be a type alias, not an interface, to stay assignable to the SDK `ServerResult`.
 - 4.1: express.json must parse every Content-Type the SDK transport accepts (`includes('application/json')`, case-sensitive like the SDK), and POST /mcp answers 415 when the body was not parsed; otherwise the SDK reads the raw stream with no size limit. The SDK also requires `Accept: application/json, text/event-stream` (406 otherwise).
 - 4.2: runRemoteMcp rejects (does not resolve 1) when initDb throws; mcp.ts main()'s catch turns that into exit 1. While stopping, closeIdleConnections() runs after each response so keep-alive sockets do not hold close() for 5 s.
+- 4.3: under tsx, a signal listener must stay attached until shutdown completes (tsx's preflight calls process.exit(128+sig) when no other listener remains), so the runner removes its listeners in the server.close callback. The khipu router forwards SIGTERM/SIGHUP to the child (docker stop) and ignores a parent-only SIGINT.

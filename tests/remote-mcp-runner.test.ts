@@ -188,6 +188,8 @@ describe('runRemoteMcp: graceful stop', () => {
     r.signals.emit('SIGTERM')
     await settle(100)
     expect(exitCode).toBeUndefined()
+    // Listeners stay attached while draining, so a loader's fallback exit handler never fires.
+    expect(r.signals.listenerCount('SIGTERM')).toBe(1)
     await expect(get(r.port, '/healthz')).rejects.toThrow()
 
     req.end(body.slice(half))

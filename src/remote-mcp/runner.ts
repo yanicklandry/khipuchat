@@ -80,11 +80,13 @@ function stopOnSignal(server: Server, signals: NodeJS.EventEmitter, drainMs: num
     const onSignal = (): void => {
       if (stopping) return
       stopping = true
-      for (const signal of STOP_SIGNALS) signals.off(signal, onSignal)
+      // Listeners stay attached until the server has closed: a loader such as tsx exits the
+      // process on a signal once no other listener remains, which would skip the drain.
       const timer = setTimeout(() => server.closeAllConnections(), drainMs)
       timer.unref()
       server.close(() => {
         clearTimeout(timer)
+        for (const signal of STOP_SIGNALS) signals.off(signal, onSignal)
         resolve(0)
       })
     }

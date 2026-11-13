@@ -52,8 +52,41 @@ export function createMcpServer(): Server {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-async function main(): Promise<void> {
+type RemoteRunnerModule = typeof import('./remote-mcp/runner')
+
+export interface McpMainDeps {
+  readonly argv: readonly string[]
+  readonly env: NodeJS.ProcessEnv
+  /** Loads the remote runner on demand so stdio never loads the HTTP stack. */
+  readonly loadRunner: () => Promise<Pick<RemoteRunnerModule, 'runRemoteMcp'>>
+  readonly runStdio: (dbPath: string) => Promise<void>
+}
+
+/** `--http` selects the remote MCP endpoint (Req 1.1); anything else stays stdio (Req 1.2). */
+export function selectMcpMode(argv: readonly string[]): 'http' | 'stdio' {
+  return argv.includes('--http') ? 'http' : 'stdio'
+}
+
+export async function main(deps: McpMainDeps = defaultMainDeps()): Promise<void> {
   const dbPath = require('path').join(__dirname, '..', 'khipuchat.db')
+  if (selectMcpMode(deps.argv) === 'http') {
+    const { runRemoteMcp } = await deps.loadRunner()
+    process.exitCode = await runRemoteMcp({ env: deps.env, dbPath })
+    return
+  }
+  await deps.runStdio(dbPath)
+}
+
+function defaultMainDeps(): McpMainDeps {
+  return {
+    argv: process.argv.slice(2),
+    env: process.env,
+    loadRunner: () => import('./remote-mcp/runner'),
+    runStdio,
+  }
+}
+
+async function runStdio(dbPath: string): Promise<void> {
   initDb(dbPath)
   const server = createMcpServer()
   const transport = new StdioServerTransport()
