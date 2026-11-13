@@ -70,7 +70,7 @@
   - _Boundary: McpEntry_
   - _Depends: 4.2_
 
-- [ ] 5. Validation: end-to-end, parity, and secret files
+- [x] 5. Validation: end-to-end, parity, and secret files
 - [x] 5.1 End-to-end test with a real MCP client over HTTP
   - Use the SDK's Streamable HTTP client with a bearer header against the app on an ephemeral port and a seeded in-memory archive
   - Show initialize, tool listing, and a `list_chats` call succeed for an unrestricted client; an allowlisted client sees only its tools and gets "Tool not available" for other and nonexistent tools; a missing or wrong token fails to connect; a dispatch that throws returns a generic error and the next call succeeds
@@ -88,7 +88,7 @@
   - _Requirements: 1.2, 4.7, 5.2_
   - _Boundary: Validation (tests only)_
   - _Depends: 4.1_
-- [ ] 6. Documentation and spec alignment
+- [x] 6. Documentation and spec alignment
 - [x] 6.1 (P) Write the remote MCP guide
   - Cover token generation, `MCP_TOKEN_<CLIENT>` and `MCP_TOOLS_<CLIENT>`, the settings table, and starting `khipu mcp --http`
   - Cover publishing through Tailscale Funnel (and why Serve alone is not reachable by cloud services) and through Cloudflare Tunnel, verifying with `curl` through the public URL (no token 401, valid token 200), connecting a cloud client (URL plus bearer header; OAuth-only clients unsupported), uptime (Mac awake versus server deployment, macOS-only sources stay on the Mac), privacy and revocation, the audit line format, and the optional compose profile
@@ -112,6 +112,7 @@
   - _Requirements: 2.5_
   - _Boundary: Validation (tests only)_
   - _Depends: 4.3, 6.2, cloud-deployment 1.4_
+  - _Blocked: cloud-deployment task 1.4 (secret-file loader) is not implemented yet_
 
 ## Implementation Notes
 - 3.2: tool-error audit lines log only the error type name, never the message, because tool errors can echo argument values (Req 6.2); design.md updated to match.
