@@ -71,7 +71,7 @@
   - _Depends: 4.2_
 
 - [ ] 5. Validation: end-to-end, parity, and secret files
-- [ ] 5.1 End-to-end test with a real MCP client over HTTP
+- [x] 5.1 End-to-end test with a real MCP client over HTTP
   - Use the SDK's Streamable HTTP client with a bearer header against the app on an ephemeral port and a seeded in-memory archive
   - Show initialize, tool listing, and a `list_chats` call succeed for an unrestricted client; an allowlisted client sees only its tools and gets "Tool not available" for other and nonexistent tools; a missing or wrong token fails to connect; a dispatch that throws returns a generic error and the next call succeeds
   - Assert the captured audit lines contain initialize, tools/list, and tools/call events for the right client and contain none of the call arguments
@@ -119,3 +119,4 @@
 - 4.1: express.json must parse every Content-Type the SDK transport accepts (`includes('application/json')`, case-sensitive like the SDK), and POST /mcp answers 415 when the body was not parsed; otherwise the SDK reads the raw stream with no size limit. The SDK also requires `Accept: application/json, text/event-stream` (406 otherwise).
 - 4.2: runRemoteMcp rejects (does not resolve 1) when initDb throws; mcp.ts main()'s catch turns that into exit 1. While stopping, closeIdleConnections() runs after each response so keep-alive sockets do not hold close() for 5 s.
 - 4.3: under tsx, a signal listener must stay attached until shutdown completes (tsx's preflight calls process.exit(128+sig) when no other listener remains), so the runner removes its listeners in the server.close callback. The khipu router forwards SIGTERM/SIGHUP to the child (docker stop) and ignores a parent-only SIGINT.
+- 5.1: search_messages throws on queries containing `-` (SQLite FTS treats it as an operator). Pre-existing, affects stdio too; not fixed in remote-mcp.
