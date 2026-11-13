@@ -27,7 +27,7 @@
   - _Boundary: RemoteMcpAudit_
 
 - [ ] 3. Core: authentication and scoped MCP sessions
-- [ ] 3.1 (P) Authenticate requests by Origin and bearer token
+- [x] 3.1 (P) Authenticate requests by Origin and bearer token
   - Reject a present Origin header not in the allowed list with 403 and a generic body before any token check; allow requests without an Origin header to proceed to the token check
   - Accept only `Authorization: Bearer <token>` (scheme case-insensitive); classify missing, malformed (including Basic), unknown, and query-string-only tokens; answer all of them with the same 401 body and a `WWW-Authenticate: Bearer` header, and record an auth-failed audit event with the reason
   - Use the auth-failure reason categories defined by the audit task
