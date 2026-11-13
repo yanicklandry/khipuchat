@@ -25,7 +25,7 @@ Phase 1 (Telegram sync + MCP) and Phase 2 (iMessage sync + platform abstraction)
 
 ## Constraints
 - All DB operations remain synchronous (better-sqlite3)
-- MCP server communicates via stdio only
+- MCP server communicates via stdio by default; an opt-in remote mode (`khipu mcp --http`, remote-mcp, D18) serves the same tools over Streamable HTTP on its own port
 - Keep each source file under 200 lines
 - Self-hosted only — no external services, no cloud
 - Each phase must have passing tests before the next starts
@@ -88,7 +88,7 @@ Scenario driving this phase: a new transaction lands in Slack `#08-expedition`, 
 
 ### Phase 5 constraint changes (supersede the Constraints section above for this phase)
 - **"Self-hosted only, no external services, no cloud" is rewritten**: khipuchat MAY run on a cloud server the user controls, and MAY send message content to an opted-in cloud LLM (Muse Spark) and to notification services (ntfy/Pushover/Telegram). Each outbound flow is explicit, configured, and logged. Local-only remains the default when nothing is configured.
-- **"MCP communicates via stdio only"** stays for MCP. New HTTP ingress (location reports, notification action callbacks) is a separate authenticated endpoint, never the MCP channel.
+- **MCP is stdio by default, with the opt-in remote MCP endpoint (remote-mcp, D18) on its own port.** New HTTP ingress (location reports, notification action callbacks) is a separate authenticated endpoint, never the MCP channel.
 - **"Sending messages on any platform" stays out of scope**: notifications go to the user only. Replying on Slack is not in this phase.
 - No new Beeper dependency.
 

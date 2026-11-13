@@ -19,7 +19,7 @@ KhipuChat is a self-hosted multi-platform message archive. It syncs conversation
 
 ## Value Proposition
 
-Everything stays local. No cloud service, no data leaving the machine. Claude queries the archive through MCP; the archive itself is a plain SQLite file the user owns.
+Everything stays local. No cloud service, no data leaving the machine. Claude queries the archive through MCP; the archive itself is a plain SQLite file the user owns. Remote MCP (`khipu mcp --http`), when explicitly enabled, sends tool results to the configured cloud clients.
 
 ## Usage Surfaces (priority order)
 

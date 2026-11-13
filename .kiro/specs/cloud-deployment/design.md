@@ -52,13 +52,13 @@
 - LLM provider config (llm-provider).
 - Platform adapter internals beyond replacing the DB open literal.
 - Web UI routes, UI, and basic-auth middleware (unchanged; web-ui spec).
-- MCP transport (stays stdio).
+- MCP transport: stdio by default; the opt-in remote Streamable HTTP endpoint (`khipu mcp --http`) is owned by remote-mcp and never mounted on the ingress (D18).
 
 ### Allowed Dependencies
 - Node 24 built-ins (`node:path`, `node:fs`, `node:crypto`, `node:http`, `node:os`).
 - Existing dependencies: `express` 5, `better-sqlite3-multiple-ciphers`, `dotenv`, `supertest` (tests).
 - `src/db.ts` (`initDb`, `getDb`), `src/account-registry.ts` (`loadRegistry`), `src/platforms/types.ts`, `src/platforms/signal/backend.ts` (`selectedSignalBackend`), `src/sync-all.ts` (`PLATFORMS`).
-- `src/ingress/**` and every registered module must NOT import, directly or transitively, `src/mcp.ts`, `src/tool-registry.ts`, `src/query-handlers.ts`, `src/web/**`, `src/ask.ts`, `src/cli.ts`. Enforced by test. DDL-only schema modules (`src/<area>/schema.ts`, `src/<name>-schema.ts`) and `src/schema-registry.ts` are allowed in the closure (D6).
+- `src/ingress/**` and every registered module must NOT import, directly or transitively, `src/mcp.ts`, `src/remote-mcp/**`, `src/tool-registry.ts`, `src/query-handlers.ts`, `src/web/**`, `src/ask.ts`, `src/cli.ts`. Enforced by test. DDL-only schema modules (`src/<area>/schema.ts`, `src/<name>-schema.ts`) and `src/schema-registry.ts` are allowed in the closure (D6).
 - No new runtime npm dependency. No Beeper dependency.
 
 ### Revalidation Triggers
@@ -123,7 +123,7 @@ graph LR
 - Selected pattern: separate process per surface, shared DB file, explicit static module registration for the ingress.
 - Existing patterns preserved: tsx runtime, Express 5, sync DB, `khipu` subcommand routing via spawned scripts, env-driven config, `:memory:` real-DB tests, dependency injection of env and OS for testability.
 - New components rationale: each new module owns one setting family or one policy so entrypoints stay thin and under 200 lines.
-- Steering compliance: MCP stays stdio, no `any`, no new dependency, no Beeper dependency, files under 200 lines.
+- Steering compliance: MCP is never reachable through the ingress (stdio by default, remote HTTP only via the separate remote-mcp process), no `any`, no new dependency, no Beeper dependency, files under 200 lines.
 
 ### Technology Stack
 
@@ -176,7 +176,7 @@ docs/
 - `Dockerfile`: Node 24 bookworm-slim two-stage build, toolchain in builder, non-root `node` user, `/app/data` owned by `node`, env `KHIPU_DEPLOYMENT=server`, `KHIPU_DB_PATH=/app/data/khipuchat.db`, `MEDIA_DIR=/app/data/media`, `HF_HOME=/app/.cache/huggingface`, `WEB_HOST=0.0.0.0`, `INGRESS_HOST=0.0.0.0`.
 - `.dockerignore`: also exclude `.zalo_session.json`, `.wwebjs_auth`, `backups/`, `*.db-wal`, `*.db-shm`.
 - `docker-compose.yml`: services `sync`, `web`, `ingress`, optional `signal-cli` (profile `signal`); volumes `khipu-data` at `/app/data`, `hf-cache`, `signal-cli-data`, `signal-cli-socket`; loopback-only ports; restart policy; ingress healthcheck; commented compose `secrets` example.
-- `.env.example`: add `KHIPU_DB_PATH`, `KHIPU_DEPLOYMENT`, `INGRESS_TOKEN`, `INGRESS_SIGNING_KEY`, `INGRESS_HOST`, `INGRESS_PORT`, `INGRESS_TRUST_PROXY`, `WEB_HOST`, `WEB_PORT`, `MEDIA_DIR`, `SIGNAL_BACKEND`, `SIGNAL_CLI_SOCKET`, every secret name of the allowlist without values (13.11), and a `_FILE` note.
+- `.env.example`: add `KHIPU_DB_PATH`, `KHIPU_DEPLOYMENT`, `INGRESS_TOKEN`, `INGRESS_SIGNING_KEY`, `INGRESS_HOST`, `INGRESS_PORT`, `INGRESS_TRUST_PROXY`, `WEB_HOST`, `WEB_PORT`, `MEDIA_DIR`, `SIGNAL_BACKEND`, `SIGNAL_CLI_SOCKET`, `MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_ALLOWED_ORIGINS` (remote-mcp, D18), every secret name of the allowlist without values (13.11), and a `_FILE` note.
 - `README.md`: Docker Quickstart points at `docs/DEPLOYMENT.md`, Node 24 prerequisite, corrected `docker run` volume.
 - `.github/workflows/ci.yml`: Node 24, branches `[master, main]`, `docker-image` job.
 - `src/db.ts`: `initDb` adds `busy_timeout = 5000` immediately after the key pragma. No other change.
@@ -290,13 +290,14 @@ flowchart TD
 | 3.1, 3.2, 3.4 | Persistent directory volume, caches separate | ComposeStack | volumes | |
 | 3.3 | Concurrent access waits on locks | DbBusyTimeout in `initDb` | `initDb` | |
 | 4.1, 4.2, 4.4 | Daemon as service command, restart, no TTY | ComposeStack | compose services | |
+| 4.5 | Optional `remote-mcp` profile service `mcp-http`, loopback publish, healthcheck | ComposeStack | compose services | |
 | 4.3 | Graceful stop | ComposeStack (`stop_grace_period`), existing watch shutdown | | |
 | 5.1, 5.4, 5.5 | Requirement classification incl. Signal backend | PlatformCapabilityGate | `PLATFORM_REQUIREMENTS`, `requirementFor` | Sync startup gating |
 | 5.2, 5.3 | Server skips, Mac unchanged | PlatformCapabilityGate, DeploymentProfile, WatchStartup | `gatePlatform` | Sync startup gating |
 | 5.6 | One-shot sync refuses | CommandRouter | `ResolveDeps.hostSupports` | |
 | 5.7 | Serial sync skips | SyncAllGate | `gatePlatform` | |
 | 6.1, 6.2, 6.3, 6.4 | Env or `_FILE` secrets | SecretFileLoader, CommandRouter, IngressServer | `resolveSecretFiles` | |
-| 6.7 | Full Phase 5 allowlist | SecretFileLoader | `SECRET_NAMES`, `SECRET_NAME_PATTERNS` | |
+| 6.7 | Full Phase 5 allowlist, including `MCP_TOKEN_*` (D18) | SecretFileLoader | `SECRET_NAMES`, `SECRET_NAME_PATTERNS` | |
 | 6.5 | Unencrypted warning | DeploymentProfile | `startupWarnings` | |
 | 6.6 | No secrets in logs or responses | IngressAuth, IngressApp, SecretFileLoader | error envelope | Ingress request |
 | 7.1, 7.2, 7.3 | Separate port, loopback default, token validation | IngressConfig, IngressServer | `loadIngressConfig` | |
@@ -307,7 +308,7 @@ flowchart TD
 | 9.1, 9.2, 9.5, 9.6 | Registration list, validation (incl. capability path declarations), context incl. env | IngressModuleRegistry, IngressApp | `IngressModule`, `IngressContext`, `validateModules` | |
 | 9.8 | Modules read env from context | IngressApp, IngressIsolationTest | `IngressContext.env` | |
 | 9.3, 9.4, 9.7 | Body limit, error envelope, headers | IngressApp | API contract | Ingress request |
-| 10.1, 10.2, 10.3 | No query surfaces on ingress, transitive closure | IngressIsolationTest, IngressApp | | |
+| 10.1, 10.2, 10.3 | No query surfaces or MCP (stdio or remote) on ingress, transitive closure | IngressIsolationTest, IngressApp | | |
 | 10.4 | D6 allowances for DDL-only schema modules | IngressIsolationTest | | |
 | 11.1, 11.2, 11.3 | Web bind and guard | WebBind, ComposeStack | `resolveWebBind` | |
 | 12.1, 12.2, 12.3, 12.4, 12.5, 12.6 | Online verified backup | BackupCommand | `runBackup` | Backup |
@@ -346,7 +347,7 @@ flowchart TD
 | WebBind | Config | Web host/port and guard | 11.1, 11.2 | none | Service |
 | BackupCommand | Composition | Verified online backup | 12.1 to 12.6 | DbPathResolver (P0), better-sqlite3-multiple-ciphers (P0) | Service, Batch |
 | ContainerImage | Infra | Dockerfile, dockerignore | 1.1 to 1.5 | | |
-| ComposeStack | Infra | Services, volumes, ports | 3.1, 3.2, 3.4, 4.1 to 4.4, 7.8, 11.3 | ContainerImage (P0) | |
+| ComposeStack | Infra | Services, volumes, ports | 3.1, 3.2, 3.4, 4.1 to 4.5, 7.8, 11.3 | ContainerImage (P0) | |
 | CiWorkflow | Infra | Node 24 tests, image smoke | 14.1 to 14.4, 1.2 | ContainerImage (P0) | |
 | DeploymentDocs | Docs | Guide, template, README | 13.1 to 13.7, 13.9 to 13.12 | | |
 | DeployConfigTest | Test | Template and compose consistency | 13.8, 3.1, 7.8, 11.3 | | |
@@ -473,7 +474,7 @@ export function logStartupWarnings(service: string, env?: NodeJS.ProcessEnv): vo
 
 **Responsibilities & Constraints**
 - Allowlist (`SECRET_NAMES`), the full Phase 5 set (D2): `DB_KEY`, `INGRESS_TOKEN`, `INGRESS_SIGNING_KEY`, `WEB_USER`, `WEB_PASS`, `MCP_SECRET`, `KHIPU_LLM_API_KEY`, `TELEGRAM_API_HASH`, `TELEGRAM_SESSION_STRING`, `DISCORD_TOKEN`, `SLACK_USER_TOKEN`, `SLACK_COOKIE`, `EMAIL_IMAP_PASS`, `NTFY_TOKEN`, `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY`, `TELEGRAM_NOTIFY_BOT_TOKEN`.
-- Name patterns (`SECRET_NAME_PATTERNS`): `^INGRESS_TOKEN_[A-Z0-9_]+$` (per-module ingress tokens) and `^SLACK_(TOKEN|COOKIE)_[A-Z0-9_]+$` (per-workspace Slack credentials, slack-all-workspaces). Pattern names are discovered from env keys ending in `_FILE`: an env key `<X>_FILE` is always the companion of `<X>`, so a secret name itself never ends in `_FILE`.
+- Name patterns (`SECRET_NAME_PATTERNS`): `^INGRESS_TOKEN_[A-Z0-9_]+$` (per-module ingress tokens), `^SLACK_(TOKEN|COOKIE)_[A-Z0-9_]+$` (per-workspace Slack credentials, slack-all-workspaces), and `^MCP_TOKEN_[A-Z0-9_]+$` (per-client remote MCP bearer tokens, remote-mcp, D18). Pattern names are discovered from env keys ending in `_FILE`: an env key `<X>_FILE` is always the companion of `<X>`, so a secret name itself never ends in `_FILE`.
 - Other specs (slack-all-workspaces, llm-provider, notifier, action-runner) do not edit the allowlist; their allowlist tasks only verify their names resolve.
 - For each allowlisted name with `<NAME>_FILE` set: conflict if `<NAME>` is non-empty; read file; strip one trailing `\n` (and preceding `\r`); return as an addition.
 - Pure function with injected reader; never mutates the input env.
@@ -710,7 +711,7 @@ export const INGRESS_CAPABILITY_LOCAL = 'ingressCapability'
 
 Obligations for module authors:
 - Modules never implement their own authentication, and never register paths outside their router.
-- Modules must not import, directly or transitively, `src/mcp.ts`, `src/tool-registry.ts`, `src/query-handlers.ts`, `src/web/**`, `src/ask.ts`, `src/cli.ts` (enforced by IngressIsolationTest, which follows the full transitive import closure from `modules.ts`). DDL-only schema modules and `src/schema-registry.ts` may appear in the closure (D6).
+- Modules must not import, directly or transitively, `src/mcp.ts`, `src/remote-mcp/**`, `src/tool-registry.ts`, `src/query-handlers.ts`, `src/web/**`, `src/ask.ts`, `src/cli.ts` (enforced by IngressIsolationTest, which follows the full transitive import closure from `modules.ts`). DDL-only schema modules and `src/schema-registry.ts` may appear in the closure (D6).
 - Modules read settings from `ctx.env`, not `process.env` (D4, 9.8); the isolation test rejects `process.env` in files of the module closure outside `src/ingress/server.ts`, `src/db-path.ts`, `src/deployment.ts`, `src/secret-files.ts`, and `src/db.ts` (whose functions take an injected env with a `process.env` default).
 - Modules declaring `capabilityPaths` read the verified capability only through `capabilityFromLocals(res)`; a `null` result means the request was header-token authenticated. Modules never log `req.path`, `req.url`, or `req.originalUrl` raw on capability paths; they log `redactCapabilityPath(path, [module])` or nothing (15.10).
 - Single use, one action per notification, and nonce storage are module (DB side) concerns; the ingress verifies only signature, module, and expiry.
@@ -921,9 +922,10 @@ export function runBackup(opts: BackupOptions): BackupResult
 - `sync`: `command: ["khipu", "sync", "all"]`, `stop_grace_period: 45s` (4.1 to 4.3). It must exceed message-events' worst-case shutdown: the in-flight sync-cycle wait `CYCLE_DRAIN_TIMEOUT_MS` (15 s) plus the total daemon shutdown deadline `SERVICE_SHUTDOWN_DEADLINE_MS` (25 s, one deadline across all services, not per service), that is 15 s cycle wait + 25 s services deadline = 40 s < 45s, so the runtime never kills the daemon mid-drain (D13, D17).
 - `web`: `command: ["khipu", "web"]`, `ports: ["127.0.0.1:3333:3333"]` (11.3).
 - `ingress`: `command: ["khipu", "ingress"]`, `ports: ["127.0.0.1:3334:3334"]`, `healthcheck` using `node -e` fetch of `http://127.0.0.1:3334/healthz` (7.8).
+- `mcp-http` (profile `remote-mcp`, D18): `command: ["khipu", "mcp", "--http"]`, `environment: MCP_HTTP_HOST=0.0.0.0` inside the container, `ports: ["127.0.0.1:3335:3335"]`, `healthcheck` using `node -e` fetch of `http://127.0.0.1:3335/healthz` (4.5). Runtime behavior (tokens, allowlists, Origin checks) is owned by remote-mcp.
 - `signal-cli` (profile `signal`): signal-cli daemon on a UNIX socket in volume `signal-cli-socket`, account data in `signal-cli-data`; `sync` mounts the socket volume and the guide sets `SIGNAL_BACKEND=cli`, `SIGNAL_CLI_SOCKET=/run/signal-cli/socket`. Image to verify during implementation (research.md).
 - No `tty`/`stdin_open` (4.4). Commented `secrets:` example mapping files to `/run/secrets/*` with `<NAME>_FILE`.
-- MCP via `docker compose run --rm -T sync khipu mcp` documented; never a published port (10.3).
+- MCP over stdio via `docker compose run --rm -T sync khipu mcp` documented; the stdio server is never a published port, and the only published MCP port is the opt-in `mcp-http` service under profile `remote-mcp`, bound to host loopback and separate from the ingress (4.5, 10.3).
 
 #### CiWorkflow
 - `on.push.branches` and `on.pull_request.branches`: `[master, main]` (14.2).
@@ -986,7 +988,7 @@ Fail fast at startup with one actionable line and exit 1 for configuration error
 - `sync-all.test.ts` and `watch.test.ts` updates: unsupported platforms skipped and not counted as failures; startup logs one skip line per platform (5.2, 5.7).
 
 ### Static and Configuration Tests
-- `ingress-isolation.test.ts`: starts from `src/ingress/*.ts` and `src/ingress/modules.ts`, follows every relative static `import`/`export ... from` and string-literal dynamic `import()` (type-only imports are skipped because they are erased) to build the transitive closure, and fails on any forbidden module in it; permits DDL-only schema modules (`src/**/schema.ts`, `src/*-schema.ts`) and `src/schema-registry.ts`, and fails if a schema module imports anything but types or `better-sqlite3-multiple-ciphers` types, or if the registry imports anything but schema modules (10.4); fails if a file in the closure outside the listed config helpers reads `process.env` (9.8); asserts `src/mcp.ts` still uses only the stdio transport (10.1 to 10.3).
+- `ingress-isolation.test.ts`: starts from `src/ingress/*.ts` and `src/ingress/modules.ts`, follows every relative static `import`/`export ... from` and string-literal dynamic `import()` (type-only imports are skipped because they are erased) to build the transitive closure, and fails on any forbidden module in it; permits DDL-only schema modules (`src/**/schema.ts`, `src/*-schema.ts`) and `src/schema-registry.ts`, and fails if a schema module imports anything but types or `better-sqlite3-multiple-ciphers` types, or if the registry imports anything but schema modules (10.4); fails if a file in the closure outside the listed config helpers reads `process.env` (9.8); asserts the ingress closure contains neither `src/mcp.ts` nor any file under `src/remote-mcp/**` (10.1 to 10.3).
 - `deploy-config.test.ts`: as described under DeployConfigTest (1.1, 3.1, 4.1, 7.8, 11.3, 13.8).
 
 ### E2E / CI

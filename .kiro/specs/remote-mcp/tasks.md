@@ -96,7 +96,7 @@
   - `docs/REMOTE-MCP.md` exists with every section, contains no em dashes or right arrows, and the README links to it
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
   - _Boundary: RemoteMcpDocs_
-- [ ] 6.2 (P) Align cloud-deployment, cross-spec decisions, and steering
+- [x] 6.2 (P) Align cloud-deployment, cross-spec decisions, and steering
   - In cloud-deployment requirements: reword the stdio-only adjacent expectation and Req 10.3 so MCP is never reachable through the ingress but may run remotely via remote-mcp; add `^MCP_TOKEN_[A-Z0-9_]+$` to Req 6.7; add an optional `remote-mcp` compose profile service criterion (loopback-published port, `/healthz` healthcheck)
   - In cloud-deployment design and tasks: add the pattern to the secret-file loader allowlist and task 1.4, add the `mcp-http` profile service to the compose stack and its task, and update the stdio-only lines
   - In cloud-deployment task 3.5: replace "the MCP server still connects only through the stdio transport" with an assertion that the ingress closure contains neither the MCP server nor the remote MCP endpoint, and add `src/remote-mcp/**` to its forbidden-module list

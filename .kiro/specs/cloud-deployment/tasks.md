@@ -23,10 +23,10 @@
   - _Requirements: 1.5, 5.1, 6.5_
 
 - [ ] 1.4 Load allowlisted secrets from files
-  - Allowlist the full Phase 5 secret set up front: `DB_KEY`, `INGRESS_TOKEN`, names matching `^INGRESS_TOKEN_[A-Z0-9_]+$`, `INGRESS_SIGNING_KEY`, `WEB_USER`, `WEB_PASS`, `MCP_SECRET`, `KHIPU_LLM_API_KEY`, `TELEGRAM_API_HASH`, `TELEGRAM_SESSION_STRING`, `DISCORD_TOKEN`, `SLACK_USER_TOKEN`, `SLACK_COOKIE`, names matching `^SLACK_(TOKEN|COOKIE)_[A-Z0-9_]+$`, `EMAIL_IMAP_PASS`, `NTFY_TOKEN`, `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY`, `TELEGRAM_NOTIFY_BOT_TOKEN`; export the fixed names, the patterns, and a name check so other specs can verify their names
+  - Allowlist the full Phase 5 secret set up front: `DB_KEY`, `INGRESS_TOKEN`, names matching `^INGRESS_TOKEN_[A-Z0-9_]+$`, `INGRESS_SIGNING_KEY`, `WEB_USER`, `WEB_PASS`, `MCP_SECRET`, `KHIPU_LLM_API_KEY`, `TELEGRAM_API_HASH`, `TELEGRAM_SESSION_STRING`, `DISCORD_TOKEN`, `SLACK_USER_TOKEN`, `SLACK_COOKIE`, names matching `^SLACK_(TOKEN|COOKIE)_[A-Z0-9_]+$`, names matching `^MCP_TOKEN_[A-Z0-9_]+$`, `EMAIL_IMAP_PASS`, `NTFY_TOKEN`, `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY`, `TELEGRAM_NOTIFY_BOT_TOKEN`; export the fixed names, the patterns, and a name check so other specs can verify their names
   - For each allowlisted secret name with a companion file setting, return the file contents with one trailing newline removed as the value; an env key ending in the file suffix is always the companion of the name without it; leave non-allowlisted file settings alone; never mutate the input env
   - Return typed errors for a value-and-file conflict and for an unreadable file; formatted error messages name the setting and path but never file contents
-  - Unit tests with an injected file reader cover success, newline stripping, conflict, unreadable file, non-allowlisted names, both name patterns, and every fixed name of the allowlist resolving from a file, and they pass
+  - Unit tests with an injected file reader cover success, newline stripping, conflict, unreadable file, non-allowlisted names, all three name patterns, and every fixed name of the allowlist resolving from a file, and they pass
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.6, 6.7_
 
 - [ ] 1.5 Resolve feature data file locations next to the archive
@@ -102,10 +102,10 @@
   - _Depends: 1.1, 1.3, 1.4_
 
 - [ ] 3.5 Enforce ingress isolation from query surfaces
-  - A static test builds the transitive import closure (relative static imports, re-exports, and string-literal dynamic imports; type-only imports skipped) starting from every ingress source file and the module registration list, and fails on any MCP server, tool registry, shared query handlers, web UI, ask, or CLI module anywhere in the closure
+  - A static test builds the transitive import closure (relative static imports, re-exports, and string-literal dynamic imports; type-only imports skipped) starting from every ingress source file and the module registration list, and fails on any MCP server, remote MCP endpoint (`src/remote-mcp/**`), tool registry, shared query handlers, web UI, ask, or CLI module anywhere in the closure
   - It permits DDL-only schema modules (`src/<area>/schema.ts`, `src/<name>-schema.ts`) and `src/schema-registry.ts` in the closure, and fails if a schema module imports anything other than types or SQLite driver types, or the registry imports anything other than schema modules
   - It fails if a file in the closure, other than the ingress entrypoint and the shared config helpers that take an injected env, reads the global process environment, so modules use the context environment
-  - The same test asserts the MCP server still connects only through the stdio transport
+  - The same test asserts the ingress closure contains neither the MCP server nor any file under `src/remote-mcp/**`
   - The test passes on the current tree and fails when a forbidden import is temporarily added two hops away from an ingress file
   - _Requirements: 9.8, 10.1, 10.2, 10.3, 10.4_
 
@@ -152,15 +152,16 @@
 - [ ] 7.2 Define the unattended compose stack
   - Sync service runs the daemon directly with automatic restart and a stop grace period of 45 s, longer than the daemon's 15 s sync-cycle wait plus its 25 s total service shutdown deadline (40 s); web and ingress services publish only on host loopback; ingress has a health check against its health endpoint; all share one data volume mounted as a directory plus a separate model cache volume; no service needs a terminal
   - Optional signal-cli profile shares its socket with the sync service through a volume; a commented secrets example uses companion file settings
+  - Optional `remote-mcp` profile service `mcp-http` runs `khipu mcp --http` with `MCP_HTTP_HOST=0.0.0.0` inside the container, publishes `127.0.0.1:3335:3335` only on host loopback, and is health-checked against `/healthz`; it never shares a port or process with the ingress
   - Verification needs a local env file with an ingress token of at least 32 characters (and web basic-auth credentials, since the web service binds beyond loopback inside the container)
   - `docker compose config` validates, and `docker compose up -d` brings sync, web, and ingress up with ingress reported healthy
-  - _Requirements: 3.1, 3.2, 3.4, 4.1, 4.2, 4.3, 4.4, 7.8, 11.3_
+  - _Requirements: 3.1, 3.2, 3.4, 4.1, 4.2, 4.3, 4.4, 4.5, 7.8, 11.3_
   - _Depends: 3.4, 6.2, 7.1_
 
 - [ ] 7.3 Complete the environment template and guard it with a configuration test
-  - Add every setting used by the compose stack, the ingress configuration (including `INGRESS_SIGNING_KEY`, optional, at least 32 characters), the archive location, the deployment profile, web binding, and signal-cli to the environment template, each with a one-line description and a note on companion file settings; list every fixed secret name of the allowlist without values and describe the two name patterns
+  - Add every setting used by the compose stack, the ingress configuration (including `INGRESS_SIGNING_KEY`, optional, at least 32 characters), the archive location, the deployment profile, web binding, signal-cli, and the remote MCP endpoint (`MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_ALLOWED_ORIGINS`) to the environment template, each with a one-line description and a note on companion file settings; list every fixed secret name of the allowlist without values and describe the three name patterns (`INGRESS_TOKEN_*`, `SLACK_(TOKEN|COOKIE)_*`, `MCP_TOKEN_*`)
   - A configuration test fails if any such setting or any fixed allowlisted secret name is missing from the template, if the data volume is mounted at a database file path, if any published port is not loopback-only, if the sync command contains a shell loop, or if the image base is not Node 24; it passes on the updated files
-  - _Requirements: 13.7, 13.8, 13.11, 1.1, 3.1, 4.1, 7.8, 11.3_
+  - _Requirements: 13.7, 13.8, 13.11, 1.1, 3.1, 4.1, 4.5, 6.7, 7.8, 11.3_
   - _Depends: 1.4, 3.1, 7.1, 7.2_
 
 - [ ] 7.4 Align CI with Node 24 and smoke-test the image

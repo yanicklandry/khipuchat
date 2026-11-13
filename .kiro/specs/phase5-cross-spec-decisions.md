@@ -84,3 +84,12 @@ message-events IngestContext invariant names Slack as a nesting caller (backfill
 - **D13 clarification:** a service MAY abort its in-flight work on signal shutdown within its own requirement's limit (action-runner aborts the running command, recorded as interrupted, within 15 s). Draining order is reverse, so action-runner (first) may consume part of the 25 s total before triage's 10 s grace.
 - **Env reads:** event retention reads `env['EVENT_RETENTION_DAYS']` from the passed env, not `process.env`.
 - **CLI entries:** OPERATIONAL_SCRIPTS values are relative to `src/` (`'cli-entries/triage-cli.ts'`, `'cli-entries/notify-cli.ts'`); `runNotifyCli(argv, opts): Promise<number>` like `runTriageCli`, entries set `process.exitCode`.
+
+# Remote MCP (2026-11-13)
+
+## D18. Remote MCP endpoint: owner remote-mcp
+- **Own process and port:** the remote MCP endpoint runs as its own process, `khipu mcp --http`, on its own port (default `127.0.0.1:3335`). It is never mounted on the ingress and is not an `IngressModule`. Plain `khipu mcp` keeps the stdio transport unchanged.
+- **Ingress isolation unchanged:** cloud-deployment Req 10.1, 10.2 and task 3.5 keep their meaning; the forbidden-module list of the ingress isolation test now also includes `src/remote-mcp/**`, and Req 10.3 reads "The MCP server shall not be reachable through the ingress server; remote HTTP access is provided only by the remote MCP endpoint defined in remote-mcp."
+- **Secret allowlist (amends D2):** the name pattern `^MCP_TOKEN_[A-Z0-9_]+$` joins the `_FILE` allowlist (cloud-deployment Req 6.7). The allowlist owner is still cloud-deployment (`src/secret-files.ts`); remote-mcp only consumes the resolved values.
+- **Compose profile:** the optional `mcp-http` service under compose profile `remote-mcp` (runs `khipu mcp --http`, `MCP_HTTP_HOST=0.0.0.0` inside the container, published only as `127.0.0.1:3335:3335`, health-checked via `/healthz`) is owned by cloud-deployment ComposeStack (task 7.2, Req 4.5).
+- **Ownership:** remote-mcp owns `src/remote-mcp/**` and the settings `MCP_TOKEN_<CLIENT>`, `MCP_TOOLS_<CLIENT>`, `MCP_HTTP_HOST`, `MCP_HTTP_PORT`, and `MCP_ALLOWED_ORIGINS`. cloud-deployment lists `MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_ALLOWED_ORIGINS` in its environment template (task 7.3).
