@@ -1,0 +1,114 @@
+# Implementation Plan
+
+- [ ] 1. Foundation: shared tool result formatting
+- [ ] 1.1 Share one tool result formatter between stdio and remote MCP
+  - Move the inline tool result wrapping (single text content holding the JSON-serialized result) from the stdio MCP server into the tool registry as a shared formatter, and make the stdio server use it
+  - The stdio server's public factory keeps its no-argument signature and its `MCP_SECRET` check exactly as today
+  - Existing MCP, security, and ask-parity test suites pass unchanged, and a new unit test shows the formatter output equals the previous inline shape
+  - _Requirements: 1.2, 4.7_
+  - _Boundary: tool-registry, McpEntry_
+
+- [ ] 2. Core: configuration and audit
+- [ ] 2.1 (P) Parse and validate remote MCP settings
+  - Discover clients from `MCP_TOKEN_<CLIENT>` settings (suffix 1 to 32 of uppercase letters, digits, underscores; keys ending in `_FILE` are never clients), lowercase client names, and keep only a digest of each token
+  - Reject startup inputs with typed errors in a fixed order: no clients, invalid client name, unresolved `_FILE` companion (file setting present, value absent), token under 32 characters, duplicate token across clients, empty allowlist, allowlist naming an unknown tool, allowlist without a matching token, invalid port
+  - Default host `127.0.0.1` and port 3335; parse the allowed Origin list (normalized, default empty); treat a client without an allowlist as allowed every known tool; never read `MCP_SECRET`
+  - Provide a loopback-host check (127.0.0.0/8, `::1`, `localhost`) and an error formatter whose messages name settings but never contain token values
+  - Unit tests with injected env cover every error kind, the defaults, allowlist parsing, the `_FILE` rules, `MCP_SECRET` alone yielding no clients, a removed token no longer present after re-parse, and the loopback check, and they pass
+  - _Requirements: 1.4, 1.7, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 3.6, 4.1, 4.2, 4.5, 4.6_
+  - _Boundary: RemoteMcpConfig_
+- [ ] 2.2 (P) Record audit and auth-failure lines
+  - Format one stderr line per event with ISO timestamp and key=value fields for: initialize, tools/list, tools/call (client, tool, outcome ok/error/denied, duration ms), tool-error (client, tool, error message), and auth-failed (reason, method, path without query, client address)
+  - The event type has no field for arguments, results, or tokens, so they cannot be logged
+  - Define the auth-failure reason categories (origin, missing, malformed, unknown token, query token) here, so the authentication task imports them
+  - Provide a writer that defaults to stderr and accepts an injected sink for tests
+  - Unit tests assert exact line shapes for each event, that query strings are stripped from paths, and that no event shape can carry arguments, and they pass
+  - _Requirements: 3.5, 6.1, 6.2, 6.3_
+  - _Boundary: RemoteMcpAudit_
+
+- [ ] 3. Core: authentication and scoped MCP sessions
+- [ ] 3.1 (P) Authenticate requests by Origin and bearer token
+  - Reject a present Origin header not in the allowed list with 403 and a generic body before any token check; allow requests without an Origin header to proceed to the token check
+  - Accept only `Authorization: Bearer <token>` (scheme case-insensitive); classify missing, malformed (including Basic), unknown, and query-string-only tokens; answer all of them with the same 401 body and a `WWW-Authenticate: Bearer` header, and record an auth-failed audit event with the reason
+  - Use the auth-failure reason categories defined by the audit task
+  - Look up the client by comparing the presented token's digest against every configured client in constant time without early exit, then expose the resolved client to later handlers
+  - Unit tests drive the middleware with fake requests and show identical 401 bodies for every failure reason, the correct reason in audit events, 403 for a disallowed Origin, success with no Origin, case-insensitive scheme, and no credential text in any log line, and they pass
+  - _Requirements: 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
+  - _Boundary: RemoteMcpAuth_
+  - _Depends: 2.1, 2.2_
+- [ ] 3.2 (P) Build a per-request MCP server scoped to one client
+  - List only the tools the client may use, in registry order, with the registry's definitions unchanged
+  - On a call outside the client's tools (including names that are not tools), return the MCP error "Tool not available" without running anything and record a denied audit event
+  - On a permitted call, dispatch through the shared registry, return the shared formatter's output, and record an ok audit event with duration; on a thrown error, record error and tool-error events and return a generic "Tool failed" MCP error without internal details
+  - Unit tests invoke the list and call handlers directly against a seeded in-memory archive and show filtered listing, denial for disallowed and unknown names, identical content to the registry formatter for a permitted call, and a generic error for a throwing dispatch, and they pass
+  - _Requirements: 4.3, 4.4, 4.7, 5.2, 5.4, 6.1_
+  - _Boundary: RemoteMcpSession_
+  - _Depends: 1.1, 2.1, 2.2_
+
+- [ ] 4. Integration: HTTP app, process runner, and CLI entry
+- [ ] 4.1 Compose the remote MCP HTTP app
+  - Apply the fixed middleware order: no-cache and nosniff headers on every response, unauthenticated `GET /healthz` (200 healthy / 503 unavailable with fixed bodies), authentication for every other path, JSON body parsing limited to 1 MiB, `POST /mcp`, 405 with `Allow: POST` for `GET` and `DELETE /mcp`, 404 for other paths, and a generic error handler (413 too large, 400 invalid JSON, 500 otherwise)
+  - For `POST /mcp`, record initialize and tools/list audit events from the JSON-RPC method names, then serve the request through a new client-scoped server and a stateless Streamable HTTP transport with JSON responses, closing both when the response ends
+  - Health is checked through an injected function backed by a trivial archive query
+  - Tests start the app on an ephemeral port and use HTTP requests to show: healthz without a token (200, and 503 when the health check reports failure), 401 on an unknown path without a token and 404 with one, 413 for a 1.5 MiB body with no tool run, 400 for invalid JSON, 405 on `GET /mcp`, and both headers on 200, 401, and 404 responses; they pass
+  - _Requirements: 1.1, 3.1, 5.1, 5.3, 5.5, 5.6, 6.3_
+  - _Boundary: RemoteMcpApp_
+  - _Depends: 3.1, 3.2_
+- [ ] 4.2 Run the remote MCP endpoint as a process
+  - Validate settings (exit status 1 with the formatted error on failure), open the archive at the path given by the caller, start the app on the configured host and port, and exit 1 with a message naming the address when the port is in use
+  - Log the listen URL and one line per client with its allowed tool count, never a token; log a warning that the endpoint is reachable from the network without TLS when the host is not loopback
+  - On SIGINT or SIGTERM stop accepting connections, let in-flight requests finish for up to 10 seconds, then close remaining connections and resolve with status 0
+  - Tests with injected env and signal emitter show the config-error exit, the port-in-use exit, startup lines without token text, the non-loopback warning, and a graceful stop that completes an in-flight request before resolving 0; they pass
+  - _Requirements: 1.3, 1.5, 1.6, 1.7, 2.2, 2.3, 2.4, 4.5, 4.6, 5.7_
+  - _Boundary: RemoteMcpRunner_
+  - _Depends: 2.1, 4.1_
+- [ ] 4.3 Wire `--http` into the MCP entrypoint and CLI help
+  - When the MCP entrypoint is started with `--http`, load the remote runner on demand (so stdio never loads the HTTP stack) and pass it the environment and the same archive path stdio uses; without `--http` the stdio path runs exactly as today
+  - Update the `khipu` help text to show `mcp [--http]` with the remote port
+  - A test with an injected runner shows `--http` routes to the remote runner with the stdio archive path and that no flag keeps the stdio path; a recorded manual check shows `khipu mcp --http` with a valid client token answers `/healthz` on `127.0.0.1:3335`; the CLI router tests and existing MCP tests pass
+  - _Requirements: 1.1, 1.2, 1.3_
+  - _Boundary: McpEntry_
+  - _Depends: 4.2_
+
+- [ ] 5. Validation: end-to-end, parity, and secret files
+- [ ] 5.1 End-to-end test with a real MCP client over HTTP
+  - Use the SDK's Streamable HTTP client with a bearer header against the app on an ephemeral port and a seeded in-memory archive
+  - Show initialize, tool listing, and a `list_chats` call succeed for an unrestricted client; an allowlisted client sees only its tools and gets "Tool not available" for other and nonexistent tools; a missing or wrong token fails to connect; a dispatch that throws returns a generic error and the next call succeeds
+  - Assert the captured audit lines contain initialize, tools/list, and tools/call events for the right client and contain none of the call arguments
+  - The end-to-end test file passes
+  - _Requirements: 3.2, 3.3, 4.1, 4.2, 4.3, 4.4, 5.1, 5.4, 6.1, 6.2, 6.3_
+  - _Boundary: Validation (tests only)_
+  - _Depends: 4.1_
+- [ ] 5.2 Parity with stdio and no archive modification
+  - Unset `MCP_SECRET` for the stdio side of the test so the stdio handler's existing secret check does not reject calls
+  - Call every registry tool with the same arguments through the stdio server's call handler and through the remote endpoint, and assert identical content
+  - Semantic tools run against an unindexed archive in this test, so parity compares their not-indexed responses; no embedding model download is needed
+  - Read the connection's total change count before and after all remote calls and assert it is unchanged
+  - The parity test passes and the full test suite passes under Node 24
+  - _Requirements: 1.2, 4.7, 5.2_
+  - _Boundary: Validation (tests only)_
+  - _Depends: 4.1_
+- [ ] 6. Documentation and spec alignment
+- [ ] 6.1 (P) Write the remote MCP guide
+  - Cover token generation, `MCP_TOKEN_<CLIENT>` and `MCP_TOOLS_<CLIENT>`, the settings table, and starting `khipu mcp --http`
+  - Cover publishing through Tailscale Funnel (and why Serve alone is not reachable by cloud services) and through Cloudflare Tunnel, verifying with `curl` through the public URL (no token 401, valid token 200), connecting a cloud client (URL plus bearer header; OAuth-only clients unsupported), uptime (Mac awake versus server deployment, macOS-only sources stay on the Mac), privacy and revocation, the audit line format, and the optional compose profile
+  - Link the guide from the README
+  - `docs/REMOTE-MCP.md` exists with every section, contains no em dashes or right arrows, and the README links to it
+  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
+  - _Boundary: RemoteMcpDocs_
+- [ ] 6.2 (P) Align cloud-deployment, cross-spec decisions, and steering
+  - In cloud-deployment requirements: reword the stdio-only adjacent expectation and Req 10.3 so MCP is never reachable through the ingress but may run remotely via remote-mcp; add `^MCP_TOKEN_[A-Z0-9_]+$` to Req 6.7; add an optional `remote-mcp` compose profile service criterion (loopback-published port, `/healthz` healthcheck)
+  - In cloud-deployment design and tasks: add the pattern to the secret-file loader allowlist and task 1.4, add the `mcp-http` profile service to the compose stack and its task, and update the stdio-only lines
+  - In cloud-deployment task 3.5: replace "the MCP server still connects only through the stdio transport" with an assertion that the ingress closure contains neither the MCP server nor the remote MCP endpoint, and add `src/remote-mcp/**` to its forbidden-module list
+  - In cloud-deployment task 7.3: describe three name patterns (adding `MCP_TOKEN_*`) and add `MCP_HTTP_HOST`, `MCP_HTTP_PORT`, and `MCP_ALLOWED_ORIGINS` to the environment template; name cloud-deployment task 7.2 as the owner of the actual `mcp-http` compose service
+  - Add decision D18 (remote MCP endpoint, owner remote-mcp) to the phase 5 cross-spec decisions; update the MCP line in tech steering and add the remote-access privacy note to product steering
+  - A search of `.kiro/` for "stdio only", "stdio-only", and "never HTTP" and for "only through the stdio transport" and "stays stdio" finds no statement that contradicts remote-mcp, cloud-deployment 3.5 forbids `src/remote-mcp/**`, the ingress isolation requirements (10.1, 10.2) are unchanged, and D18 is present
+  - _Requirements: 2.5, 7.6, 8.1, 8.2, 8.3, 8.4, 8.5_
+  - _Boundary: SpecAlignment_
+
+- [ ] 7. Verify token files through the CLI router (blocked until cloud-deployment 1.4 lands)
+  - With cloud-deployment's secret-file loader in place, start `khipu mcp --http` with only `MCP_TOKEN_<CLIENT>_FILE` set and show the client authenticates with the file's token; without the loader's resolution (direct start), show startup fails naming the unresolved setting
+  - A test (or a recorded manual check if the router cannot be driven in tests) demonstrates both outcomes
+  - _Requirements: 2.5_
+  - _Boundary: Validation (tests only)_
+  - _Depends: 4.3, 6.2, cloud-deployment 1.4_
