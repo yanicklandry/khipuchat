@@ -9,7 +9,7 @@
   - _Boundary: tool-registry, McpEntry_
 
 - [ ] 2. Core: configuration and audit
-- [ ] 2.1 (P) Parse and validate remote MCP settings
+- [x] 2.1 (P) Parse and validate remote MCP settings
   - Discover clients from `MCP_TOKEN_<CLIENT>` settings (suffix 1 to 32 of uppercase letters, digits, underscores; keys ending in `_FILE` are never clients), lowercase client names, and keep only a digest of each token
   - Reject startup inputs with typed errors in a fixed order: no clients, invalid client name, unresolved `_FILE` companion (file setting present, value absent), token under 32 characters, duplicate token across clients, empty allowlist, allowlist naming an unknown tool, allowlist without a matching token, invalid port
   - Default host `127.0.0.1` and port 3335; parse the allowed Origin list (normalized, default empty); treat a client without an allowlist as allowed every known tool; never read `MCP_SECRET`
