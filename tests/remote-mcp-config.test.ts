@@ -111,6 +111,14 @@ describe('parseRemoteMcpConfig: error kinds', () => {
     expect(err({ MCP_TOKEN_MUSE: 'x'.repeat(31) })).toEqual({ kind: 'token-too-short', setting: 'MCP_TOKEN_MUSE' })
   })
 
+  it.each([' ', '\r', '\t'])('token-whitespace names the setting when the token contains %j', (ws) => {
+    const token = 'a'.repeat(32) + ws
+    expect(err({ MCP_TOKEN_MUSE: token })).toEqual({ kind: 'token-whitespace', setting: 'MCP_TOKEN_MUSE' })
+    const message = formatConfigError({ kind: 'token-whitespace', setting: 'MCP_TOKEN_MUSE' })
+    expect(message).toContain('MCP_TOKEN_MUSE')
+    expect(message).toContain('whitespace')
+  })
+
   it('duplicate-token names both settings (2.4)', () => {
     expect(err({ MCP_TOKEN_MUSE: TOKEN_A, MCP_TOKEN_BOT: TOKEN_A })).toEqual({
       kind: 'duplicate-token',

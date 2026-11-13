@@ -60,6 +60,8 @@ export interface McpMainDeps {
   /** Loads the remote runner on demand so stdio never loads the HTTP stack. */
   readonly loadRunner: () => Promise<Pick<RemoteRunnerModule, 'runRemoteMcp'>>
   readonly runStdio: (dbPath: string) => Promise<void>
+  /** Loads the project .env into process.env (existing variables win), as other entrypoints do. */
+  readonly loadEnvFile: () => void
 }
 
 /** `--http` selects the remote MCP endpoint (Req 1.1); anything else stays stdio (Req 1.2). */
@@ -67,9 +69,21 @@ export function selectMcpMode(argv: readonly string[]): 'http' | 'stdio' {
   return argv.includes('--http') ? 'http' : 'stdio'
 }
 
+/** Arguments other than `--http` are rejected, so a typo never silently falls back to stdio. */
+export function unknownMcpArgs(argv: readonly string[]): string[] {
+  return argv.filter((arg) => arg !== '--http')
+}
+
 export async function main(deps: McpMainDeps = defaultMainDeps()): Promise<void> {
   const dbPath = require('path').join(__dirname, '..', 'khipuchat.db')
+  const unknown = unknownMcpArgs(deps.argv)
+  if (unknown.length > 0) {
+    process.stderr.write(`khipu mcp: unknown argument ${JSON.stringify(unknown[0])}. Usage: khipu mcp [--http]\n`)
+    process.exitCode = 2
+    return
+  }
   if (selectMcpMode(deps.argv) === 'http') {
+    deps.loadEnvFile()
     const { runRemoteMcp } = await deps.loadRunner()
     process.exitCode = await runRemoteMcp({ env: deps.env, dbPath })
     return
@@ -83,6 +97,9 @@ function defaultMainDeps(): McpMainDeps {
     env: process.env,
     loadRunner: () => import('./remote-mcp/runner'),
     runStdio,
+    loadEnvFile: () => {
+      require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') })
+    },
   }
 }
 

@@ -261,6 +261,14 @@ describe('integration: router platform set equals PLATFORMS from sync-all', () =
 // ── Per-subcommand --help ─────────────────────────────────────────────────────
 
 describe('resolveCommand — per-subcommand --help', () => {
+  it("resolveCommand(['mcp', '--help']) documents --http and the MCP_TOKEN setting", () => {
+    const result = resolveCommand(['mcp', '--help'])
+    expect(result.kind).toBe('help')
+    expect(result.exitCode).toBe(0)
+    expect(result.message).toContain('--http')
+    expect(result.message).toContain('MCP_TOKEN_<CLIENT>')
+  })
+
   it("resolveCommand(['search', '--help']) returns kind: help with exitCode 0", () => {
     const result = resolveCommand(['search', '--help'])
     expect(result.kind).toBe('help')

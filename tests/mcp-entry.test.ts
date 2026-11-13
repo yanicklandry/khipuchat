@@ -14,8 +14,9 @@ function fakeDeps(argv: readonly string[]) {
   const runRemoteMcp = vi.fn().mockResolvedValue(0)
   const loadRunner = vi.fn().mockResolvedValue({ runRemoteMcp })
   const runStdio = vi.fn().mockResolvedValue(undefined)
-  const deps: McpMainDeps = { argv, env: { MCP_TOKEN_X: 'not-used' }, loadRunner, runStdio }
-  return { deps, runRemoteMcp, loadRunner, runStdio }
+  const loadEnvFile = vi.fn()
+  const deps: McpMainDeps = { argv, env: { MCP_TOKEN_X: 'not-used' }, loadRunner, runStdio, loadEnvFile }
+  return { deps, runRemoteMcp, loadRunner, runStdio, loadEnvFile }
 }
 
 describe('selectMcpMode', () => {
@@ -70,6 +71,44 @@ describe('mcp main()', () => {
       await main(d2)
       expect(runRemoteMcp.mock.calls[0][0].dbPath).toBe(runStdio.mock.calls[0][0])
     } finally {
+      process.exitCode = prev
+    }
+  })
+})
+
+describe('mcp main(): review fixes', () => {
+  it('--http loads .env before the runner; stdio does not', async () => {
+    const order: string[] = []
+    const { deps, loadRunner, loadEnvFile } = fakeDeps(['--http'])
+    loadEnvFile.mockImplementation(() => order.push('env'))
+    loadRunner.mockImplementation(async () => {
+      order.push('runner')
+      return { runRemoteMcp: vi.fn().mockResolvedValue(0) }
+    })
+    const prev = process.exitCode
+    try {
+      await main(deps)
+      expect(order).toEqual(['env', 'runner'])
+      const stdio = fakeDeps([])
+      await main(stdio.deps)
+      expect(stdio.loadEnvFile).not.toHaveBeenCalled()
+    } finally {
+      process.exitCode = prev
+    }
+  })
+
+  it.each([['--htp'], ['--http=1'], ['--http', '--port']])('rejects unknown argument %s with exit 2', async (...argv) => {
+    const { deps, loadRunner, runStdio } = fakeDeps(argv)
+    const prev = process.exitCode
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      await main(deps)
+      expect(process.exitCode).toBe(2)
+      expect(loadRunner).not.toHaveBeenCalled()
+      expect(runStdio).not.toHaveBeenCalled()
+      expect(String(write.mock.calls[0][0])).toContain('Usage: khipu mcp [--http]')
+    } finally {
+      write.mockRestore()
       process.exitCode = prev
     }
   })

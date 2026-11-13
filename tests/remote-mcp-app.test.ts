@@ -159,8 +159,8 @@ describe('POST /mcp body handling', () => {
   })
 
   it('maps an unexpected error to a generic 500', async () => {
-    throwOn = 'initialize'
-    const res = await post(base, JSON.stringify(INIT))
+    throwOn = 'auth-failed'
+    const res = await post(base, JSON.stringify(INIT), { authorization: 'Bearer wrong-token' })
     expect(res.status).toBe(500)
     const text = await res.text()
     expect(JSON.parse(text)).toEqual({ error: 'internal error' })
@@ -194,6 +194,25 @@ describe('POST /mcp MCP traffic', () => {
       { op: 'initialize', client: 'muse' },
       { op: 'tools/list', client: 'muse' },
     ])
+  })
+
+  it('does not audit initialize or tools/list when the transport rejects the request', async () => {
+    const res = await post(base, JSON.stringify(INIT), { accept: 'application/json' })
+    expect(res.status).toBe(406)
+    expect(events).toEqual([])
+  })
+
+  it('an audit failure after an accepted response leaves the response intact', async () => {
+    throwOn = 'initialize'
+    const res = await post(base, JSON.stringify(INIT))
+    expect(res.status).toBe(200)
+    expect(await res.text()).not.toContain('audit secret failure')
+  })
+
+  it('records the forwarded client address when the proxy is on loopback', async () => {
+    const res = await post(base, JSON.stringify(INIT), { authorization: 'Bearer nope', 'x-forwarded-for': '203.0.113.9' })
+    expect(res.status).toBe(401)
+    expect(events).toContainEqual(expect.objectContaining({ op: 'auth-failed', addr: '203.0.113.9' }))
   })
 
   it('audits each initialize/tools/list object in a batch body', async () => {

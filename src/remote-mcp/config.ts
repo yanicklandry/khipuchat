@@ -26,6 +26,7 @@ export type RemoteMcpConfigError =
   | { readonly kind: 'invalid-client-name'; readonly setting: string }
   | { readonly kind: 'unresolved-secret-file'; readonly setting: string }
   | { readonly kind: 'token-too-short'; readonly setting: string }
+  | { readonly kind: 'token-whitespace'; readonly setting: string }
   | { readonly kind: 'duplicate-token'; readonly settings: readonly [string, string] }
   | { readonly kind: 'empty-allowlist'; readonly setting: string }
   | { readonly kind: 'unknown-tool'; readonly setting: string; readonly tool: string }
@@ -78,6 +79,8 @@ export function parseRemoteMcpConfig(
 
   for (const entry of entries) {
     if (entry.token.length < MIN_TOKEN_LENGTH) return fail({ kind: 'token-too-short', setting: entry.setting })
+    // A bearer token cannot carry whitespace, so such a token could never authenticate.
+    if (/\s/.test(entry.token)) return fail({ kind: 'token-whitespace', setting: entry.setting })
   }
 
   const digests = entries.map((e) => createHash('sha256').update(e.token, 'utf8').digest())
@@ -170,6 +173,8 @@ export function formatConfigError(error: RemoteMcpConfigError): string {
       return `Remote MCP: ${error.setting} is set but its token was not loaded; start through the khipu CLI so secret files are resolved.`
     case 'token-too-short':
       return `Remote MCP: ${error.setting} must be at least ${MIN_TOKEN_LENGTH} characters long.`
+    case 'token-whitespace':
+      return `Remote MCP: ${error.setting} contains whitespace (check for a trailing space or a CRLF line ending); tokens must not contain spaces or line breaks.`
     case 'duplicate-token':
       return `Remote MCP: ${error.settings[0]} and ${error.settings[1]} have the same token; each client needs its own token.`
     case 'empty-allowlist':

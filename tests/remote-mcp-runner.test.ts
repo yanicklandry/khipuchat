@@ -203,6 +203,27 @@ describe('runRemoteMcp: graceful stop', () => {
     expect(r.signals.listenerCount('SIGINT')).toBe(0)
   })
 
+  it('a second signal during the drain closes open connections at once', async () => {
+    const r = await start(BASE_ENV)
+    const req = request({
+      host: '127.0.0.1',
+      port: r.port,
+      path: '/mcp',
+      method: 'POST',
+      headers: { authorization: `Bearer ${BOT_TOKEN}`, accept: ACCEPT, 'content-type': 'application/json', 'content-length': 1000 },
+    })
+    const failed = new Promise<Error>((resolve) => req.on('error', resolve))
+    req.write('{"jsonrpc"')
+    await settle(100)
+    const started = Date.now()
+    r.signals.emit('SIGTERM')
+    await settle(50)
+    r.signals.emit('SIGTERM')
+    expect(await r.done).toBe(0)
+    expect(Date.now() - started).toBeLessThan(2000)
+    expect(await failed).toBeInstanceOf(Error)
+  })
+
   it('closes connections still open after the drain window and resolves 0 on SIGINT', async () => {
     const r = await start(BASE_ENV, { drainMs: 50 })
     const req = request({

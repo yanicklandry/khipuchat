@@ -79,6 +79,16 @@ Query commands:
 `.trim()
 
 const SUBCOMMAND_USAGE: Record<string, string> = {
+  mcp: `Usage: khipu mcp [--http]
+
+Without flags, serve MCP over stdio for local clients (Claude Desktop, Claude Code).
+
+  --http   Serve the same tools over Streamable HTTP for cloud clients (default 127.0.0.1:3335).
+           Needs at least one MCP_TOKEN_<CLIENT> (32+ characters) in the environment or .env.
+           Optional: MCP_TOOLS_<CLIENT>, MCP_HTTP_HOST, MCP_HTTP_PORT, MCP_ALLOWED_ORIGINS.
+
+See docs/REMOTE-MCP.md for publishing through Tailscale Funnel or Cloudflare Tunnel.`.trim(),
+
   import: `Usage: khipu import <target> [options]
 
 Targets:

@@ -59,6 +59,9 @@ export function createRemoteMcpApp(deps: RemoteMcpAppDeps): Application {
   const { config, audit, healthCheck } = deps
   const app = express()
   app.disable('x-powered-by')
+  // The tunnel (Tailscale Funnel, cloudflared) connects from loopback; trust its X-Forwarded-For
+  // so audit lines show the real client address. Only loopback proxies are trusted.
+  app.set('trust proxy', 'loopback')
 
   app.use((_req: Request, res: Response, next: NextFunction) => {
     res.set('Cache-Control', 'no-store')
@@ -81,7 +84,6 @@ export function createRemoteMcpApp(deps: RemoteMcpAppDeps): Application {
       return
     }
     const client = res.locals.remoteClient as RemoteMcpClient
-    auditMethods(req.body, client, audit)
     const server = createRemoteMcpServer(client, audit)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => {
@@ -90,6 +92,14 @@ export function createRemoteMcpApp(deps: RemoteMcpAppDeps): Application {
     })
     await server.connect(transport)
     await transport.handleRequest(req, res, req.body)
+    // Audited only once the transport accepted the request, so rejected calls never appear as done.
+    if (res.statusCode === 200) {
+      try {
+        auditMethods(req.body, client, audit)
+      } catch {
+        // The response is already sent; an audit failure must not surface after it.
+      }
+    }
   })
 
   const methodNotAllowed = (_req: Request, res: Response): void => {

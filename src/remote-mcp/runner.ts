@@ -78,7 +78,11 @@ function stopOnSignal(server: Server, signals: NodeJS.EventEmitter, drainMs: num
       })
     })
     const onSignal = (): void => {
-      if (stopping) return
+      if (stopping) {
+        // A second signal while draining forces the remaining connections closed now.
+        server.closeAllConnections()
+        return
+      }
       stopping = true
       // Listeners stay attached until the server has closed: a loader such as tsx exits the
       // process on a signal once no other listener remains, which would skip the drain.

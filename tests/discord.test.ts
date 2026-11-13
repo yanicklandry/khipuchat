@@ -231,7 +231,7 @@ describe('runIncrementalImpl', () => {
 
 describe('rate-limit handling (429 with Retry-After)', () => {
   beforeEach(() => { initDb(':memory:') })
-  afterEach(() => { vi.restoreAllMocks() })
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
   it('retries once on 429 and inserts the message on success', async () => {
     const dm = makeChannel({ id: 'dm-rl-1', type: 1, name: null })
@@ -278,7 +278,7 @@ describe('rate-limit handling (429 with Retry-After)', () => {
 // ── Missing token adapter exit ────────────────────────────────────────────────
 
 describe('createDiscordAdapter — missing token', () => {
-  afterEach(() => { vi.restoreAllMocks() })
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
   it('exits with code 1 and writes to stderr when DISCORD_TOKEN is absent', async () => {
     const db = initDb(':memory:')

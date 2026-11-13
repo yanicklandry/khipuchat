@@ -15,6 +15,14 @@ const child = spawn(
   { stdio: 'inherit' }
 )
 
+// Forward stop signals so `docker stop` (this process may be PID 1) or a supervisor reaches
+// the real command and its graceful shutdown. SIGINT is not forwarded: Ctrl-C already reaches
+// the whole process group; the handler only keeps this wrapper alive until the child exits.
+process.on('SIGTERM', () => child.kill('SIGTERM'))
+process.on('SIGHUP', () => child.kill('SIGHUP'))
+process.on('SIGINT', () => {})
+
+child.on('error', () => process.exit(1))
 child.on('close', (code) => {
   process.exit(code ?? 1)
 })
