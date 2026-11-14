@@ -239,8 +239,16 @@ export function getMessages(chatId: number, limit: number, beforeTimestamp?: num
 }
 
 export function searchMessages(query: string, filters?: DbSearchFilters): SearchResult[] {
+  // Treat user input as literal phrases, retaining only trailing prefix wildcards.
+  const ftsQuery = query.split(/\s+/).flatMap(part => {
+    const text = part.replace(/\*+$/, '')
+    if (!/[\p{L}\p{N}]/u.test(text)) return []
+    return [`"${text.replace(/"/g, '""')}"${part.endsWith('*') ? '*' : ''}`]
+  }).join(' ')
+  if (!ftsQuery) return []
+
   const { chatId, platform, account, since, until, type, limit = 100 } = filters ?? {}
-  const args: unknown[] = [query]
+  const args: unknown[] = [ftsQuery]
   let extra = ''
   if (chatId !== undefined) { extra += ' AND m.chat_id = ?'; args.push(chatId) }
   if (platform !== undefined) { extra += ' AND m.platform = ?'; args.push(platform) }

@@ -285,6 +285,72 @@ describe('searchMessages', () => {
     expect(searchMessages('zzznomatch')).toEqual([])
   })
 
+  describe('plain-text queries', () => {
+    beforeEach(() => {
+      const texts = [
+        'send me your e-mail',
+        'my co-founder said hi',
+        'meet 2026-11-13',
+        'x-ray done',
+        'say "quoted" (paren) a:b starship',
+        'AND OR NOT say',
+        '你好 世界',
+        'привет мир',
+        'رقم ١٢٣',
+      ]
+      texts.forEach((text, i) => {
+        insertMessage({
+          external_id: `plain-${i}`, chat_id: chatId1, sender_id: '1', sender_name: 'Tony',
+          text, type: 'text', timestamp: T + 10 + i, is_sender: 0,
+          reply_to_external_id: null, platform: 'telegram',
+        })
+      })
+    })
+
+    it.each([
+      ['e-mail', 'send me your e-mail'],
+      ['co-founder', 'my co-founder said hi'],
+      ['2026-11-13', 'meet 2026-11-13'],
+      ['x-ray', 'x-ray done'],
+      ['"quoted', 'say "quoted" (paren) a:b starship'],
+      ['quoted"', 'say "quoted" (paren) a:b starship'],
+      ['"quoted"', 'say "quoted" (paren) a:b starship'],
+      ['a:b', 'say "quoted" (paren) a:b starship'],
+      ['(paren', 'say "quoted" (paren) a:b starship'],
+      ['paren)', 'say "quoted" (paren) a:b starship'],
+      ['(paren)', 'say "quoted" (paren) a:b starship'],
+      ['AND', 'AND OR NOT say'],
+      ['OR', 'AND OR NOT say'],
+      ['NOT', 'AND OR NOT say'],
+      ['AND say', 'AND OR NOT say'],
+      ['sta*', 'say "quoted" (paren) a:b starship'],
+      ['star***', 'say "quoted" (paren) a:b starship'],
+      ['sta* quoted', 'say "quoted" (paren) a:b starship'],
+      ['^say quoted', 'say "quoted" (paren) a:b starship'],
+      ['你好', '你好 世界'],
+      ['привет', 'привет мир'],
+      ['١٢٣', 'رقم ١٢٣'],
+    ])('searches %j as plain text', (query, text) => {
+      expect(searchMessages(query).map(r => r.text)).toEqual([text])
+    })
+
+    it.each(['', ' \t\n ', '*', '***', '"', '""', '():^+-', '💬'])(
+      'returns [] for unsearchable input %j', query => {
+        expect(searchMessages(query)).toEqual([])
+      }
+    )
+
+    it('requires every word without requiring their input order', () => {
+      expect(searchMessages('world hello').map(r => r.text)).toEqual(['hello world'])
+      expect(searchMessages('hello goodbye')).toEqual([])
+      expect(searchMessages('hello OR goodbye')).toEqual([])
+    })
+
+    it('ignores punctuation-only parts alongside searchable text', () => {
+      expect(searchMessages('*** hello ()').map(r => r.text)).toEqual(['hello world', 'hello there'])
+    })
+  })
+
   it('result shape includes chat_id, chat_name, sender_name, text, timestamp, platform', () => {
     const [r] = searchMessages('hello', { chatId: chatId1 })
     expect(r).toMatchObject({
